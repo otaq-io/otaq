@@ -54,7 +54,8 @@ pub fn menu(ticket: &Ticket, flow: &Flow) -> Option<Menu> {
     let check = &flow.stages[at];
     let rounds = check.rounds.unwrap_or(CHECK_ROUNDS);
     let times = ticket.validation_round.max(1);
-    let checker = check.agent.as_deref().unwrap_or("the checker");
+    let checker =
+        super::agents::stage_tool(check, None).map_or("the checker", super::agents::tool_word);
     let back = flow
         .fail_to_of(check)
         .map_or("the stage before", |s| s.name.as_str());
@@ -111,7 +112,7 @@ mod tests {
         );
         assert_eq!(
             m.items[0].hint,
-            "Back to Dev with Checker\u{2019}s notes, once more."
+            "Back to Dev with the checker\u{2019}s notes, once more."
         );
         assert_eq!(m.note, "Rounds for Validate are set in Edit flow (3).");
         // Any other card's Decide opens the ticket.

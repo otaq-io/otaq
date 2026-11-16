@@ -147,16 +147,6 @@ export function Attachments({
   );
 }
 
-/** The ticket's own agent for a stage, one muted line as its card says it, from the moment it is set (Backlog on). */
-export function OwnAgentLine({ line }: { line: string }) {
-  return (
-    <p className="overview-own-agent">
-      <Icon name="user" size={12} />
-      <span>{line}</span>
-    </p>
-  );
-}
-
 export function OverviewTab({ ticket }: TicketProps) {
   const sheet = useSheet();
   const app = useRegistries();
@@ -266,9 +256,6 @@ export function OverviewTab({ ticket }: TicketProps) {
               }}
             />
           </div>
-        )}
-        {overview?.key === ticket && overview.own_agent !== null && (
-          <OwnAgentLine line={overview.own_agent} />
         )}
         {inReview !== null && (
           <>

@@ -9,6 +9,7 @@ import { type Selection, selectProject, selection } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
 import type { AgentPanelButton } from "../../generated/AgentPanelButton";
 import type { AgentPanelSendParams } from "../../generated/AgentPanelSendParams";
+import type { AgentPanelStartOn } from "../../generated/AgentPanelStartOn";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { NoyanLookedParams } from "../../generated/NoyanLookedParams";
 import { request } from "../../tauri";
@@ -41,14 +42,15 @@ export function showAgent(
 }
 
 /**
- * The agent picked for the new conversation in the empty agent panel, by project key: `agent_panel.view`'s `start_on`
- * and `agent_panel.send`'s `agent`. A project not in the map starts on the agent Noyan uses (the app setting).
+ * The model and effort picked for the new conversation in the empty agent panel, by project key (UX-70):
+ * `agent_panel.view`'s `start_on` and `agent_panel.send`'s `on`. A project not in the map starts on "Noyan starts on"
+ * (the app setting).
  */
-export type StartOn = Readonly<Record<string, string>>;
+export type StartOn = Readonly<Record<string, AgentPanelStartOn>>;
 
 export const startOn: Store<StartOn> = createStore<StartOn>({});
 
-/** Drops `project`'s pick: the empty agent panel starts on the agent Noyan uses again. */
+/** Drops `project`'s pick: the empty agent panel starts on "Noyan starts on" again. */
 export function clearStartOn(project: string, store: Store<StartOn> = startOn): void {
   store.update((s) => {
     if (!(project in s)) return s;
@@ -237,28 +239,19 @@ export function showAgentInPanel(
 }
 
 /**
- * The empty agent panel's Agent pick: the new conversation starts on `agent` instead of the agent Noyan uses (`usual`).
- * Picking the agent Noyan uses drops the pick. Nothing starts until the user sends (d0087).
+ * The empty agent panel's Model and Effort pick: the new conversation starts on `on` instead of "Noyan starts on" (UX-70).
+ * Nothing starts until the user sends (d0087).
  */
-export function pickStartOn(
-  project: string,
-  agent: string,
-  usual: string | null,
-  starts: Store<StartOn> = startOn,
-): void {
-  if (agent === usual) {
-    clearStartOn(project, starts);
-    return;
-  }
-  starts.update((s) => (s[project] === agent ? s : { ...s, [project]: agent }));
+export function pickStartOn(project: string, on: AgentPanelStartOn, starts: Store<StartOn> = startOn): void {
+  starts.update((s) => ({ ...s, [project]: on }));
 }
 
 /** The projects whose first message is on its way: a second Enter while one is sending starts nothing. */
 const sending = new Set<string>();
 
 /**
- * Send in the empty agent panel (Enter): the message is the go-ahead (d0087), on `agent` when the conversation picked one
- * (the view's `starts_on`). Starts one agent per press, never a second while the first is on its way, and nothing for a box
+ * Send in the empty agent panel (Enter): the message is the go-ahead (d0087), on `on` when the conversation picked its
+ * own model. Starts one agent per press, never a second while the first is on its way, and nothing for a box
  * without words; the agent panel then shows the new agent with its terminal focused. Resolves to the new agent's id, or
  * `null` when nothing was sent.
  */
@@ -267,13 +260,13 @@ export async function sendFirstMessage(
   message: string,
   ask: typeof request,
   routes: AgentPanelRoutes = AGENT_PANEL_ROUTES,
-  agent: string | null = null,
+  on: AgentPanelStartOn | null = null,
   starts: Store<StartOn> = startOn,
 ): Promise<string | null> {
   if (message.trim() === "" || sending.has(project)) return null;
   sending.add(project);
   try {
-    const params: AgentPanelSendParams = { project, message, ...(agent !== null && { agent }) };
+    const params: AgentPanelSendParams = { project, message, ...(on !== null && { on }) };
     const id = (await ask("agent_panel.send", params)) as string;
     clearStartOn(project, starts);
     showAgent(project, id, routes.shown);

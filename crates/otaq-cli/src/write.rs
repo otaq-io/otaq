@@ -16,9 +16,9 @@
 //! **The Plan** (d0133): `--plan <text>` or `--plan-file <path>`, and on `update` also `--plan-stdin` (`--stdin` stays
 //! the description's); an empty Plan removes it.
 //!
-//! **Stage choices** (AGM-11, d0087): `--stage "<stage>=<agent|skip>"` (repeatable; any agent whose tool has the
-//! stage's skill; the stage's own agent, or `required` on a check of yours, sets it back), `--by-user` when the user named
-//! them (Noyan only). Only the user picks: the service refuses a ticket agent's choice
+//! **Stage choices** (AGM-11, d0087): `--stage "<stage>=<skip|required>"` (repeatable; `skip` where the flow lets the
+//! stage be skipped, `required` sets it back), `--by-user` when the user named them (Noyan only). A ticket never picks
+//! a model (UX-72). Only the user chooses: the service refuses a ticket agent's choice
 //! (`otaq_core::board::stage_choices`).
 
 use std::path::PathBuf;

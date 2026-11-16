@@ -35,7 +35,6 @@ use crate::agent_tools::claude::trust::ClaudeConfig;
 use crate::agent_tools::claude::{ClaudeCode, ClaudeContext};
 use crate::agent_tools::connected::ConnectedTools;
 use crate::agent_tools::{Adapters, Tool, ToolContext, ToolEvent};
-use crate::agents::Agents;
 use crate::attention::NeedsYouQueue;
 use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
@@ -257,8 +256,6 @@ struct Shared {
     gate: crate::agents::gate::LaunchGate,
     /// Each agent tool's state on Settings → Agent tools (ADP-10, d0086).
     connected: ConnectedTools,
-    /// The agents' rules (AGM-01…AGM-04).
-    agents: Agents,
     ticket_env: crate::ticket_env::TicketEnv,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
@@ -1261,8 +1258,6 @@ impl Service {
                 })
             }));
         }
-        // The agents check models against the copies of the tools' lists (AGT-02).
-        let agents = Agents::new(board.clone(), Arc::new(models.clone()));
         // The agent tools are checked at start (d0086), in the background as detect runs each tool's program; a
         // tool that became Connected since the last run is set up, and with no default model yet the first connected
         // tool's becomes it (AGM-02).
@@ -1287,7 +1282,6 @@ impl Service {
         }
         let shared = Arc::new(Shared {
             pause,
-            agents,
             adapters,
             models,
             gate,

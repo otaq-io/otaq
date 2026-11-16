@@ -472,17 +472,9 @@ async fn action_for(
             Action::UserOnly("change settings")
         }
         R::ProjectViewSet(_) => Action::UserOnly("change the board's view"),
-        // Agents and the default model are the user's (AGM-01, AGM-03, AGM-04).
-        R::AgentsList
-        | R::AgentsAdd(_)
-        | R::AgentsEdit(_)
-        | R::AgentsDuplicate(_)
-        | R::AgentsDelete(_)
-        | R::AgentsInUse(_)
-        | R::AgentsNoyan(_)
-        | R::AgentsDefaultModel(_) => Action::UserOnly("change agents"),
-        // What an agent reads is shown on the user's Settings → Agents (AGR-01).
-        R::AgentsReads(_) => Action::UserOnly("read what an agent reads"),
+        // Noyan's model is the user's (UX-70).
+        R::NoyanStartsOn => Action::Read,
+        R::NoyanSetStartsOn(_) => Action::UserOnly("change the model Noyan starts on"),
         // Agent tools and limits per tool are the user's (d0086).
         R::AgentToolsList
         | R::AgentToolsRecheck(_)

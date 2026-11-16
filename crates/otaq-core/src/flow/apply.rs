@@ -31,15 +31,11 @@ use serde::{Deserialize, Serialize};
 
 use super::draft::DraftMemory;
 use super::engine::Target;
-use super::model::{Flow, FlowAgent, FlowFile, Stage};
-use super::proposal::{
-    AgentChangeKind, ApplyChoices, ClashChoice, Proposal, ProposedBy, Source, applied_now,
-    edits_only, effective_file, flow_agent_of,
-};
+use super::model::{Flow, FlowFile, Stage};
+use super::proposal::{ApplyChoices, Proposal, ProposedBy, Source, applied_now, edits_only};
 use super::store::{AppliedBy, FlowVersion, NewFlowVersion};
 use super::yaml;
-use crate::agents::store::NewAgent;
-use crate::agents::{CameFrom, ModelCatalog, shipped};
+use crate::agents::ModelCatalog;
 use crate::board::moves::DropOn;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
@@ -255,9 +251,6 @@ pub struct Applied {
     /// The change still waiting for a quiet board.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting: Option<WaitingChange>,
-    /// The agents added or changed, by name.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub agents: Vec<String>,
 }
 
 /// What `flow.propose_from` proposes (FLW-08…FLW-10).
@@ -273,10 +266,8 @@ pub enum ProposeFrom {
     Project { project: String },
     /// A shipped preset file ("otaq-default.yaml"); Reset to the default flow is this with the default's file.
     Preset { file: String },
-    /// Import flow…: a file's name and contents.
+    /// Import flow…: a file's name and contents; an older file's agents read as its stages' own models (UX-73).
     File { name: String, yaml: String },
-    /// Apply the shipped agents file again: its agents.
-    AgentsFile,
 }
 
 /// `flow.apply`'s parameters.
@@ -473,8 +464,8 @@ impl Board {
         Ok(target.clone())
     }
 
-    /// `flow.propose_from` (FLW-08…FLW-10, FED-02): a proposal from an earlier version, another project, a preset, a
-    /// file or the shipped agents file, by the user: a Start from pick copied into the draft, replacing it.
+    /// `flow.propose_from` (FLW-08…FLW-10, FED-02): a proposal from an earlier version, another project, a preset or a
+    /// file, by the user: a Start from pick copied into the draft, replacing it.
     pub async fn propose_from(
         &self,
         project: &str,
@@ -522,7 +513,6 @@ impl Board {
             ProposeFrom::Project { project: other } => {
                 let other = self.project_named(other).await?;
                 let file = FlowFile {
-                    agents: Vec::new(),
                     flow: self.effective_flow(&other.key).await?,
                 };
                 // Another project's ids mean nothing here: its stages match this flow's by name, then position.
@@ -556,22 +546,6 @@ impl Board {
                 self.open_read_proposal(&key, file, &written, &source, &me, &swap, models)
                     .await
             }
-            ProposeFrom::AgentsFile => {
-                let file = FlowFile {
-                    agents: shipped::agents_file().to_vec(),
-                    flow: Flow::default(),
-                };
-                self.open_read_proposal(
-                    &key,
-                    file,
-                    &[],
-                    &Source::AgentsFile,
-                    &me,
-                    &DraftMemory::default(),
-                    models,
-                )
-                .await
-            }
         }
     }
 
@@ -592,8 +566,7 @@ impl Board {
     }
 
     /// **Apply** (`flow.apply`): the open proposal `id` of `project`, with the user's `choices`; refused while it has
-    /// problems they leave. Agents first (the stages may name one it adds), then the stages: stored now, or partly
-    /// now and the rest waiting, or merged into the waiting change. A waiting change the board is already quiet for
+    /// problems they leave. The stages (each with who does it): stored now, or partly now and the rest waiting, or merged into the waiting change. A waiting change the board is already quiet for
     /// applies at once.
     pub async fn apply_proposal(
         &self,
@@ -612,19 +585,10 @@ impl Board {
             return Err(BoardError::refused(Refusal::BadFlow, lines.join("\n")));
         }
         let project = self.project(project).await?;
-        let scope = row.source.scope();
         let (base, against_waiting) = self.flow_as_it_will_be(&project.key).await?;
-        let read = yaml::read(&row.yaml).map_err(|e| {
+        let file = yaml::read(&row.yaml).map_err(|e| {
             BoardError::refused(Refusal::BadFlow, format!("The flow doesn't read: {e}"))
         })?;
-        let file = effective_file(&read, scope, &base.flow, &row.source, choices);
-
-        let agents = if scope.agents() {
-            self.apply_agents(&file, &view, &row.source, &project.name, choices)
-                .await?
-        } else {
-            Vec::new()
-        };
 
         let (applied_by, agent_name) = match &row.proposed_by {
             ProposedBy::User => (AppliedBy::User, None),
@@ -633,7 +597,7 @@ impl Board {
         let preset = row.source.preset().map(str::to_owned);
         let mut version = None;
         let changes = &view.diff.stages;
-        if scope.stages() && !changes.is_empty() {
+        if !changes.is_empty() {
             let labels: Vec<String> = changes.iter().map(|c| c.label.clone()).collect();
             let target = self.document(&file.flow).await?;
             let whole = NewFlowVersion {
@@ -698,28 +662,12 @@ impl Board {
             proposal: id,
             version,
             waiting: self.waiting_change(&project.key).await?,
-            agents,
         })
     }
 
-    /// A flow document to store: `flow` and the agents it names as they are now (an export's content).
+    /// A flow document to store: `flow`, each stage with who does it (an export's content).
     pub(crate) async fn document(&self, flow: &Flow) -> Result<String, BoardError> {
-        let stored = self.store().agents().await?;
-        let mut agents: Vec<FlowAgent> = Vec::new();
-        let named = flow.stages.iter().flat_map(Stage::every_agent);
-        for name in named {
-            if let Some(agent) = stored
-                .iter()
-                .find(|a| a.name.eq_ignore_ascii_case(name))
-                .filter(|a| !agents.iter().any(|b| b.name == a.name))
-            {
-                agents.push(flow_agent_of(agent));
-            }
-        }
-        Ok(yaml::write(&FlowFile {
-            agents,
-            flow: flow.clone(),
-        }))
+        Ok(yaml::write(&FlowFile { flow: flow.clone() }))
     }
 
     /// Makes the change's target the project's waiting change, adding its labels to what an earlier one changes
@@ -853,76 +801,6 @@ impl Board {
             }
         }
         Ok(settled)
-    }
-
-    /// The agents of an applied proposal (FLW-04, FLW-10): added ones are created ("Added by <project>'s flow", or
-    /// "From Otaq's agents file"); a changed one is updated unless it is an import clash the user kept (Keep mine,
-    /// the default); Add as was added under its new name. An agent has no skills: a file's `skills:` is ignored (T6).
-    /// The names added or changed.
-    async fn apply_agents(
-        &self,
-        file: &FlowFile,
-        view: &Proposal,
-        source: &Source,
-        project_name: &str,
-        choices: &ApplyChoices,
-    ) -> Result<Vec<String>, BoardError> {
-        let store = self.store();
-        let came_from = match source {
-            Source::AgentsFile => CameFrom::AgentsFile,
-            _ => CameFrom::Flow {
-                project: project_name.to_owned(),
-            },
-        };
-        let mut done = Vec::new();
-        for (agent, change) in file.agents.iter().zip(&view.diff.agents) {
-            match change.change {
-                AgentChangeKind::Same => continue,
-                AgentChangeKind::Changed
-                    if change.clash.is_some()
-                        && choices
-                            .clashes
-                            .iter()
-                            .find(|(name, _)| name.eq_ignore_ascii_case(&change.name))
-                            .is_none_or(|(_, c)| *c != ClashChoice::TakeTheirs) =>
-                {
-                    continue;
-                }
-                _ => {}
-            }
-            let stored = store.agents().await?;
-            let model =
-                shipped::model_of(&agent.model).unwrap_or(crate::agents::AgentModel::Default);
-            match stored
-                .iter()
-                .find(|a| a.name.eq_ignore_ascii_case(&agent.name))
-            {
-                Some(mine) => {
-                    let effort = mine.effort.clone().filter(|_| mine.model == model);
-                    let fields = NewAgent {
-                        name: mine.name.clone(),
-                        instructions: agent.instructions.clone(),
-                        model: model.clone(),
-                        effort,
-                    };
-                    store
-                        .update_agent(&mine.id, &fields, mine.model != model)
-                        .await?;
-                    done.push(mine.name.clone());
-                }
-                None => {
-                    let new = NewAgent {
-                        name: agent.name.trim().to_owned(),
-                        instructions: agent.instructions.clone(),
-                        model,
-                        effort: None,
-                    };
-                    store.insert_agent(&new, &came_from, None).await?;
-                    done.push(new.name);
-                }
-            }
-        }
-        Ok(done)
     }
 }
 

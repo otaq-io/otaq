@@ -918,13 +918,11 @@ async fn a_check_whose_tool_lacks_its_skill_waits_until_check_again_finds_it() {
     w.stop().await;
 }
 
-/// A round held for its agent's tool and then moved by Change agent… to an agent whose tool has the skill is recorded
-/// under the agent that runs it, not the held one: History and the next stage's agent read the round's agent.
+/// A round held for its stage's tool, then moved by Edit flow to a model whose tool has the skill, is recorded under
+/// the tool that runs it, not the held one: History and the next stage's agent read the round's agent.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_held_round_moved_to_another_agent_is_recorded_under_that_agent() {
-    use otaq_core::client::{Client, ClientConfig};
-    use otaq_core::protocol::{Request, SetChoiceParams};
+async fn a_held_round_moved_to_another_model_is_recorded_under_its_tool() {
     let World { w, home, _dir } = world().await;
     codex_set_up(&w, &home);
     skill_in(&home.join(".claude/skills"), "team-validate");
@@ -953,16 +951,16 @@ async fn a_held_round_moved_to_another_agent_is_recorded_under_that_agent() {
         .unwrap();
     assert!(hold_of(&w, &t, SessionRole::Validator).await.is_some());
 
-    // Change agent…: the Developer, on Claude Code, which has the skill.
-    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
-    client
-        .request(Request::TicketSetChoice(SetChoiceParams {
-            key: key.clone(),
-            stage: "Validate".into(),
-            choice: "Developer".into(),
-        }))
-        .await
-        .unwrap();
+    // Edit flow…: Validate on Claude Code, which has the skill (UX-65: the stage's model, not the ticket's).
+    w.set_agent_model(
+        "Checker",
+        AgentModel::Tool {
+            tool: Tool::Claude,
+            model: None,
+        },
+    )
+    .await;
+    w.events.publish(otaq_core::protocol::Event::AgentsChanged);
     let checker = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             if let Some(s) = w.sessions.running_of(&t.id, SessionKind::Validator) {
@@ -972,7 +970,7 @@ async fn a_held_round_moved_to_another_agent_is_recorded_under_that_agent() {
         }
     })
     .await
-    .expect("the check started on the chosen agent");
+    .expect("the check started on the stage's new model");
     assert_eq!(checker.tool, Some(Tool::Claude));
     // The session shows as running a moment before its start is stored on the round's row.
     let rounds = tokio::time::timeout(Duration::from_secs(20), async {
@@ -993,7 +991,7 @@ async fn a_held_round_moved_to_another_agent_is_recorded_under_that_agent() {
     .expect("the checker's start is stored on its round");
     assert_eq!(
         rounds,
-        [(Some("Developer".to_owned()), Some(checker.id.clone()))]
+        [(Some("Claude Code".to_owned()), Some(checker.id.clone()))]
     );
     w.stop().await;
 }
@@ -1100,9 +1098,8 @@ async fn codex_home_unset(w: &TestService) {
 /// SHOP's stage warnings for the skills its flow names, as the flow editor shows them.
 async fn stage_warnings(w: &TestService) -> Vec<(Option<String>, String)> {
     let file = w.board.current_flow_file("SHOP").await.unwrap();
-    let stored = w.board.store().agents().await.unwrap();
     w.board
-        .skill_warnings("SHOP", &file, &stored)
+        .skill_warnings("SHOP", &file)
         .await
         .into_iter()
         .map(|w| (w.stage, w.text))

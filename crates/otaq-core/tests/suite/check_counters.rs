@@ -212,10 +212,10 @@ async fn two_checks_in_a_row_count_separately() {
     assert_eq!(
         security_checkers
             .iter()
-            .map(|s| s.agent.as_ref().map(|a| a.name.as_str()))
+            .map(|s| s.agent.as_ref().map(|a| a.runs_for.as_str()))
             .collect::<Vec<_>>(),
-        [Some("Security reviewer")],
-        "its one agent"
+        [Some("stage/SHOP/security")],
+        "its one checker, on Security's own model"
     );
     assert_eq!(
         security.flags.validating_round.map(|r| (r.round, r.of)),
@@ -439,7 +439,6 @@ async fn held_at_limit(w: &TestService, t: &Ticket, stage: &str, role: SessionRo
             reason: HoldReason::ToolLimit,
             tool: Tool::Claude,
             model: None,
-            agent_id: None,
             skill: None,
             since: now_ms(),
         })
@@ -466,7 +465,7 @@ async fn a_held_check_is_skipped() {
     held_at_limit(&w, &t, "security", SessionRole::Validator).await;
     let hold = hold_of(&w, &t).await.unwrap();
     assert!(otaq_core::validation::skip_at_limit(&hold));
-    let card = otaq_core::agents::facts::CardHold::of(&hold, &[]);
+    let card = otaq_core::agents::facts::CardHold::of(&hold, None);
     assert!(card.can_skip_check);
 
     let skipped = action(&w, &t, ValidationAction::Skip).await.unwrap();

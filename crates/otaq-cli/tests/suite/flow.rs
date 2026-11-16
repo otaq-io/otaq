@@ -109,15 +109,15 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     let api = key_of(&w, "pocket-api").await;
     let repo = repo_of(&w, &api).await;
 
-    // `show` prints the applied flow and its agents; proposing it back is the same flow.
+    // `show` prints the applied flow, each stage with its model; proposing it back is the same flow.
     let shown = user(&w, &repo, &["flow", "show"], None);
     assert!(shown.status.success(), "{shown:?}");
     let shown = text(&shown.stdout);
     let file = yaml::read(&shown).unwrap();
     let stages: Vec<&str> = file.flow.stages.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(stages, ["Dev", "Validate", "Review"]);
-    let agents: Vec<&str> = file.agents.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(agents, ["Developer", "Checker"]);
+    let models: Vec<Option<&str>> = file.flow.stages.iter().map(|s| s.model()).collect();
+    assert_eq!(models, [Some("default"), Some("default"), None]);
     let same = user(&w, &repo, &["flow", "propose", "--stdin"], Some(&shown));
     assert_eq!(same.status.code(), Some(1), "{same:?}");
     assert_eq!(text(&same.stderr).trim(), format!("error: {SAME}"));
@@ -133,14 +133,14 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     let json: Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(json["project"], api);
     assert_eq!(json["document"]["flow"][0]["name"], "Dev");
-    assert_eq!(json["document"]["flow"][1]["agent"], "Checker");
+    assert_eq!(json["document"]["flow"][1]["model"], "default");
 
-    // A check that names where its fails go (d0131), and an agent check with another agent: shown as set.
+    // A check that names where its fails go (d0131), and an agent check on another model: shown as set.
     let notes = key_of(&w, "pocket-notes").await;
     let mut file = otaq_core::flow::default_file().clone();
     for stage in &mut file.flow.stages {
         if stage.id == "validate" {
-            stage.agent = Some("Developer".into());
+            stage.who.model = Some("claude:opus".into());
         }
         if stage.id == "review" {
             stage.fail_to = Some("dev".into());
@@ -151,7 +151,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     let shown_notes = user(&w, &notes_repo, &["flow", "show"], None);
     let shown_notes = text(&shown_notes.stdout);
     assert!(
-        shown_notes.contains("    agent: Developer\n")
+        shown_notes.contains("    model: claude:opus\n")
             && shown_notes.contains("    by: you\n    fail_to: Dev\n")
             && shown_notes.contains("\ndelivery:\n  delivers: either\n  mode: click\n"),
         "{shown_notes}"
@@ -176,7 +176,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
         lines[0].starts_with("otaq-default.yaml \u{b7} "),
         "{lines:?}"
     );
-    // --json: each preset's file too, its agent check naming its one agent.
+    // --json: each preset's file too, its agent check naming its model.
     let json = user(&w, &repo, &["flow", "presets", "--json"], None);
     let json: Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(json[0]["yaml"], naming::DEFAULT_FLOW_YAML);
@@ -184,7 +184,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
         json[0]["yaml"]
             .as_str()
             .unwrap()
-            .contains("    agent: Checker\n"),
+            .contains("    model: default\n"),
         "{json}"
     );
 

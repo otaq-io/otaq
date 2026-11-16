@@ -3,11 +3,12 @@
 //! agent panel draws for a project and the agent it shows (`agent_panel.rs`); the others are its clicks: Send (the first
 //! message starts the agent, d0087), Rename, End agent (asks first mid-turn), Close ended agents and Resume. Which
 //! agent each project shows, + and the empty agent panel are the page's own state: nothing here starts without a message
-//! or a click. The empty agent panel names the agent Noyan uses (one app setting, "Noyan uses <agent>"), which
-//! [`project_agent`] finds for Ask the agent too, and lets the new conversation pick another agent for itself.
+//! or a click. The empty agent panel names what "Noyan starts on" (one app setting, UX-70) runs on, which
+//! [`project_agent`] reads for Ask the agent too, and lets the new conversation pick another model and effort for
+//! itself before its first message.
 //! `agent_panel.undo` is a CHANGED row's Undo (decision 013): it takes back one change Noyan made on a ticket.
 
-use otaq_core::agents::Agent;
+use otaq_core::agents::NoyanStartsOn;
 use otaq_core::board::stage_choices::TicketChoices;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList, WhatChanged};
@@ -168,25 +169,14 @@ async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> 
     edited
 }
 
-/// The agent Noyan uses (the app setting): the one every new Noyan conversation starts on unless it picks another.
-/// `None` while none is set.
-pub(super) async fn project_agent(app: &App) -> Result<Option<Agent>, RequestError> {
-    Ok(project_agent_and_list(app).await?.0)
+/// "Noyan starts on" (the app setting): what every new Noyan conversation starts on unless it picks another.
+pub(super) async fn project_agent(app: &App) -> Result<Option<NoyanStartsOn>, RequestError> {
+    Ok(Some(super::settings::noyan_starts_on(app).await))
 }
 
 /// The agent tools as the agent panel reads them ([`super::editor::agent_tools`]).
 pub(super) async fn tools(app: &App) -> otaq_view::view_models::tool_problems::Tools {
     super::editor::agent_tools(app).await
-}
-
-/// [`project_agent`] and every agent.
-async fn project_agent_and_list(app: &App) -> Result<(Option<Agent>, Vec<Agent>), RequestError> {
-    let list = match app.service.send(Request::AgentsList).await? {
-        Reply::Agents(list) => *list,
-        other => return Err(unexpected("agents.list", &other)),
-    };
-    let default = list.noyan().cloned();
-    Ok((default, list.agents))
 }
 
 async fn project_name(app: &App, project: &str) -> Result<String, RequestError> {
@@ -209,21 +199,40 @@ pub struct Params {
     pub agent: Option<String>,
     #[serde(default)]
     pub window_width: Option<f32>,
-    /// The agent picked for this conversation in the empty agent panel: its first message starts on it instead of the
-    /// agent Noyan uses.
+    /// The model and effort picked for this conversation in the empty agent panel (its pick's `model` and `effort`,
+    /// sent while it is its own): its first message starts on them instead of "Noyan starts on".
     #[serde(default)]
     #[ts(optional)]
-    pub start_on: Option<String>,
+    pub start_on: Option<StartOn>,
+}
+
+/// A new conversation's own model and effort (UX-70). `AgentPanelStartOn` on the page.
+#[derive(Debug, Clone, Default, Deserialize, TS)]
+#[ts(rename = "AgentPanelStartOn")]
+pub struct StartOn {
+    /// `default`, a tool (`claude`) or `tool:model` (`claude:opus`).
+    #[serde(default)]
+    #[ts(optional)]
+    pub model: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub effort: Option<String>,
+}
+
+impl StartOn {
+    fn setting(&self) -> NoyanStartsOn {
+        NoyanStartsOn {
+            model: self.model.clone().filter(|m| !m.trim().is_empty()),
+            effort: self.effort.clone().filter(|e| !e.trim().is_empty()),
+        }
+    }
 }
 
 pub async fn view(app: &App, params: Params) -> Result<AgentPanelView, RequestError> {
     let agents = agents(app, &params.project).await?;
     let name = project_name(app, &params.project).await?;
-    let (new_agent, named) = project_agent_and_list(app).await?;
-    let start_on = params
-        .start_on
-        .as_deref()
-        .and_then(|id| named.iter().find(|a| a.id == id));
+    let new_agent = project_agent(app).await?;
+    let start_on = params.start_on.as_ref().map(StartOn::setting);
     let tools = super::editor::agent_tools(app).await;
     let shown = params
         .agent
@@ -264,8 +273,7 @@ pub async fn view(app: &App, params: Params) -> Result<AgentPanelView, RequestEr
         now_ms: otaq_core::store::now_ms(),
         keys: super::keymap::labels(app).await,
         tools: &tools,
-        agent_list: &named,
-        start_on,
+        start_on: start_on.as_ref(),
         project: &params.project,
     }))
 }
@@ -276,10 +284,11 @@ pub async fn view(app: &App, params: Params) -> Result<AgentPanelView, RequestEr
 pub struct SendParams {
     pub project: String,
     pub message: String,
-    /// The empty agent panel's `starts_on`: the agent picked for this conversation; `None` for the agent Noyan uses.
+    /// The empty agent panel's own pick of model and effort (sent while [`vm::ModelPick::own`]); `None` for "Noyan
+    /// starts on".
     #[serde(default)]
     #[ts(optional)]
-    pub agent: Option<String>,
+    pub on: Option<StartOn>,
 }
 
 /// Send in the empty agent panel: the message is the go-ahead, and the new agent starts with it as its first prompt
@@ -290,7 +299,7 @@ pub async fn send(app: &App, params: SendParams) -> Result<String, RequestError>
         .send(Request::ProjectAgentOpen(ProjectAgentOpenParams {
             project: params.project,
             message: params.message,
-            agent: params.agent,
+            on: params.on.as_ref().map(StartOn::setting),
         }))
         .await
     {
@@ -627,74 +636,30 @@ mod tests {
         .unwrap();
         assert_eq!(gone["agent"], Value::Null);
 
-        // Noyan uses Strong now: the next conversation's empty agent panel starts on it.
-        let Reply::Agent(strong) = h
-            .app
-            .service
-            .send(Request::AgentsAdd(otaq_core::agents::AgentFields {
-                name: "Strong".into(),
-                instructions: String::new(),
-                model: otaq_core::agents::AgentModel::Tool {
-                    tool: otaq_core::agent_tools::Tool::ALL[0],
-                    model: None,
-                },
-                effort: None,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("no agent");
-        };
+        // "Noyan starts on" Codex now: the next conversation's empty agent panel starts on it (UX-70).
         h.app
             .service
-            .send(Request::AgentsNoyan(otaq_core::protocol::NoyanAgentParams {
-                agent: strong.id.clone(),
+            .send(Request::NoyanSetStartsOn(otaq_core::agents::NoyanStartsOn {
+                model: Some("codex".into()),
+                effort: None,
             }))
             .await
             .unwrap();
         let view = table(&h.app, "agent_panel.view", json!({ "project": project }))
             .await
             .unwrap();
-        assert_eq!(view["empty"]["line"]["agent"], "Strong");
+        assert_eq!(view["empty"]["line"]["agent"], "Codex");
         assert_eq!(view["empty"]["line"]["note"], "\u{b7} starts when you send");
-        assert_eq!(view["empty"]["hint"], "Enter starts Strong");
-        let picked: Vec<(&str, bool)> = view["empty"]["pick"]["options"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|o| (o["label"].as_str().unwrap(), o["selected"].as_bool().unwrap()))
-            .collect();
-        assert!(picked.contains(&("Strong", true)) && picked.contains(&("Noyan", false)));
-        // A new conversation can pick another agent: the empty agent panel starts on it, for this conversation only.
-        let Reply::Agents(list) = h.app.service.send(Request::AgentsList).await.unwrap() else {
-            panic!("agents.list");
-        };
-        let noyan = list.agents.iter().find(|a| a.name == "Noyan").unwrap();
+        assert_eq!(view["empty"]["hint"], "Enter starts Codex");
+        // A new conversation can pick another model: the empty agent panel starts on it, for this conversation only.
         let view = table(
             &h.app,
             "agent_panel.view",
-            json!({ "project": project, "start_on": noyan.id }),
+            json!({ "project": project, "start_on": { "model": "claude:opus" } }),
         )
         .await
         .unwrap();
-        assert_eq!(view["empty"]["starts_on"], json!(noyan.id));
-        let selected: Vec<&str> = view["empty"]["pick"]["options"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|o| o["selected"] == true)
-            .map(|o| o["label"].as_str().unwrap())
-            .collect();
-        assert_eq!(selected, ["Noyan"]);
-        // Picking the agent Noyan uses is the setting again: nothing to pass on.
-        let view = table(
-            &h.app,
-            "agent_panel.view",
-            json!({ "project": project, "start_on": strong.id }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view["empty"]["starts_on"], Value::Null);
+        assert_eq!(view["empty"]["line"]["agent"], "Claude Code");
 
         // Send without words is refused; nothing was started.
         assert!(

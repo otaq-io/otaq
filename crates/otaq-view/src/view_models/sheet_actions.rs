@@ -935,7 +935,6 @@ mod tests {
         TicketAgents {
             key: Some("SHOP-48".parse().unwrap()),
             status: Some(Status::StartInterrupted),
-            agents: Vec::new(),
             stages: Vec::new(),
             sessions: vec![SessionAgentRun {
                 id: "s1".into(),
@@ -944,7 +943,7 @@ mod tests {
                 started_at: 1,
                 ended_at: Some(2),
                 tool: None,
-                agent_id: Some("fable".into()),
+                runs_for: Some("fable".into()),
                 agent_name: Some("Fable test".into()),
                 model: Some("fable".into()),
                 model_ran: Some("claude-fable-5-1".into()),

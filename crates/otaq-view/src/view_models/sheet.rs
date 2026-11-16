@@ -206,7 +206,7 @@ fn running(agents: &TicketAgents) -> Option<&SessionAgentRun> {
 
 /// The stage whose agent the ticket has next: the one it is in or waits before; from Backlog the first it runs.
 fn next_stage<'a>(ticket: &Ticket, path: &'a [PathStage]) -> Option<&'a PathStage> {
-    let runs = |s: &&PathStage| s.agent.is_some() && !s.skipped;
+    let runs = |s: &&PathStage| s.who.is_some() && !s.skipped;
     match &ticket.place {
         Place::InStage(id) | Place::Waiting(Some(id)) => path.iter().find(|s| &s.stage_id == id),
         Place::Backlog | Place::Waiting(None) => path.iter().find(runs),
@@ -223,9 +223,9 @@ fn assignee(f: &DetailFacts) -> Option<String> {
     }
     if let Some(stage) = next_stage(f.ticket, &agents.path)
         && stage.kind != PathKind::HumanCheck
-        && let Some(agent) = &stage.agent
+        && let Some(tool) = stage.who.as_ref().and_then(|w| w.model.tool())
     {
-        return Some(agent.name.clone());
+        return Some(tool.display_name().to_owned());
     }
     agents
         .sessions

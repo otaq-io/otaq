@@ -35,7 +35,7 @@ fn facts<'a>(name: &'static str, flow: &'a Flow) -> ProjectFacts<'a> {
         was_validating: &[],
         agent_filter: None,
         agents: None,
-        agent_list: None,
+        default_model: None,
         starts_held: None,
         view: Box::leak(Box::default()),
         paused: false,

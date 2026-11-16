@@ -315,7 +315,7 @@ async fn owner_facts(
         agent_names: &[],
         was_validating: &[],
         agents: agents.as_ref(),
-        agent_list: None,
+        default_model: None,
         starts_held: None,
         paused: board.project.paused_since.is_some(),
         helpers: &[],

@@ -10,7 +10,6 @@ use sqlx::Row;
 const TABLES: &[&str] = &[
     "active_limits",
     "agent_holds",
-    "agents",
     "app_ports",
     "check_counters",
     "comment_attachments",
@@ -26,6 +25,7 @@ const TABLES: &[&str] = &[
     "manual_checks",
     "merged_into",
     "messages",
+    "model_marks",
     "pending_deliveries",
     "pr_flows",
     "project_agents",
@@ -616,27 +616,23 @@ async fn one_row_round_trips_through_every_table() {
         .unwrap();
     assert_eq!(outcome, "open");
 
-    // An agent of the user's own (AGM-01).
-    let light = new_id();
+    // A model's mark, on the stage it is about (AGT-05, UX-65).
     sqlx::query(
-        "INSERT INTO agents (id, name, instructions, tool, model, came_from, created_at, updated_at) \
-         VALUES (?, 'Light', 'Typos, docs, small config', 'claude', 'haiku', 'you', ?, ?)",
+        "INSERT INTO model_marks (scope, text, model, ticket, marked_at) \
+         VALUES ('stage/SHOP/dev', 'Claude Code couldn''t run haiku on SHOP-18', 'haiku', 'SHOP-18', ?)",
     )
-    .bind(&light)
-    .bind(at)
     .bind(at)
     .execute(pool)
     .await
     .unwrap();
 
-    // A held Developer start on that agent (M23, SCH-04): its tool is at its limit.
+    // A held Developer start (M23, SCH-04): its tool is at its limit.
     sqlx::query(
-        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, model, agent_id, since) \
-         VALUES (?, ?, 'developer', 'tool_limit', 'claude', 'haiku', ?, ?)",
+        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, model, since) \
+         VALUES (?, ?, 'developer', 'tool_limit', 'claude', 'haiku', ?)",
     )
     .bind(new_id())
     .bind(&t18.id)
-    .bind(&light)
     .bind(at)
     .execute(pool)
     .await
@@ -662,13 +658,12 @@ async fn one_row_round_trips_through_every_table() {
             .unwrap();
     assert_eq!((stage.as_str(), kind.as_str()), ("dev", "agent"));
 
-    // A stage choice (AGM-08, T-0407): the ticket's Validate runs on that agent, set by the Project agent.
+    // A stage choice (AGM-08, T-0407): the ticket skips Validate, set by the Project agent in the user's words.
     sqlx::query(
-        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, agent_id, set_by, by_name, reason, set_at) \
-         VALUES (?, 'validate', 'agent', ?, 'project_agent', 'Checkout slowness', 'small change', ?)",
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, by_name, reason, set_at) \
+         VALUES (?, 'validate', 'skip', 'project_agent', 'Checkout slowness', 'small change', ?)",
     )
     .bind(&t18.id)
-    .bind(&light)
     .bind(at)
     .execute(pool)
     .await
@@ -679,7 +674,7 @@ async fn one_row_round_trips_through_every_table() {
             .fetch_one(pool)
             .await
             .unwrap();
-    assert_eq!(choice, "agent");
+    assert_eq!(choice, "skip");
 
     // Each agent check's own counter (T-0417).
     sqlx::query(
@@ -703,7 +698,7 @@ async fn one_row_round_trips_through_every_table() {
     // An open flow proposal and a waiting flow change (T-0413).
     sqlx::query(
         "INSERT INTO flow_proposals (project_id, yaml, source_json, proposed_by_json, created_at)
-         VALUES (?, 'flow: []', '{\"kind\":\"agents_file\"}', '{\"by\":\"user\"}', ?)",
+         VALUES (?, 'flow: []', '{\"kind\":\"preset\",\"file\":\"team-pr.yaml\"}', '{\"by\":\"user\"}', ?)",
     )
     .bind(&project.id)
     .bind(at)

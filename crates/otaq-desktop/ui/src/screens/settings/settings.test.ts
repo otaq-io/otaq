@@ -79,11 +79,10 @@ describe("the Settings screen", () => {
   it("registers the overlay, its sections and ⌘,", () => {
     const app = registerScreens({ settings });
     expect(app.overlays.get("settings")).toBeDefined();
-    // Eight topics: Agents (its tools, then the agents), Git & pull requests, Limits & usage (the limit, then usage),
+    // Eight topics: Agents (its tools), Git & pull requests, Limits & usage (the limit, then usage),
     // Notifications, Appearance, Keyboard, Data, About.
     expect(app.settings.global.ids()).toEqual([
       "agent_tools",
-      "agents",
       "git",
       "agent_limits",
       "usage",
@@ -255,9 +254,9 @@ describe("the Settings screen", () => {
       icon: "bot",
       target: { page: "global", section: sections[0] ?? "about", sections },
     });
-    const rows = [row("Agent tools", ["agent_tools"]), row("Agents", ["agents", "agent_limits"])];
-    expect(topicRow(rows, "agent_limits")?.label).toBe("Agents");
-    expect(topicRow(rows, "agents")?.label).toBe("Agents");
+    const rows = [row("Agent tools", ["agent_tools"]), row("Limits", ["usage", "agent_limits"])];
+    expect(topicRow(rows, "agent_limits")?.label).toBe("Limits");
+    expect(topicRow(rows, "usage")?.label).toBe("Limits");
     expect(topicRow(rows, null)?.label).toBe("Agent tools");
     expect(topicRow([], null)).toBeUndefined();
   });

@@ -1,8 +1,8 @@
-//! `otaq create` / `otaq update` with `--stage "<stage>=<agent|skip>"` and `--by-user`, `-f` lines, and `show` /
+//! `otaq create` / `otaq update` with `--stage "<stage>=<skip|required>"` and `--by-user`, `-f` lines, and `show` /
 //! `--json` printing the choices (T-0407; AGM-11, AGM-08, CLI-06, CLI-07; d0087), on the test flow
-//! `otaq-core/tests/flows/every-kind.yaml`: any stage an agent runs takes any agent whose tool has its skill, and only
-//! the user picks (or Noyan passing on the user's words). The old `--developer`, `--validator`, `--lead` and `--reason`
-//! are unknown flags.
+//! `otaq-core/tests/flows/every-kind.yaml`: a ticket skips a stage the flow lets it skip, never picks a model (UX-72),
+//! and only the user chooses (or Noyan passing on the user's words). The old `--developer`, `--validator`, `--lead` and
+//! `--reason` are unknown flags.
 //! `claude` stands in as an interactive `sh`; no test starts claude.
 
 use std::path::Path;
@@ -120,8 +120,8 @@ fn choices_block(shown: &str) -> String {
 async fn the_users_choices_round_trip() {
     let w = world().await;
 
-    // create: names ignoring case, a stage by name or id; every stage with choices in --json, each agent stage with
-    // its own agent first, then the other agents (no stage lists them).
+    // create: names ignoring case, a stage by name or id; every stage with choices in --json (the stages the flow
+    // lets tickets skip), and the model each stage runs on.
     let created = json_of(&cb(
         &w,
         &[
@@ -130,9 +130,7 @@ async fn the_users_choices_round_trip() {
             "create",
             "Fix README typo",
             "--stage",
-            "dev=quick developer",
-            "--stage",
-            "Product spec=skip",
+            "product spec=skip",
             "--json",
         ],
     ));
@@ -152,9 +150,6 @@ async fn the_users_choices_round_trip() {
         read,
         [
             ("Product spec", "skip", Some("user")),
-            ("Dev", "Quick developer", Some("user")),
-            ("Validate", "Validator", None),
-            ("Security", "Security reviewer", None),
             ("QA", "required", None),
         ]
     );
@@ -166,15 +161,8 @@ async fn the_users_choices_round_trip() {
             .map(|o| o.as_str().unwrap())
             .collect()
     };
-    assert_eq!(options(0).first(), Some(&"Spec writer"));
-    assert_eq!(options(0).last(), Some(&"skip"));
-    assert_eq!(options(1).first(), Some(&"Rust developer"));
-    assert!(options(1).contains(&"Quick developer") && !options(1).contains(&"skip"));
-    assert!(
-        options(1).contains(&"Noyan"),
-        "an agent has no role: the agent Noyan uses is offered like any other"
-    );
-    assert_eq!(options(4), ["required", "skip"]);
+    assert_eq!(options(0), ["required", "skip"]);
+    assert_eq!(options(1), ["required", "skip"]);
     let dev = created["agents"]
         .as_array()
         .unwrap()
@@ -182,14 +170,14 @@ async fn the_users_choices_round_trip() {
         .find(|a| a["stage"] == "Dev")
         .unwrap()
         .clone();
-    assert_eq!(dev, json!({"stage": "Dev", "agent": "Quick developer"}));
+    assert_eq!(dev, json!({"stage": "Dev", "model": "default"}));
     let shown = ok(&cb(&w, &["show", "SHOP-1"]));
     assert_eq!(
         choices_block(&shown),
-        "Choices:     Product spec: skip · set by you\n             Dev: Quick developer · set by you"
+        "Choices:     Product spec: skip \u{b7} set by you"
     );
 
-    // update: Product spec back to its own agent, QA skipped.
+    // update: Product spec back to required, QA skipped.
     assert_eq!(
         ok(&cb(
             &w,
@@ -197,12 +185,12 @@ async fn the_users_choices_round_trip() {
                 "update",
                 "SHOP-1",
                 "--stage",
-                "Product spec=Spec writer",
+                "Product spec=required",
                 "--stage",
                 "qa=skip"
             ]
         )),
-        "Updated SHOP-1 · Fix README typo\n"
+        "Updated SHOP-1 \u{b7} Fix README typo\n"
     );
     let shown = json_of(&cb(&w, &["show", "SHOP-1", "--json"]));
     let choices: Vec<(String, String)> = shown["choices"]
@@ -219,27 +207,19 @@ async fn the_users_choices_round_trip() {
     assert_eq!(
         choices,
         [
-            ("Product spec".to_owned(), "Spec writer".to_owned()),
-            ("Dev".to_owned(), "Quick developer".to_owned()),
-            ("Validate".to_owned(), "Validator".to_owned()),
-            ("Security".to_owned(), "Security reviewer".to_owned()),
+            ("Product spec".to_owned(), "required".to_owned()),
             ("QA".to_owned(), "skip".to_owned())
         ]
     );
-    // Security lists no agents in the flow: the user picks another one all the same.
-    ok(&cb(
-        &w,
-        &["update", "SHOP-1", "--stage", "Security=Quick developer"],
-    ));
 
-    // Refusals name the choices; nothing changes.
-    assert!(
-        refused(&w, &["update", "SHOP-1", "--stage", "Dev=Lite"])
-            .starts_with("Lite isn't one of Dev's choices: Rust developer, ")
+    // Refusals name the choices; nothing changes. A model is no stage choice.
+    assert_eq!(
+        refused(&w, &["update", "SHOP-1", "--stage", "QA=Lite"]),
+        "Lite isn't one of QA's choices: required, skip"
     );
     assert_eq!(
-        refused(&w, &["update", "SHOP-1", "--stage", "QA=Quick developer"]),
-        "QA runs no agent: its choices are required (you check it) and skip"
+        refused(&w, &["update", "SHOP-1", "--stage", "Dev=claude:opus"]),
+        "Dev has no choices: every ticket runs it as the flow says"
     );
     // #62: a skip of a stage the flow doesn't mark skippable says how the flow allows it, by the stage's name.
     assert_eq!(
@@ -250,7 +230,7 @@ async fn the_users_choices_round_trip() {
     error(&cb(
         &w,
         &[
-            "-P", "SHOP", "create", "Nope", "--stage", "Dev=Lite", "--json",
+            "-P", "SHOP", "create", "Nope", "--stage", "QA=Lite", "--json",
         ],
     ));
     assert_eq!(w.board.tickets("SHOP").await.unwrap().len(), count);
@@ -261,14 +241,14 @@ async fn the_users_choices_round_trip() {
         "--by-user goes with --stage (or -f)"
     );
     assert!(
-        usage(&w, &["update", "SHOP-1", "--stage", "Dev"]).starts_with("give a stage choice as")
+        usage(&w, &["update", "SHOP-1", "--stage", "QA"]).starts_with("give a stage choice as")
     );
 
     // A file: "- **Stage:**" lines; `--stage` doesn't go with -f.
     let plan = w.home.path().join("plan.md");
     std::fs::write(
         &plan,
-        "### Export as CSV\n- **Stage:** Dev=Quick developer\n- **Stage:** QA=skip\n\nCSV.\n",
+        "### Export as CSV\n- **Stage:** Product spec=skip\n- **Stage:** QA=skip\n\nCSV.\n",
     )
     .unwrap();
     ok(&cb(
@@ -278,7 +258,7 @@ async fn the_users_choices_round_trip() {
     let shown = ok(&cb(&w, &["show", "SHOP-2"]));
     assert_eq!(
         choices_block(&shown),
-        "Choices:     Dev: Quick developer · set by you\n             QA: skip · set by you"
+        "Choices:     Product spec: skip \u{b7} set by you\n             QA: skip \u{b7} set by you"
     );
     assert!(
         usage(
@@ -335,7 +315,7 @@ async fn a_project_agents_choices_and_the_users_words() {
     let agent = w.shell_in(&opened.session.as_ref().unwrap().id);
 
     for own in [
-        "--stage 'Dev=Quick developer'",
+        "--stage 'QA=skip'",
         "--stage 'QA=required'",
         "--stage 'Product spec=skip'",
     ] {
@@ -352,7 +332,7 @@ async fn a_project_agents_choices_and_the_users_words() {
     let plan = w.home.path().join("plan.md");
     std::fs::write(
         &plan,
-        "### Export as CSV\n\nCSV.\n\n### Fix README typo\n- **Stage:** Dev=Quick developer\n\nTypo.\n",
+        "### Export as CSV\n\nCSV.\n\n### Fix README typo\n- **Stage:** QA=skip\n\nTypo.\n",
     )
     .unwrap();
     let ran = agent
@@ -365,45 +345,34 @@ async fn a_project_agents_choices_and_the_users_words() {
     // The user's choice, passed on: the user's.
     let ran = agent
         .run(&format!(
-            "'{CB}' -P SHOP create 'Fix README typo' --stage 'Dev=Quick developer' --by-user"
+            "'{CB}' -P SHOP create 'Fix README typo' --stage 'QA=skip' --by-user"
         ))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let shown = ok(&cb(&w, &["show", "SHOP-1"]));
-    assert_eq!(
-        choices_block(&shown),
-        "Choices:     Dev: Quick developer · set by you"
-    );
+    assert_eq!(choices_block(&shown), "Choices:     QA: skip · set by you");
     let shown = json_of(&cb(&w, &["show", "SHOP-1", "--json"]));
     assert_eq!(shown["choices"][1]["set_by"], "user", "{shown}");
 
     // The user's choice wins.
-    ok(&cb(
-        &w,
-        &["update", "SHOP-1", "--stage", "Dev=Rust developer"],
-    ));
+    ok(&cb(&w, &["update", "SHOP-1", "--stage", "QA=required"]));
     let ran = agent
-        .run(&format!(
-            "'{CB}' update SHOP-1 --stage 'Dev=Quick developer'"
-        ))
+        .run(&format!("'{CB}' update SHOP-1 --stage 'QA=skip'"))
         .await;
     assert_ne!(ran.status, 0);
     assert!(ran.stderr.contains(NOYAN_USER_CHOICES_ONLY), "{ran:?}");
     // The user's own words, passed on: theirs.
     let ran = agent
-        .run(&format!(
-            "'{CB}' update SHOP-1 --stage 'Dev=Quick developer' --by-user"
-        ))
+        .run(&format!("'{CB}' update SHOP-1 --stage 'QA=skip' --by-user"))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let shown = ok(&cb(&w, &["show", "SHOP-1"]));
-    assert_eq!(
-        choices_block(&shown),
-        "Choices:     Dev: Quick developer · set by you"
-    );
-    // The user's skip, passed on: theirs too.
+    assert_eq!(choices_block(&shown), "Choices:     QA: skip · set by you");
+    // Another skip of the user's, passed on: theirs too.
     let ran = agent
-        .run(&format!("'{CB}' update SHOP-1 --stage 'QA=skip' --by-user"))
+        .run(&format!(
+            "'{CB}' update SHOP-1 --stage 'Product spec=skip' --by-user"
+        ))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let shown = json_of(&cb(&w, &["show", "SHOP-1", "--json"]));
@@ -411,7 +380,7 @@ async fn a_project_agents_choices_and_the_users_words() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|c| c["stage"] == "QA")
+        .find(|c| c["stage"] == "Product spec")
         .unwrap();
     assert_eq!(
         (&qa["choice"], &qa["set_by"]),
@@ -441,31 +410,17 @@ async fn a_project_agents_choices_and_the_users_words() {
     w.stop().await;
 }
 
-/// Only the user picks a stage's agent: a ticket's own agent's `--stage` is refused, for a later stage of its own
-/// ticket (`--stage Validate=Strong`) and for the tickets it created that never started; a stage that started is
+/// Only the user chooses for a stage: a ticket's own agent's `--stage` is refused, for a later stage of its own
+/// ticket (`--stage QA=required`) and for the tickets it created that never started; a stage that started is
 /// locked first, another ticket isn't its own (CLI-06). Only the user skips a stage, and only Noyan passes on the
 /// user's choices: its `--by-user` is refused (T9). Nothing is written.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_ticket_agent_sets_no_stage_choice() {
     let w = world().await;
     let me = Actor::User("me".into());
-    w.board
-        .store()
-        .insert_agent(
-            &otaq_core::agents::store::NewAgent {
-                name: "Strong".into(),
-                instructions: String::new(),
-                model: otaq_core::agents::AgentModel::Default,
-                effort: None,
-            },
-            &otaq_core::agents::CameFrom::You,
-            None,
-        )
-        .await
-        .unwrap();
     w.create("SHOP", "Other ticket").await; // SHOP-1
     let own = w.create("SHOP", "Sessions survive a restart").await; // SHOP-2
-    // Started: at work in Product spec, where Spec writer runs (the stand-in `sh`).
+    // Started: at work in Product spec, where its agent runs (the stand-in `sh`).
     w.board
         .move_ticket(
             "SHOP-2",
@@ -492,15 +447,13 @@ async fn a_ticket_agent_sets_no_stage_choice() {
     let session = w
         .sessions
         .running_of(&own.id, otaq_core::session::SessionKind::Agent)
-        .expect("Spec writer runs");
+        .expect("Product spec's agent runs");
     let agent = w.shell_in(&session.id);
-    // The user may pick Strong for Validate; the ticket's agent may not.
+    // The user may skip QA; the ticket's agent may not.
     for (words, refusal) in [
-        ("--stage 'Validate=Strong'", ONLY_THE_USER_PICKS),
-        ("--stage 'Dev=Quick developer'", ONLY_THE_USER_PICKS),
         ("--stage 'QA=required'", ONLY_THE_USER_PICKS),
         ("--stage 'QA=skip'", ONLY_THE_USER_SKIPS),
-        ("--stage 'Validate=Strong' --by-user", ONLY_NOYAN_PASSES_ON),
+        ("--stage 'QA=required' --by-user", ONLY_NOYAN_PASSES_ON),
         ("--stage 'QA=skip' --by-user", ONLY_NOYAN_PASSES_ON),
     ] {
         let ran = agent.run(&format!("'{CB}' update SHOP-2 {words}")).await;
@@ -530,7 +483,7 @@ async fn a_ticket_agent_sets_no_stage_choice() {
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     for (words, refusal) in [
-        ("--stage 'Dev=Strong'", ONLY_THE_USER_PICKS),
+        ("--stage 'QA=required'", ONLY_THE_USER_PICKS),
         ("--stage 'Product spec=skip'", ONLY_THE_USER_SKIPS),
     ] {
         let ran = agent.run(&format!("'{CB}' update SHOP-3 {words}")).await;
@@ -538,7 +491,7 @@ async fn a_ticket_agent_sets_no_stage_choice() {
         assert!(ran.stderr.contains(refusal), "{words}: {ran:?}");
     }
     let ran = agent
-        .run(&format!("'{CB}' create 'Wishlist' --stage 'Dev=Strong'"))
+        .run(&format!("'{CB}' create 'Wishlist' --stage 'QA=required'"))
         .await;
     assert_ne!(ran.status, 0);
     assert!(ran.stderr.contains(ONLY_THE_USER_PICKS), "{ran:?}");
@@ -547,46 +500,27 @@ async fn a_ticket_agent_sets_no_stage_choice() {
         assert_eq!(choices_block(&shown), "", "{key}");
     }
     // The user's pick for the same stage is taken.
-    ok(&cb(&w, &["update", "SHOP-2", "--stage", "Validate=Strong"]));
+    ok(&cb(&w, &["update", "SHOP-2", "--stage", "QA=skip"]));
     let shown = ok(&cb(&w, &["show", "SHOP-2"]));
-    assert_eq!(
-        choices_block(&shown),
-        "Choices:     Validate: Strong · set by you"
-    );
+    assert_eq!(choices_block(&shown), "Choices:     QA: skip · set by you");
     w.stop().await;
 }
 
 /// The Spec first preset's shape (its file is `flows/spec-first.yaml`): three skippable planning stages, then Spec
 /// review (a skippable check by you), Dev, Validate, Code review and Done.
 const SPEC_FIRST: &str = "\
-agents:
-  - name: Spec writer
-    skills: [product-spec]
-    model: default
-  - name: Architect
-    skills: [tech-spec]
-    model: default
-  - name: Milestone planner
-    skills: [milestone-plan]
-    model: default
-  - name: Developer
-    skills: [work-ticket, commit]
-    model: default
-  - name: Validator
-    skills: [validate]
-    model: default
 flow:
-  - {id: product-spec, name: Product spec, kind: agent, column: own, agent: Spec writer, skill: product-spec,
+  - {id: product-spec, name: Product spec, kind: agent, column: own, model: default, skill: product-spec,
      options: [skip]}
-  - {id: tech-spec, name: Tech spec, kind: agent, column: own, agent: Architect, skill: tech-spec, options: [skip]}
-  - {id: milestone-plan, name: Milestone plan, kind: agent, column: own, agent: Milestone planner,
-     skill: milestone-plan, options: [skip]}
+  - {id: tech-spec, name: Tech spec, kind: agent, column: own, model: default, skill: tech-spec, options: [skip]}
+  - {id: milestone-plan, name: Milestone plan, kind: agent, column: own, model: default, skill: milestone-plan,
+     options: [skip]}
   - {id: spec-review, name: Spec review, kind: check, by: you, column: own, options: [skip], fail_to: Product spec}
-  - {id: dev, name: Dev, kind: agent, column: own, agent: Developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, column: own, agent: Validator, skill: validate,
+  - {id: dev, name: Dev, kind: agent, column: own, model: default, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, column: own, model: default, skill: validate,
      rounds: 3, fail_to: Dev}
   - {id: code-review, name: Code review, kind: check, by: you, column: own, fail_to: Dev}
-  - {id: deliver, name: Done, kind: delivery, column: with-previous, agent: Developer, skill: open-pr, mode: click,
+  - {id: deliver, name: Done, kind: delivery, column: with-previous, model: default, skill: open-pr, mode: click,
      delivers: either}
 ";
 
@@ -622,8 +556,6 @@ async fn planning_skips_on_spec_first() {
             ("Tech spec", "skip"),
             ("Milestone plan", "skip"),
             ("Spec review", "required"),
-            ("Dev", "Developer"),
-            ("Validate", "Validator"),
         ]
     );
     let shown = ok(&cb(&w, &["show", "SHOP-1"]));
@@ -660,7 +592,7 @@ async fn planning_skips_on_spec_first() {
     );
 
     // "you" is an unknown choice: refused, nothing created or changed.
-    let unknown = "Spec review runs no agent: its choices are required (you check it) and skip";
+    let unknown = "you isn't one of Spec review's choices: required, skip";
     let mut args = vec!["-P", "SHOP", "create", "Saved carts"];
     args.extend(planning);
     args.extend(["--stage", "Spec review=you"]);

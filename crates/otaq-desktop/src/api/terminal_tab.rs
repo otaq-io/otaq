@@ -979,7 +979,7 @@ mod tests {
             tool: Some(otaq_core::agent_tools::Tool::Codex),
             model: Some("gpt-5.5".into()),
             agent: Some(otaq_core::session::SessionAgent {
-                id: "validator".into(),
+                runs_for: "validator".into(),
                 name: "Validator".into(),
             }),
             ..session(id, state, started_at)
@@ -1010,7 +1010,7 @@ mod tests {
         use otaq_view::view_models::pieces::fixtures::helper;
         let mut agent = session("a1", SessionState::Running, 0);
         agent.agent = Some(otaq_core::session::SessionAgent {
-            id: "dev".into(),
+            runs_for: "dev".into(),
             name: "Developer".into(),
         });
         let mut h3 = session("h3", SessionState::Running, 5);
@@ -1113,7 +1113,7 @@ mod tests {
         let named = |id: &str, name: &str, tool, state| SessionInfo {
             tool: Some(tool),
             agent: Some(otaq_core::session::SessionAgent {
-                id: id.into(),
+                runs_for: id.into(),
                 name: name.into(),
             }),
             ..validator(id, state, 5)

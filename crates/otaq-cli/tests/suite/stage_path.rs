@@ -188,16 +188,14 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
     .await;
     let first = std::fs::read_to_string(state.path().join("prime-first.md")).unwrap();
     assert!(
-        first.contains(
-            "\n## Your stage\n\nDev, as Developer, with the skill `/otaq:work-ticket`.\n"
-        ),
+        first.contains("\n## Your stage\n\nDev, with the skill `/otaq:work-ticket`.\n"),
         "{first}"
     );
     assert!(first.contains("`otaq stage next --stdin`"), "{first}");
     let check = std::fs::read_to_string(state.path().join("check-prime.md")).unwrap();
     // One line per stage (CMT-07); what Dev said reaches the check as its comment (T-0443's hand-over).
     assert!(
-        check.contains("\n## Earlier stages\n\n- Dev · Developer · finished\n"),
+        check.contains("\n## Earlier stages\n\n- Dev · Claude Code · finished\n"),
         "the check reads Dev's run: {check}"
     );
     assert!(

@@ -406,11 +406,11 @@ mod tests {
     fn new_flow() -> Flow {
         let yaml = "\
 flow:
-  - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
+  - {id: dev, name: Dev, kind: agent, model: default, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, model: default, skill: validate, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
-  - {id: docs, name: Docs, kind: agent, agent: Doc writer, skill: docs}
-delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
+  - {id: docs, name: Docs, kind: agent, model: default, skill: docs}
+delivery: {delivers: pr, mode: automatic, model: default, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }

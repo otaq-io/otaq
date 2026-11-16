@@ -81,9 +81,6 @@ export interface OverlayParams {
   start_from_scratch: { ticket: string };
   /** Send back with a note (T-0226), from every human check (d0093). */
   send_back: { ticket: string };
-  /** Change agent… on a stage that waits for its tool: another agent for it whose tool has its skill and can run
-   * now; `stage` (its id) for another stage that hasn't started. */
-  change_agent: { ticket: string; stage?: string };
   /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
   drag_back: DragBackDialog;
   /** Send back with PR comments and an optional note (FLW-16, T-0424). */
@@ -159,7 +156,6 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   submit_for_review: true,
   start_from_scratch: true,
   send_back: true,
-  change_agent: true,
   drag_back: true,
   send_back_pr: true,
   change_decision: true,

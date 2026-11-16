@@ -4,8 +4,8 @@
 //! # `--json` shapes (stable; fields may be added, never renamed or removed)
 //!
 //! - `show`: `{"ticket": Ticket, "agents": [StageAgent], "choices": [Choice], "decisions": [Decision],
-//!   "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` are the agent each of the ticket's stages runs
-//!   ([`StageAgentJson`], AGM-05); `choices` its stages with options and its choice for each ([`ChoiceJson`],
+//!   "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` the model (and effort) each of the ticket's
+//!   stages runs on ([`StageAgentJson`], AGM-05); `choices` its stages with options and its choice for each ([`ChoiceJson`],
 //!   AGM-11); `decisions` the ticket's recorded decisions (DEC-02, `otaq_core::decisions`), `history` and
 //!   `messages` (questions between linked tickets) with `--long`.
 //!   `Ticket` carries the Plan (`plan`, `plan_by`, `plan_at`; d0133).
@@ -362,12 +362,15 @@ pub async fn ticket_agents(client: &Client, key: &str) -> Result<TicketAgents, E
     }
 }
 
-/// One stage's agent in `--json` (AGM-05): `{"stage": "Dev", "agent": "Developer"}`. `agent` is missing when the stage names one that isn't there.
+/// Who does one stage in `--json` (AGM-05, UX-65): `{"stage": "Dev", "model": "claude:opus", "effort": "high"}`.
+/// `model` is missing when the stage names none yet.
 #[derive(Debug, Serialize)]
 pub struct StageAgentJson {
     pub stage: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// The stages' agents as `--json` carries them.
@@ -377,7 +380,8 @@ pub fn agents_json(agents: &TicketAgents) -> Vec<StageAgentJson> {
         .iter()
         .map(|s| StageAgentJson {
             stage: s.stage.clone(),
-            agent: s.agent.as_ref().map(|a| a.name.clone()),
+            model: s.who.as_ref().map(|w| w.model.text()),
+            effort: s.who.as_ref().and_then(|w| w.effort.clone()),
         })
         .collect()
 }
@@ -398,9 +402,8 @@ pub async fn ticket_choices(client: &Client, key: &str) -> Result<TicketChoices,
     }
 }
 
-/// One stage's choice in `--json` (AGM-11): `{"stage": "Dev", "choice": "Quick developer", "set_by":
-/// "project_agent", "by": "Noyan", "reason": "typo fix", "locked": false, "options": ["Rust developer",
-/// "Quick developer"]}`. Every stage with options is listed; `set_by`, `by` and `reason` are missing when nobody
+/// One stage's choice in `--json` (AGM-11): `{"stage": "QA", "choice": "skip", "set_by": "project_agent", "by":
+/// "Noyan", "reason": "typo fix", "locked": false, "options": ["required", "skip"]}`. Every stage with options is listed; `set_by`, `by` and `reason` are missing when nobody
 /// chose (the usual one runs).
 #[derive(Debug, Serialize)]
 pub struct ChoiceJson {
@@ -440,8 +443,7 @@ pub fn choices_json(choices: &TicketChoices) -> Vec<ChoiceJson> {
         .collect()
 }
 
-/// The choices someone made, one line each (AGM-11): "Choices:     Dev: Quick developer · set by Noyan · typo
-/// fix". Nothing when nobody chose.
+/// The choices someone made, one line each (AGM-11): "Choices:     QA: skip · set by Noyan · typo fix". Nothing when nobody chose.
 pub fn choices_text(choices: &TicketChoices) -> String {
     let mut text = String::new();
     for stage in choices.stages.iter().filter(|s| s.choice.is_some()) {
@@ -665,8 +667,12 @@ pub fn show_text(
     text.push_str(&format!("Created by:  {}{origin}\n", ticket.created_by));
     for stage in agents.map(agents_json).unwrap_or_default() {
         let label = format!("{}:", stage.stage);
-        let agent = stage.agent.as_deref().unwrap_or("not one of your agents");
-        text.push_str(&format!("{label:<12} {agent}\n"));
+        let model = match (stage.model.as_deref(), stage.effort.as_deref()) {
+            (Some(model), Some(effort)) => format!("{model} \u{b7} {effort}"),
+            (Some(model), None) => model.to_owned(),
+            (None, _) => "no model yet".to_owned(),
+        };
+        text.push_str(&format!("{label:<12} {model}\n"));
     }
     if let Some(choices) = choices {
         text.push_str(&choices_text(choices));

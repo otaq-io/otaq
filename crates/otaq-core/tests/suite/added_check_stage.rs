@@ -15,7 +15,7 @@ use otaq_core::domain::{Actor, Place, Status};
 use otaq_core::flow::draft::DraftEdit;
 use otaq_core::flow::presets::presets;
 use otaq_core::flow::proposal::ApplyChoices;
-use otaq_core::flow::templates::{template, template_agents};
+use otaq_core::flow::templates::template;
 use otaq_core::flow::yaml;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -58,11 +58,6 @@ async fn a_check_stage_added_and_saved_runs_for_the_next_ticket() {
     let mut file = default.clone();
     let security = template("security-review").unwrap().stage().clone();
     file.flow.stages.insert(1, security);
-    for agent in template_agents() {
-        if !file.agents.iter().any(|a| a.name == agent.name) {
-            file.agents.push(agent.clone());
-        }
-    }
     let draft = w
         .board
         .update_draft(

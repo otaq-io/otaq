@@ -390,15 +390,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
         | Request::ProjectAgentUndone(_)
-        | Request::AgentsList
-        | Request::AgentsAdd(_)
-        | Request::AgentsEdit(_)
-        | Request::AgentsDuplicate(_)
-        | Request::AgentsDelete(_)
-        | Request::AgentsInUse(_)
-        | Request::AgentsNoyan(_)
-        | Request::AgentsDefaultModel(_)
-        | Request::AgentsReads(_)
+        | Request::NoyanStartsOn
+        | Request::NoyanSetStartsOn(_)
         | Request::AgentsPause(_)
         | Request::AgentsResume(_)
         | Request::AgentsPauseCounts(_)

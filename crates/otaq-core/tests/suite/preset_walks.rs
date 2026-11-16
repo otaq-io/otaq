@@ -501,8 +501,8 @@ fn github_origin(repo: &Path, tools: &Path) {
     );
 }
 
-/// Team PR: Validate's pass starts the Delivery by itself; Shipper isn't Dev's agent, so a fresh delivery session
-/// runs `open-pr`, told it is automatic; Otaq confirms the proposal with no dialog, the agent pushes to `origin` and
+/// Team PR: Validate's pass starts the Delivery by itself; it runs as Dev does (the same model and effort, no
+/// instructions of its own: UX-69), so Dev's session runs `open-pr`, told it is automatic; Otaq confirms the proposal with no dialog, the agent pushes to `origin` and
 /// opens the PR with the stand-in `gh`, and the card waits with its PR open.
 #[tokio::test(flavor = "multi_thread")]
 async fn team_pr_to_a_pr_opened_with_gh() {
@@ -522,12 +522,13 @@ async fn team_pr_to_a_pr_opened_with_gh() {
         (Status::ToDeliver, &Place::stage_of("validate"))
     );
     assert!(delivering.flags.delivering_automatically);
-    let shipper = session(&w, &t, SessionKind::Delivery).await;
-    w.wait_for_output(
-        &shipper.id,
-        &format!("{} automatic:", claude_skill("otaq:open-pr")),
-    )
-    .await;
+    let shipper = session(&w, &t, SessionKind::Agent).await;
+    let open_pr = format!("{} automatic:", claude_skill("otaq:open-pr"));
+    let pending = w.deliveries.pending(&shipper.id).await.unwrap();
+    assert!(
+        pending.iter().any(|d| d.text.contains(&open_pr)),
+        "{pending:?}"
+    );
     let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
     assert!(flow.automatic);
 
@@ -575,10 +576,6 @@ async fn team_pr_to_a_pr_opened_with_gh() {
             &["log", "-1", "--format=%s", "feature/SHOP-1-login"]
         ),
         "SHOP-1: redirect after login"
-    );
-    assert!(
-        !w.sessions.info(&shipper.id).unwrap().is_running(),
-        "the delivery session ends once the PR is reported"
     );
     w.stop().await;
 }

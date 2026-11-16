@@ -28,7 +28,7 @@ import {
 } from "../../components";
 import type { AgentCloseDialog } from "../../generated/AgentCloseDialog";
 import type { AgentPanelAgent } from "../../generated/AgentPanelAgent";
-import type { AgentPanelAgentPick } from "../../generated/AgentPanelAgentPick";
+import type { AgentPanelModelPick } from "../../generated/AgentPanelModelPick";
 import type { AgentPanelAgentLine } from "../../generated/AgentPanelAgentLine";
 import type { AgentPanelButton } from "../../generated/AgentPanelButton";
 import type { AgentPanelCreated } from "../../generated/AgentPanelCreated";
@@ -75,7 +75,7 @@ import {
   toggleExpandAgentPanel,
 } from "./logic";
 import { CloseAgentDialog, RecentList } from "./parts";
-import { optionItems } from "../settings/Agents";
+import { optionItems } from "../settings/options";
 
 /** The service events that change what the agent panel shows. */
 export const AGENT_PANEL_EVENTS = [
@@ -432,19 +432,36 @@ function CreatedBox({
   );
 }
 
-/** The new conversation's own pick of agent: the agent Noyan uses unless another is picked here, for this conversation
- * only. */
-function AgentPick({ pick, project }: { pick: AgentPanelAgentPick; project: string }) {
-  const current = pick.options.find((o) => o.selected);
+/** The new conversation's own model and effort (UX-70): "Noyan starts on" unless another is picked here, for this
+ * conversation only. */
+function ModelPick({ pick, project }: { pick: AgentPanelModelPick; project: string }) {
+  const label = (options: AgentPanelModelPick["models"], fallback: string) =>
+    options.find((o) => o.selected)?.label ?? fallback;
+  const on = (model: string, effort: string | null) => ({
+    model,
+    ...(effort !== null && effort !== "" && { effort }),
+  });
   return (
-    <Select
-      label={pick.label}
-      value={current?.label ?? pick.label}
-      items={optionItems(pick.options)}
-      onChange={(id) => {
-        pickStartOn(project, id, pick.usual);
-      }}
-    />
+    <>
+      <Select
+        label={pick.label}
+        value={label(pick.models, pick.model)}
+        items={optionItems(pick.models)}
+        onChange={(id) => {
+          pickStartOn(project, on(id, pick.effort));
+        }}
+      />
+      {pick.efforts.length > 0 && (
+        <Select
+          label={pick.effort_label}
+          value={label(pick.efforts, pick.effort ?? "")}
+          items={optionItems(pick.efforts)}
+          onChange={(id) => {
+            pickStartOn(project, on(pick.model, id));
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -544,7 +561,7 @@ function EmptyState({
             }}
           />
           <div className="agent-panel-input-row">
-            {empty.pick !== null && <AgentPick pick={empty.pick} project={project} />}
+            {empty.pick !== null && <ModelPick pick={empty.pick} project={project} />}
             <span className="agent-panel-input-hint">{empty.hint}</span>
             <span className="agent-panel-spacer" />
             <button
@@ -737,7 +754,7 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
     }, ignore);
   };
   const send = () => {
-    sendFirstMessage(project, draft, request, undefined, view.empty?.starts_on ?? null).then((id) => {
+    sendFirstMessage(project, draft, request, undefined, startOn.get()[project] ?? null).then((id) => {
       if (id !== null) setDraft("");
     }, ignore);
   };

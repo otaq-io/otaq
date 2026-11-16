@@ -255,7 +255,7 @@ mod tests {
     }
 
     fn scope(all: &[Ticket]) -> Scope {
-        Scope::of(&otaq_core::flow::default_flow(), all, None, None)
+        Scope::of(&otaq_core::flow::default_flow(), all, None)
     }
 
     fn view_of(state: &FilterState, all: &[Ticket], selected: Option<&TicketKey>) -> SearchView {
@@ -438,8 +438,6 @@ mod tests {
         use otaq_core::agents::facts::{BoardAgents, CardAgents};
         let all = sample();
         let card = |key: &str, agent: Option<&str>| CardAgents {
-            instead_of: None,
-            own_agent: None,
             skips: Vec::new(),
             key: key.parse().unwrap(),
             running_developer: None,
@@ -448,11 +446,10 @@ mod tests {
             running_validator_on: None,
             holds: Vec::new(),
             starts: None,
-            refused_agent: None,
+            refused_stage: None,
             stage_agent: agent.map(Into::into),
         };
         let agents = BoardAgents {
-            agent_count: 2,
             cards: vec![
                 card("SHOP-18", Some("Strong")),
                 card("SHOP-20", Some("Developer")),
@@ -461,7 +458,7 @@ mod tests {
             ],
             connected: Vec::new(),
         };
-        let scope = Scope::of(&otaq_core::flow::default_flow(), &all, Some(&agents), None);
+        let scope = Scope::of(&otaq_core::flow::default_flow(), &all, Some(&agents));
         let listed = |text: &str| {
             let v = view(&state(&[], text), &all, None, &scope, &MAC());
             (

@@ -17,7 +17,6 @@ use otaq_core::flow::draft::DraftEdit;
 use otaq_core::flow::propose::AskForChangesParams;
 use otaq_core::protocol::{ProjectParams, Reply, Request};
 use otaq_view::view_models::flow_board as vm;
-use otaq_view::view_models::flow_editor::Choices;
 use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -64,9 +63,6 @@ pub struct ViewParams {
     #[serde(default)]
     #[ts(optional)]
     pub agent: Option<String>,
-    #[serde(default)]
-    #[ts(optional)]
-    pub choices: Option<Choices>,
 }
 
 /// Undo: the draft's document before the last edit.
@@ -175,12 +171,10 @@ pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestErro
         others.push((p.key.clone(), p.name.clone(), flow_of(app, &p.key).await));
     }
     let previous = has_previous(app, &params.project).await;
-    let choices = params.choices.unwrap_or_default();
     let facts = gathered.facts(
         &params.project,
         params.selected.as_deref(),
         params.agent.as_deref(),
-        &choices,
     );
     Ok(vm::view(
         &facts,
@@ -229,7 +223,7 @@ async fn suggest(app: &App, params: SuggestParams) -> Result<Started, RequestErr
         super::agent_panel::SendParams {
             project: params.project,
             message,
-            agent: None,
+            on: None,
         },
     )
     .await?;
@@ -301,7 +295,6 @@ mod tests {
                 project: "SHOP".into(),
                 selected: selected.map(str::to_owned),
                 agent: None,
-                choices: None,
             },
         )
         .await
@@ -425,7 +418,7 @@ mod tests {
         let column = &v.columns[2];
         assert_eq!(column.name, "Security review");
         assert_eq!(column.what, "An agent checks it");
-        assert_eq!(column.who.as_deref(), Some("Checker"));
+        assert_eq!(column.who.as_deref(), Some("default"));
         assert_eq!(column.check_line.as_deref(), Some("2 rounds \u{b7} fails go to Dev"));
         assert_eq!(column.mark.as_ref().map(|m| m.label), Some("New"));
         // Nobody has its skill here: the usual warning, and it still saves.
@@ -534,16 +527,16 @@ mod tests {
         let own = otaq_core::board::settings::WorkflowStep::OpenPr.own_skill();
         assert_eq!((skill.value.as_str(), skill.placeholder), (own, own));
         assert_eq!(skill.warning, None);
-        assert!(panel.agent.items.iter().all(|i| !i.id.is_empty()), "a PR needs an agent");
+        assert!(panel.model.is_some(), "a PR names the model that writes it");
 
         edit("delivery.skill", " /my-pr ").await.unwrap();
-        edit("delivery.agent", "Checker").await.unwrap();
+        edit("delivery.model", "codex").await.unwrap();
         let panel = load(&h, Some("done")).await.delivery.unwrap();
-        assert_eq!(panel.agent.value, "Checker");
+        assert!(panel.model.unwrap().value.starts_with("Codex"));
         let skill = panel.skill.unwrap();
         assert_eq!(skill.value, "my-pr");
         assert_eq!(skill.warning.as_deref(), Some("You don't have the skill `my-pr`"));
-        assert!(edit("delivery.agent", "").await.is_err(), "a PR keeps an agent");
+        assert!(edit("delivery.model", "").await.is_err(), "a PR keeps a model");
         // Emptied, Otaq's own runs.
         edit("delivery.skill", "").await.unwrap();
         assert_eq!(load(&h, Some("done")).await.delivery.unwrap().skill.unwrap().value, "");
@@ -551,9 +544,8 @@ mod tests {
         edit("delivery.delivers", "local").await.unwrap();
         let panel = load(&h, Some("done")).await.delivery.unwrap();
         assert_eq!(panel.skill, None);
-        assert_eq!(panel.agent.items[0].id, "", "None, for the plain message");
-        edit("delivery.agent", "").await.unwrap();
-        assert_eq!(load(&h, Some("done")).await.delivery.unwrap().agent.value, "None");
+        edit("delivery.model", "").await.unwrap();
+        assert_eq!(load(&h, Some("done")).await.delivery.unwrap().model, None, "the plain message");
     }
 
     /// Import a flow file…, then Export flow file…: the same file comes back.

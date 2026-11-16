@@ -1,21 +1,17 @@
-# Refused: Reviewer's model: gpt-9 isn't a model: say `default`, a tool, or `tool:model`
-agents:
-  - name: Reviewer
-    skills: [validate]
-    model: gpt-9
+# Refused: Validate's model: gpt-9 isn't a model: say a tool
 flow:
   - id: dev
     name: Dev
     kind: agent
     column: own
-    agent: Developer
+    model: default
     skill: otaq:work-ticket
   - id: validate
     name: Validate
     kind: check
     by: agent
     column: own
-    agent: Reviewer
+    model: gpt-9
     skill: otaq:validate
     rounds: 3
   - id: review
@@ -27,7 +23,7 @@ flow:
     name: Done
     kind: delivery
     column: with-previous
-    agent: Developer
+    model: default
     skill: otaq:open-pr
     mode: click
     delivers: either

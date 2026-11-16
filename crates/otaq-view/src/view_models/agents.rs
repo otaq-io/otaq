@@ -1,19 +1,15 @@
-//! Settings → Agents (AGM-02, AGM-03, AGM-04; d0108, d0088, d0086; `s15-58` / `s15-59`): the default model for new
-//! agents, the agent Noyan uses ("Noyan uses <agent>", one app setting) and the list of agents (name, came-from line, model
-//! with the tool's effort, used in, the amber mark, ⋯ Duplicate / Delete…); one agent's page is
-//! [`super::agent_page`]. Also the shared pieces the other screens use: the formatters of a model ([`model_label`],
-//! [`agent_model`], [`short_model`]), the agent tools' lists ([`AgentTools`]) and the session roles as the page sends
-//! them back ([`RoleId`]).
+//! The shared pieces the screens use to show who does the work (UX-65; d0108, d0088, d0086): the formatters of a model
+//! ([`model_label`], [`who_model`], [`short_model`]), the agent tools' lists ([`AgentTools`]), the amber mark of a
+//! model ([`mark_view`]) and the session roles as a page sends them back ([`RoleId`]). There are no named agents: a
+//! stage of a flow says its own model, effort and instructions.
 
 use otaq_core::agent_tools::follow::FollowChoice;
 use otaq_core::agent_tools::{ModelKind, ModelList, Tool};
-use otaq_core::agents::{Agent, AgentList, AgentModel, InUse, Mark, ModelRef, SessionRole};
+use otaq_core::agents::{AgentModel, Mark, ModelRef, SessionRole};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::menu::MenuItem;
 use super::tool_avatar::{AvatarTool, ToolAvatarView, shown_with};
-use crate::icons::IconName;
 
 /// The tool default as a field or a table cell shows it.
 pub const TOOL_DEFAULT_LABEL: &str = "Tool default";
@@ -162,11 +158,16 @@ impl AgentTools {
     }
 }
 
-/// An agent's model as Settings shows it (AGM-01, AGM-03): its tool's model with the effort ("Opus · always the newest
-/// · effort high", with several tools the tool first), or "default" with what it is today ("default · Claude Code ·
+/// A model as Settings shows it (AGM-01, AGM-03, UX-65): its tool's model with the effort ("Opus · always the newest ·
+/// effort high", with several tools the tool first), or "default" with what it is today ("default · Claude Code ·
 /// sonnet").
-pub fn agent_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>) -> String {
-    match &agent.model {
+pub fn who_model(
+    model: &AgentModel,
+    effort: Option<&str>,
+    tools: &AgentTools,
+    default: Option<&ModelRef>,
+) -> String {
+    match model {
         AgentModel::Default => match default {
             Some(model) => {
                 let label = model_label(model.model.as_deref(), tools.list(model.tool));
@@ -179,7 +180,7 @@ pub fn agent_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>
                 tool: *tool,
                 model: model.clone(),
             });
-            if let Some(effort) = &agent.effort {
+            if let Some(effort) = effort {
                 text.push_str(&format!(" \u{b7} effort {effort}"));
             }
             text
@@ -277,10 +278,15 @@ pub fn tool_model(model: &ModelRef, tools: &AgentTools) -> String {
     )
 }
 
-/// An agent's model in the list and on its page (AGM-01, AGM-03): "Claude Code · opus · effort high", or on the
-/// default model "default · Claude Code · sonnet" (just "default" before a tool connects).
-pub fn list_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>) -> String {
-    match &agent.model {
+/// A model the short way (`s15-58`), always with its tool: "Claude Code · opus · effort high", or on the default model
+/// "default · Claude Code · sonnet" (just "default" before a tool connects).
+pub fn model_line(
+    model: &AgentModel,
+    effort: Option<&str>,
+    tools: &AgentTools,
+    default: Option<&ModelRef>,
+) -> String {
+    match model {
         AgentModel::Default => match default {
             Some(model) => format!("{DEFAULT} \u{b7} {}", tool_model(model, tools)),
             None => DEFAULT.to_owned(),
@@ -293,7 +299,7 @@ pub fn list_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>)
                 },
                 tools,
             );
-            if let Some(effort) = &agent.effort {
+            if let Some(effort) = effort {
                 text.push_str(&format!(" \u{b7} effort {effort}"));
             }
             text
@@ -301,221 +307,51 @@ pub fn list_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>)
     }
 }
 
-/// What uses an agent, one place each (AGM-01): "every project · Noyan", "pocket-api · Dev".
-pub fn used_in(uses: &InUse) -> Vec<String> {
-    let noyan = uses.noyan.then(|| "every project \u{b7} Noyan".to_owned());
-    let stages = uses.stages.iter().map(|s| curly(&s.label()));
-    noyan.into_iter().chain(stages).collect()
+/// [`model_line`] of a flow's model text (`claude:opus`, `default`), with its effort; "—" for none.
+pub fn model_text_line(
+    model: Option<&str>,
+    effort: Option<&str>,
+    tools: &AgentTools,
+    default: Option<&ModelRef>,
+) -> String {
+    match model.map(AgentModel::parse) {
+        Some(Ok(parsed)) => model_line(&parsed, effort, tools, default),
+        Some(Err(_)) => model.unwrap_or_default().to_owned(),
+        None => NOTHING.to_owned(),
+    }
 }
 
-/// The list's Used in cell: the places joined, "—" for none.
-fn used_in_cell(uses: Option<&InUse>) -> String {
-    match uses.map(used_in).filter(|u| !u.is_empty()) {
-        Some(places) => places.join(", "),
-        None => NOTHING.to_owned(),
+/// The tool a flow's model text runs on (`claude:opus` → Claude Code; `default`: the default model's tool). `None`
+/// when it can't be told.
+pub fn model_tool(model: Option<&str>, default: Option<&ModelRef>) -> Option<Tool> {
+    AgentModel::parse(model?).ok()?.on(default).map(|m| m.tool)
+}
+
+/// The tool a stage an agent works or checks runs on ([`model_tool`]); `None` for a check by you.
+pub fn stage_tool(stage: &otaq_core::flow::Stage, default: Option<&ModelRef>) -> Option<Tool> {
+    model_tool(stage.model(), default)
+}
+
+/// One choice of a small select (a model, an effort). `AgentOption` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentOption")]
+pub struct Choice {
+    /// What the page sends back; empty for "none" (the tool's effort).
+    pub id: String,
+    pub label: String,
+    pub selected: bool,
+}
+
+pub(crate) fn choice(id: &str, label: &str, selected: bool) -> Choice {
+    Choice {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        selected,
     }
 }
 
 /// An empty cell.
 pub const NOTHING: &str = "\u{2014}";
-
-/// One choice of a tool-and-model dropdown (the default model): a tool's heading, a model, or a note in place of a
-/// tool's models (loading, couldn't load).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentsModelChoice")]
-pub struct ModelChoice {
-    /// Unique in the list: what the page sends back is `tool` and `model`.
-    pub id: String,
-    pub kind: ChoiceKind,
-    #[ts(type = "string | null")]
-    pub tool: Option<Tool>,
-    /// `None`: the tool's default.
-    pub model: Option<String>,
-    pub label: String,
-    /// The muted part: "now claude-opus-5-5".
-    pub detail: Option<String>,
-    pub mono: bool,
-    pub selected: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "AgentsChoiceKind")]
-pub enum ChoiceKind {
-    Heading,
-    Option,
-    Note,
-}
-
-/// A dropdown of a tool and a model from that tool's list (AGM-03): every connected tool under its name, each with
-/// its own list as the model picker has it. Read-only while no tool is connected.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentsModelDropdown")]
-pub struct ModelDropdown {
-    /// The field's text: "Claude Code · sonnet".
-    pub value: String,
-    pub choices: Vec<ModelChoice>,
-    pub read_only: bool,
-}
-
-/// The dropdown over `tools` (in d0086's order), `picked` selected; `empty` while nothing is picked.
-fn dropdown(
-    on: &[Tool],
-    tools: &AgentTools,
-    picked: Option<&ModelRef>,
-    empty: &str,
-) -> ModelDropdown {
-    let mut choices = Vec::new();
-    for &tool in on {
-        choices.push(ModelChoice {
-            id: format!("heading:{tool}"),
-            kind: ChoiceKind::Heading,
-            tool: Some(tool),
-            model: None,
-            label: tool_name(tool).to_owned(),
-            detail: None,
-            mono: false,
-            selected: false,
-        });
-        let mine = picked.filter(|p| p.tool == tool);
-        let picker = super::model_picker::picker(
-            tool,
-            tools.state(tool),
-            mine.and_then(|p| p.model.as_deref()),
-            false,
-            None,
-        );
-        for item in picker.groups.iter().flat_map(|g| &g.items) {
-            choices.push(ModelChoice {
-                id: format!("{tool}:{}", item.value.as_deref().unwrap_or_default()),
-                kind: ChoiceKind::Option,
-                tool: Some(tool),
-                model: item.value.clone(),
-                label: item.label.clone(),
-                detail: item.detail.clone(),
-                mono: item.mono,
-                selected: mine.is_some() && item.selected,
-            });
-        }
-        if let Some(status) = &picker.status {
-            choices.push(ModelChoice {
-                id: format!("status:{tool}"),
-                kind: ChoiceKind::Note,
-                tool: Some(tool),
-                model: None,
-                label: status.text.clone(),
-                detail: None,
-                mono: false,
-                selected: false,
-            });
-        }
-    }
-    ModelDropdown {
-        value: match picked {
-            Some(model) => tool_model(model, tools),
-            None => empty.to_owned(),
-        },
-        read_only: on.is_empty(),
-        choices,
-    }
-}
-
-/// The connected tools, in d0086's order.
-fn connected(tools: &AgentTools) -> Vec<Tool> {
-    Tool::ALL
-        .iter()
-        .copied()
-        .filter(|t| tools.is_connected(*t))
-        .collect()
-}
-
-/// Default model for new agents (AGM-03).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentsDefaultModel")]
-pub struct DefaultModel {
-    pub label: String,
-    pub description: String,
-    pub dropdown: ModelDropdown,
-}
-
-/// One agent in the list.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "AgentListRow")]
-pub struct TableRow {
-    pub id: String,
-    pub name: String,
-    /// "From Otaq's agents file", "Added by the Otaq default preset", "Added by you".
-    pub came_from: String,
-    /// The model the Agents page's way ([`list_model`]).
-    pub model: String,
-    /// "pocket-api · Dev, pocket-api · Done", "—".
-    pub used_in: String,
-    pub mark: Option<MarkView>,
-    /// After the mark: "Edit…" opens the agent's page (`s15-32`).
-    pub mark_link: Option<String>,
-    /// The ⋯ menu: Duplicate, Delete….
-    pub menu: Vec<MenuItem>,
-    /// The ⋯ button's name: "More for Strong".
-    pub menu_label: String,
-}
-
-/// "Noyan uses <agent>": the one app setting for Noyan's agent. Every new conversation starts on it; one can pick
-/// another when it starts. Sent back as `settings.noyan_agent` with the agent's id.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentsNoyanAgent")]
-pub struct NoyanAgent {
-    /// "Noyan uses".
-    pub label: String,
-    pub description: String,
-    /// The agent's name; "Pick an agent" while none is set.
-    pub value: String,
-    /// Every agent, the one Noyan uses selected.
-    pub options: Vec<super::agent_page::Choice>,
-}
-
-/// The Agents page (AGM-04; `s15-58` / `s15-59`): the default model, the agent Noyan uses and the list.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "AgentsSection")]
-pub struct Section {
-    pub title: String,
-    pub intro: String,
-    pub new_agent_label: String,
-    /// The header's ⋯ (FLW-10): Apply the shipped agents file again, which opens the flow editor for the project on
-    /// screen.
-    pub more_label: String,
-    pub more: Vec<MenuItem>,
-    pub default_model: DefaultModel,
-    pub noyan: NoyanAgent,
-    /// NAME, MODEL, USED IN.
-    pub columns: Vec<String>,
-    pub rows: Vec<TableRow>,
-}
-
-/// The header's ⋯ item (FLW-10): the flow editor with `otaq-agents.yaml`, Keep mine · Take theirs per changed agent; the
-/// way back after a broken edit.
-pub const AGENTS_FILE: &str = "agents_file";
-pub const APPLY_THE_SHIPPED_AGENTS_FILE_AGAIN: &str = "Apply the shipped agents file again";
-
-/// The ⋯ menu's items, by the id the page sends back.
-pub const DUPLICATE: &str = "duplicate";
-pub const DELETE: &str = "delete";
-pub const MENU_LABEL: &str = "More actions";
-
-/// Duplicate, Delete… (AGT-02's menu, kept by AGM-04).
-pub fn agent_menu() -> Vec<MenuItem> {
-    vec![
-        MenuItem {
-            icon: Some(IconName::Copy),
-            ..MenuItem::new(DUPLICATE, "Duplicate")
-        },
-        MenuItem {
-            icon: Some(IconName::Trash2),
-            danger: true,
-            separated: true,
-            ..MenuItem::new(DELETE, "Delete\u{2026}")
-        },
-    ]
-}
 
 /// "a", "a and b", "a, b and c".
 pub fn and_list(items: &[String]) -> String {
@@ -526,107 +362,10 @@ pub fn and_list(items: &[String]) -> String {
     }
 }
 
-/// The core's words with the frames' apostrophe: "From Otaq’s agents file".
-fn curly(text: &str) -> String {
-    text.replace('\'', "\u{2019}")
-}
-
-/// An agent's came-from line: "From Otaq’s agents file", "Added by you".
-pub fn came_from(agent: &Agent) -> String {
-    curly(&agent.came_from.label())
-}
-
-/// What the page is built from: `agents.list`, the tools, and what uses each agent (`agents.in_use`).
-pub struct Inputs<'a> {
-    pub list: &'a AgentList,
-    pub tools: &'a AgentTools,
-    pub uses: &'a [InUse],
-}
-
-impl Inputs<'_> {
-    /// What uses `agent` (by name: `InUse` names it).
-    pub fn uses_of(&self, agent: &Agent) -> Option<&InUse> {
-        self.uses.iter().find(|u| u.agent == agent.name)
-    }
-}
-
-/// The page from `agents.list`.
-pub fn section(input: &Inputs) -> Section {
-    let (list, tools) = (input.list, input.tools);
-    let default = list.default_model.as_ref();
-    let on = connected(tools);
-    Section {
-        title: "Agents".to_owned(),
-        intro: "What each agent does: its instructions and its own model. Agents are shared by all your \
-                projects, and each stage of a flow names the agent that works it. Edits apply to the next session \
-                that starts."
-            .to_owned(),
-        new_agent_label: "New agent".to_owned(),
-        more_label: "More agent actions".to_owned(),
-        more: vec![MenuItem {
-            icon: Some(IconName::RotateCcw),
-            ..MenuItem::new(AGENTS_FILE, APPLY_THE_SHIPPED_AGENTS_FILE_AGAIN)
-        }],
-        default_model: DefaultModel {
-            label: "Default model for new agents".to_owned(),
-            description: "A new agent, or one a preset adds, starts with it.".to_owned(),
-            dropdown: dropdown(&on, tools, default, NO_DEFAULT),
-        },
-        noyan: noyan_agent(list),
-        columns: ["Name", "Model", "Used in"]
-            .map(str::to_owned)
-            .to_vec(),
-        rows: list
-            .agents
-            .iter()
-            .map(|a| TableRow {
-                id: a.id.clone(),
-                name: a.name.clone(),
-                came_from: came_from(a),
-                model: list_model(a, tools, default),
-                used_in: used_in_cell(input.uses_of(a)),
-                mark: a.mark.as_ref().map(mark_view),
-                mark_link: a.mark.as_ref().map(|_| "Edit\u{2026}".to_owned()),
-                menu: agent_menu(),
-                menu_label: format!("More for {}", a.name),
-            })
-            .collect(),
-    }
-}
-
-/// "Noyan uses <agent>" from `agents.list`.
-pub fn noyan_agent(list: &AgentList) -> NoyanAgent {
-    let picked = list.noyan();
-    NoyanAgent {
-        label: NOYAN_USES.to_owned(),
-        description: "Each new conversation with Noyan starts on this agent. You can pick another when you start \
-                      one."
-            .to_owned(),
-        value: picked.map_or(NO_NOYAN_AGENT, |a| a.name.as_str()).to_owned(),
-        options: list
-            .agents
-            .iter()
-            .map(|a| {
-                super::agent_page::choice(&a.id, &a.name, picked.is_some_and(|p| p.id == a.id))
-            })
-            .collect(),
-    }
-}
-
-/// The setting's label.
-pub const NOYAN_USES: &str = "Noyan uses";
-/// Its value while no agent is set.
-pub const NO_NOYAN_AGENT: &str = "Pick an agent";
-
-/// The default model's field before a tool connects.
-pub const NO_DEFAULT: &str = "The first agent tool you connect";
-
 /// The agent tools' model lists the tests share.
 pub mod fixtures {
     use otaq_core::agent_tools::models::ModelEntry;
     use otaq_core::agent_tools::{ModelKind, ModelList, Tool};
-    use otaq_core::agents::in_use::StageUse;
-    use otaq_core::agents::{Agent, AgentList, AgentModel, CameFrom, InUse, ModelRef};
 
     pub fn entry(id: &str, display: &str, kind: ModelKind, now: Option<&str>) -> ModelEntry {
         ModelEntry {
@@ -671,34 +410,6 @@ pub mod fixtures {
                 ),
             ],
         }
-    }
-
-    /// An agent on Claude Code with `model` (`None`: the tool's default).
-    pub fn agent(id: &str, name: &str, model: Option<&str>) -> Agent {
-        Agent {
-            id: id.to_owned(),
-            name: name.to_owned(),
-            instructions: String::new(),
-            model: AgentModel::Tool {
-                tool: Tool::ALL[0],
-                model: model.map(str::to_owned),
-            },
-            effort: None,
-            came_from: CameFrom::You,
-            mark: None,
-            created_at: 1,
-            updated_at: 1,
-        }
-    }
-
-    /// `agent` on `tool` instead.
-    pub fn on(tool: Tool, mut agent: Agent) -> Agent {
-        let model = match agent.model {
-            AgentModel::Tool { model, .. } => model,
-            AgentModel::Default => None,
-        };
-        agent.model = AgentModel::Tool { tool, model };
-        agent
     }
 
     pub fn codex_list() -> ModelList {
@@ -803,89 +514,15 @@ pub mod fixtures {
     pub fn two_tools() -> super::AgentTools {
         tools(&[Tool::Claude, Tool::Codex])
     }
-
-    /// The ticket file's example (T-0405, AGM-02): Noyan, Developer, Validator, Strong and Light, the default model
-    /// Light's, Noyan using the agent Noyan, and what uses each agent (pocket-notes validates, pocket-api doesn't).
-    pub fn example() -> (AgentList, Vec<InUse>) {
-        let with = |mut a: Agent, f: &dyn Fn(&mut Agent)| {
-            f(&mut a);
-            a
-        };
-        let instructions = "Run `just test` before committing";
-        let agents = vec![
-            with(agent("noyan", "Noyan", Some("haiku")), &|a| {
-                a.came_from = CameFrom::AgentsFile;
-                a.instructions = "Keep tickets small".into();
-            }),
-            with(agent("developer", "Developer", Some("haiku")), &|a| {
-                a.came_from = CameFrom::DefaultPreset;
-                a.instructions = instructions.into();
-            }),
-            with(agent("validator", "Validator", Some("opus")), &|a| {
-                a.came_from = CameFrom::DefaultPreset;
-            }),
-            with(agent("strong", "Strong", Some("opus")), &|a| {
-                a.instructions = instructions.into();
-            }),
-            with(agent("light", "Light", Some("haiku")), &|a| {
-                a.instructions = instructions.into();
-            }),
-        ];
-        let stage = |project: &str, stage: &str| StageUse {
-            project: Some(project.into()),
-            stage: stage.into(),
-        };
-        let uses = vec![
-            InUse {
-                agent: "Noyan".into(),
-                noyan: true,
-                stages: Vec::new(),
-            },
-            InUse {
-                agent: "Developer".into(),
-                noyan: false,
-                stages: vec![
-                    stage("pocket-api", "Dev"),
-                    stage("pocket-api", "Done"),
-                    stage("pocket-notes", "Dev"),
-                    stage("pocket-notes", "Done"),
-                ],
-            },
-            InUse {
-                agent: "Validator".into(),
-                noyan: false,
-                stages: vec![stage("pocket-notes", "Validate")],
-            },
-            InUse {
-                agent: "Strong".into(),
-                ..InUse::default()
-            },
-            InUse {
-                agent: "Light".into(),
-                ..InUse::default()
-            },
-        ];
-        let list = AgentList {
-            agents,
-            default_model: Some(ModelRef {
-                tool: Tool::Claude,
-                model: Some("haiku".into()),
-            }),
-            noyan_agent: Some("noyan".into()),
-        };
-        (list, uses)
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::naming::PRODUCT_NAME;
-
     use super::fixtures::*;
     use super::*;
 
     #[test]
-    fn models_read_the_agents_pages_way() {
+    fn models_read_the_short_way() {
         let list = claude_list();
         assert_eq!(
             model_label(Some("opus"), Some(&list)),
@@ -903,170 +540,131 @@ mod tests {
             "Auto \u{b7} balance"
         );
         let tools = AgentTools::one(Some(list));
-        let mut strong = agent("s", "Strong", Some("opus"));
-        strong.effort = Some("high".into());
         assert_eq!(
-            list_model(&strong, &tools, None),
+            model_text_line(Some("claude:opus"), Some("high"), &tools, None),
             "Claude Code \u{b7} opus \u{b7} effort high"
         );
-        let mut noyan = agent("p", "Noyan", None);
-        noyan.model = AgentModel::Default;
-        assert_eq!(list_model(&noyan, &tools, None), "default");
+        assert_eq!(
+            model_text_line(Some("default"), None, &tools, None),
+            "default"
+        );
         let sonnet = ModelRef {
             tool: Tool::Claude,
             model: Some("sonnet".into()),
         };
         assert_eq!(
-            list_model(&noyan, &tools, Some(&sonnet)),
+            model_text_line(Some("default"), None, &tools, Some(&sonnet)),
             "default \u{b7} Claude Code \u{b7} sonnet"
         );
+        assert_eq!(model_text_line(None, None, &tools, None), NOTHING);
     }
+}
+/// One choice of a tool-and-model dropdown (the default model): a tool's heading, a model, or a note in place of a
+/// tool's models (loading, couldn't load).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsModelChoice")]
+pub struct ModelChoice {
+    /// Unique in the list: what the page sends back is `tool` and `model`.
+    pub id: String,
+    pub kind: ChoiceKind,
+    #[ts(type = "string | null")]
+    pub tool: Option<Tool>,
+    /// `None`: the tool's default.
+    pub model: Option<String>,
+    pub label: String,
+    /// The muted part: "now claude-opus-5-5".
+    pub detail: Option<String>,
+    pub mono: bool,
+    pub selected: bool,
+}
 
-    /// The example (T-0410's Done-when): the agents with their came-from lines, models and where they are used, and
-    /// "Noyan uses" offering every agent with Noyan's own selected. No row shows a role. An agent has no skill list
-    /// (T7): no Skills column, and no row names a skill.
-    #[test]
-    fn the_examples_agents_page() {
-        let (list, uses) = example();
-        let tools = AgentTools::one(Some(claude_list()));
-        let page = section(&Inputs {
-            list: &list,
-            tools: &tools,
-            uses: &uses,
-        });
-        assert_eq!(page.title, "Agents");
-        assert_eq!(
-            page.intro,
-            "What each agent does: its instructions and its own model. Agents are shared by all your \
-             projects, and each stage of a flow names the agent that works it. Edits apply to the next session \
-             that starts."
-        );
-        assert_eq!(page.noyan.label, "Noyan uses");
-        assert_eq!(page.noyan.value, "Noyan");
-        let offered: Vec<(&str, &str, bool)> = page
-            .noyan
-            .options
-            .iter()
-            .map(|o| (o.id.as_str(), o.label.as_str(), o.selected))
-            .collect();
-        assert_eq!(
-            offered,
-            [
-                ("noyan", "Noyan", true),
-                ("developer", "Developer", false),
-                ("validator", "Validator", false),
-                ("strong", "Strong", false),
-                ("light", "Light", false),
-            ]
-        );
-        let mut unset = list.clone();
-        unset.noyan_agent = None;
-        assert_eq!(noyan_agent(&unset).value, "Pick an agent");
-        assert_eq!(page.new_agent_label, "New agent");
-        let more: Vec<(&str, &str)> = page
-            .more
-            .iter()
-            .map(|m| (m.id.as_str(), m.label.as_str()))
-            .collect();
-        assert_eq!(
-            more,
-            [("agents_file", "Apply the shipped agents file again")]
-        );
-        assert_eq!(page.default_model.label, "Default model for new agents");
-        assert_eq!(
-            page.default_model.description,
-            "A new agent, or one a preset adds, starts with it."
-        );
-        assert_eq!(
-            page.default_model.dropdown.value,
-            "Claude Code \u{b7} haiku"
-        );
-        assert_eq!(page.columns, ["Name", "Model", "Used in"]);
-        type Shown<'a> = (&'a str, &'a str, &'a str, &'a str);
-        let rows: Vec<Shown> = page
-            .rows
-            .iter()
-            .map(|r| {
-                (
-                    r.name.as_str(),
-                    r.came_from.as_str(),
-                    r.model.as_str(),
-                    r.used_in.as_str(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            rows,
-            [
-                (
-                    "Noyan",
-                    &*format!("From {PRODUCT_NAME}\u{2019}s agents file"),
-                    "Claude Code \u{b7} haiku",
-                    "every project \u{b7} Noyan"
-                ),
-                (
-                    "Developer",
-                    &*format!("Added by the {PRODUCT_NAME} default preset"),
-                    "Claude Code \u{b7} haiku",
-                    "pocket-api \u{b7} Dev, pocket-api \u{b7} Done, pocket-notes \u{b7} Dev, pocket-notes \u{b7} Done"
-                ),
-                (
-                    "Validator",
-                    &*format!("Added by the {PRODUCT_NAME} default preset"),
-                    "Claude Code \u{b7} opus",
-                    "pocket-notes \u{b7} Validate"
-                ),
-                (
-                    "Strong",
-                    "Added by you",
-                    "Claude Code \u{b7} opus",
-                    "\u{2014}"
-                ),
-                (
-                    "Light",
-                    "Added by you",
-                    "Claude Code \u{b7} haiku",
-                    "\u{2014}"
-                ),
-            ]
-        );
-        let view = serde_json::to_value(&page.rows[0]).unwrap();
-        assert!(view.get("skills").is_none(), "no row names a skill");
-        assert!(view.get("role").is_none(), "no row shows a role");
-        let menu: Vec<&str> = page.rows[0].menu.iter().map(|m| m.label.as_str()).collect();
-        assert_eq!(menu, ["Duplicate", "Delete\u{2026}"]);
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "AgentsChoiceKind")]
+pub enum ChoiceKind {
+    Heading,
+    Option,
+    Note,
+}
 
-    /// AGM-03: the default model offers every connected tool's list, under its name; nothing to pick before a tool
-    /// connects.
-    #[test]
-    fn the_default_model_offers_every_connected_tool() {
-        let (mut list, uses) = example();
-        let tools = two_tools();
-        let page = section(&Inputs {
-            list: &list,
-            tools: &tools,
-            uses: &uses,
+/// A dropdown of a tool and a model from that tool's list (AGM-03): every connected tool under its name, each with
+/// its own list as the model picker has it. Read-only while no tool is connected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsModelDropdown")]
+pub struct ModelDropdown {
+    /// The field's text: "Claude Code · sonnet".
+    pub value: String,
+    pub choices: Vec<ModelChoice>,
+    pub read_only: bool,
+}
+
+/// The dropdown over `tools` (in d0086's order), `picked` selected; `empty` while nothing is picked.
+pub fn dropdown(
+    on: &[Tool],
+    tools: &AgentTools,
+    picked: Option<&ModelRef>,
+    empty: &str,
+) -> ModelDropdown {
+    let mut choices = Vec::new();
+    for &tool in on {
+        choices.push(ModelChoice {
+            id: format!("heading:{tool}"),
+            kind: ChoiceKind::Heading,
+            tool: Some(tool),
+            model: None,
+            label: tool_name(tool).to_owned(),
+            detail: None,
+            mono: false,
+            selected: false,
         });
-        // The default model offers both tools' lists, under their names.
-        let headings: Vec<&str> = page
-            .default_model
-            .dropdown
-            .choices
-            .iter()
-            .filter(|c| c.kind == ChoiceKind::Heading)
-            .map(|c| c.label.as_str())
-            .collect();
-        assert_eq!(headings, ["Claude Code", "Codex"]);
-        // Before a tool connects there is nothing to pick.
-        list.default_model = None;
-        let none = AgentTools::default();
-        let page = section(&Inputs {
-            list: &list,
-            tools: &none,
-            uses: &uses,
-        });
-        assert!(page.default_model.dropdown.read_only);
-        assert_eq!(page.default_model.dropdown.value, NO_DEFAULT);
+        let mine = picked.filter(|p| p.tool == tool);
+        let picker = super::model_picker::picker(
+            tool,
+            tools.state(tool),
+            mine.and_then(|p| p.model.as_deref()),
+            false,
+            None,
+        );
+        for item in picker.groups.iter().flat_map(|g| &g.items) {
+            choices.push(ModelChoice {
+                id: format!("{tool}:{}", item.value.as_deref().unwrap_or_default()),
+                kind: ChoiceKind::Option,
+                tool: Some(tool),
+                model: item.value.clone(),
+                label: item.label.clone(),
+                detail: item.detail.clone(),
+                mono: item.mono,
+                selected: mine.is_some() && item.selected,
+            });
+        }
+        if let Some(status) = &picker.status {
+            choices.push(ModelChoice {
+                id: format!("status:{tool}"),
+                kind: ChoiceKind::Note,
+                tool: Some(tool),
+                model: None,
+                label: status.text.clone(),
+                detail: None,
+                mono: false,
+                selected: false,
+            });
+        }
     }
+    ModelDropdown {
+        value: match picked {
+            Some(model) => tool_model(model, tools),
+            None => empty.to_owned(),
+        },
+        read_only: on.is_empty(),
+        choices,
+    }
+}
+
+/// The connected tools, in d0086's order.
+pub fn connected(tools: &AgentTools) -> Vec<Tool> {
+    Tool::ALL
+        .iter()
+        .copied()
+        .filter(|t| tools.is_connected(*t))
+        .collect()
 }

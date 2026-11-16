@@ -126,14 +126,9 @@ async fn projects(app: &App) -> Result<Vec<ProjectInfo>, RequestError> {
     }
 }
 
-/// The name of the agent that drafts a suggested flow: Noyan's.
-async fn suggester(app: &App) -> String {
-    match app.service.send(Request::AgentsList).await {
-        Ok(Reply::Agents(list)) => list
-            .noyan()
-            .map_or_else(|| "Noyan".to_owned(), |a| a.name.clone()),
-        _ => "Noyan".to_owned(),
-    }
+/// The name of the agent that drafts a suggested flow: Noyan.
+async fn suggester(_app: &App) -> String {
+    "Noyan".to_owned()
 }
 
 /// The form for what the page holds: the folder checked by the service, the typed values on top of the detected

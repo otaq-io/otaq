@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use otaq_core::flow::presets::{self, preset, presets};
-use otaq_core::flow::{Delivers, DeliveryMode, check, check_agents, yaml};
+use otaq_core::flow::{Delivers, DeliveryMode, check, yaml};
 use otaq_core::naming;
 
 #[test]
@@ -82,10 +82,12 @@ fn every_preset_reads_and_passes_the_checks() {
         // An agent has no skills: a shipped file gives none (T6).
         assert!(!p.yaml.contains("skills:"), "{}", p.file);
         assert_eq!(check(&file.flow), Ok(()), "{}", p.file);
-        let known = |name: &str| file.agents.iter().any(|a| a.name == name);
-        assert_eq!(check_agents(&file.flow, known), Ok(()), "{}", p.file);
-        for agent in &file.agents {
-            assert_eq!(agent.model, "default", "{}: {}", p.file, agent.name);
+        // Every stage an agent works or checks, and the delivery when it has a model, runs on `default` (UX-68).
+        for stage in file.flow.stages.iter().filter(|s| s.runs_agent()) {
+            assert_eq!(stage.model(), Some("default"), "{}: {}", p.file, stage.name);
+        }
+        if let Some(model) = file.flow.delivery.who.model.as_deref() {
+            assert_eq!(model, "default", "{}", p.file);
         }
         for stage in &file.flow.stages {
             if let Some(skill) = &stage.skill {
@@ -141,24 +143,24 @@ fn the_presets_stages_run_their_agents_and_skills() {
     let stage = |file: &str, id: &str| {
         let flow = preset(file).unwrap().read().flow;
         let s = flow.stage(id).unwrap().clone();
-        (s.agent, s.skill, None::<(DeliveryMode, Delivers)>)
+        (s.who.model, s.skill, None::<(DeliveryMode, Delivers)>)
     };
     let delivery = |file: &str| {
         let d = preset(file).unwrap().read().flow.delivery;
-        (d.agent, d.skill, Some((d.mode, d.delivers)))
+        (d.who.model, d.skill, Some((d.mode, d.delivers)))
     };
     let some = |s: &str| Some(s.to_owned());
     assert_eq!(
         stage("spec-first.yaml", "product-spec"),
-        (some("Spec writer"), some("tuq:product-spec"), None)
+        (some("default"), some("tuq:product-spec"), None)
     );
     assert_eq!(
         stage("spec-first.yaml", "tech-spec"),
-        (some("Architect"), some("tuq:tech-spec"), None)
+        (some("default"), some("tuq:tech-spec"), None)
     );
     assert_eq!(
         stage("spec-first.yaml", "milestone-plan"),
-        (some("Milestone planner"), some("tuq:milestone-plan"), None)
+        (some("default"), some("tuq:milestone-plan"), None)
     );
     let spec_first = preset("spec-first.yaml").unwrap().read().flow;
     assert_eq!(spec_first.stages[0].id, "product-spec");
@@ -193,7 +195,7 @@ fn the_presets_stages_run_their_agents_and_skills() {
     assert_eq!(
         delivery("team-pr.yaml"),
         (
-            some("Shipper"),
+            some("default"),
             some("otaq:open-pr"),
             Some((DeliveryMode::Automatic, Delivers::Pr))
         )
@@ -205,7 +207,7 @@ fn the_presets_stages_run_their_agents_and_skills() {
     assert_eq!(
         delivery(naming::DEFAULT_FLOW_FILE),
         (
-            some("Developer"),
+            some("default"),
             some("otaq:open-pr"),
             Some((DeliveryMode::Click, Delivers::Either))
         )
@@ -230,31 +232,4 @@ fn every_shipped_stage_says_what_it_is_for() {
             );
         }
     }
-}
-
-/// An agent several presets define is the same agent in each (agents are shared by name, so a second preset adds
-/// no import clash for Developer or Validator).
-#[test]
-fn shared_agents_read_the_same_in_every_preset() {
-    let mut seen: Vec<otaq_core::flow::FlowAgent> = Vec::new();
-    for p in presets() {
-        for agent in p.read().agents {
-            match seen.iter().find(|a| a.name == agent.name) {
-                Some(first) => assert_eq!(first, &agent, "{}: {}", p.file, agent.name),
-                None => seen.push(agent),
-            }
-        }
-    }
-    let names: Vec<&str> = seen.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(
-        names,
-        [
-            "Developer",
-            "Checker",
-            "Spec writer",
-            "Architect",
-            "Milestone planner",
-            "Shipper"
-        ]
-    );
 }

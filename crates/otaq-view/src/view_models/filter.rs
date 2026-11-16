@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 
 use crate::view_models::flow_columns::{Columns, place_set};
-use otaq_core::agents::AgentList;
 use otaq_core::agents::facts::BoardAgents;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::StatusSet;
@@ -39,13 +38,8 @@ pub struct Scope {
 }
 
 impl Scope {
-    /// The scope of `tickets` on `flow`, with the cards' agents and every agent when they could be read.
-    pub fn of(
-        flow: &Flow,
-        tickets: &[Ticket],
-        cards: Option<&BoardAgents>,
-        list: Option<&AgentList>,
-    ) -> Self {
+    /// The scope of `tickets` on `flow`, with the tools the cards' stages run on.
+    pub fn of(flow: &Flow, tickets: &[Ticket], cards: Option<&BoardAgents>) -> Self {
         // Where each card shows, as the board places it: a held ticket in the column of the stage it starts at.
         let columns = Columns::of(flow).knowing(cards);
         let stage_agents: HashMap<TicketKey, String> = cards
@@ -56,9 +50,7 @@ impl Scope {
                     .collect()
             })
             .unwrap_or_default();
-        let mut agents: Vec<String> = list
-            .map(|l| l.agents.iter().map(|a| a.name.clone()).collect())
-            .unwrap_or_default();
+        let mut agents: Vec<String> = Vec::new();
         for name in stage_agents.values() {
             if !agents.iter().any(|a| word(a) == word(name)) {
                 agents.push(name.clone());
@@ -551,7 +543,7 @@ mod tests {
         let agents = starts_at_dev();
         let held = waiting(Status::Held);
         let all = vec![held.clone()];
-        let scope = Scope::of(&file.flow, &all, Some(&agents), None);
+        let scope = Scope::of(&file.flow, &all, Some(&agents));
         assert_eq!(scope.column_of(&held.key), Some("Dev"));
         let only = |token: &str| {
             let mut f = Filter::default();
@@ -565,7 +557,7 @@ mod tests {
         assert_eq!(only("in:dev"), ["NOTE-12"]);
         assert!(only("in:product-spec").is_empty());
         let queued = vec![waiting(Status::Queued)];
-        let scope = Scope::of(&file.flow, &queued, Some(&agents), None);
+        let scope = Scope::of(&file.flow, &queued, Some(&agents));
         assert_eq!(scope.column_of(&queued[0].key), Some("Product spec"));
     }
 }

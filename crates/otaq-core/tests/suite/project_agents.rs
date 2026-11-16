@@ -236,7 +236,7 @@ async fn an_empty_message_opens_nothing() {
             otaq_core::protocol::ProjectAgentOpenParams {
                 project: "SHOP".into(),
                 message: " ".into(),
-                agent: None,
+                on: None,
             },
         ))
         .await
@@ -818,7 +818,6 @@ async fn the_list_carries_a_held_first_message() {
         reason: HoldReason::ModelUnavailable,
         tool: Tool::ALL[1],
         model: Some("gpt-5.4".into()),
-        agent_id: None,
         skill: None,
         since: 1,
     };

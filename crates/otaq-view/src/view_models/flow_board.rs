@@ -36,19 +36,16 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::agent_page::Choice;
 use crate::view_models::agent_panel::{self, LABEL as NOYAN};
 use crate::view_models::agent_question::{self, AgentQuestion};
+use crate::view_models::agents::Choice;
 use crate::view_models::flow_columns::{BACKLOG, DONE};
 use crate::view_models::flow_editor::{
-    self as editor, AgentField, CHECK_ROUNDS, Choices, EditorKind, Facts, FailToField, FixRow,
-    MarkView, Pick, SkillField,
+    self as editor, CHECK_ROUNDS, EditorKind, Facts, FailToField, MarkView, ModelLine, Pick,
+    SkillField,
 };
 use crate::view_models::hint::HintId;
-use crate::view_models::menu::MenuItem;
-use crate::view_models::project_settings::{
-    AGENT_FIELD, DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD, SKILL_FIELD,
-};
+use crate::view_models::project_settings::{DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD, SKILL_FIELD};
 use crate::view_models::tool_avatar::ToolAvatarView;
 
 /// The kinds of stage, as the editor names them.
@@ -169,7 +166,8 @@ pub struct Details {
     pub description_label: &'static str,
     pub description: String,
     pub description_hint: &'static str,
-    pub agent: Option<AgentField>,
+    /// Who does the stage, read-only for now (UX-65).
+    pub model: Option<ModelLine>,
     pub skill: Option<SkillField>,
     /// "Otaq's own" beside one of Otaq's skills.
     pub skill_tag: Option<String>,
@@ -177,9 +175,7 @@ pub struct Details {
     pub fail_to: Option<FailToField>,
     pub rounds: Option<Rounds>,
     pub skip: Skip,
-    /// A problem no pick fixes.
     pub problem: Option<String>,
-    pub fixes: Vec<FixRow>,
     pub mark: Option<MarkView>,
     pub remove: &'static str,
     /// [`REMOVING_WAITS`] for a stage the flow has now with tickets in it.
@@ -203,26 +199,12 @@ pub struct DeliveryPanel {
     /// Either is chosen at your click: the modes stay on On Approve, switched off ([`EITHER_NOTE`] says why).
     pub modes_off: bool,
     pub mode_note: Option<&'static str>,
-    /// The delivery's agent, which writes the message and opens the PR.
-    pub agent: DeliveryAgent,
+    /// Who writes the message and opens the PR (UX-69), read-only for now; `None` for a local merge that names no
+    /// model (its message is Otaq's plain one).
+    pub model: Option<ModelLine>,
     /// The skill it opens a PR with; `None` for a local merge, which opens none.
     pub skill: Option<DeliverySkill>,
     pub note: &'static str,
-}
-
-/// Done panel's Agent: who writes the merge message (and the PR's) when a ticket reaches Review, and opens the PR.
-/// `FlowBoardDeliveryAgent` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowBoardDeliveryAgent")]
-pub struct DeliveryAgent {
-    pub label: &'static str,
-    /// The field `delivery.agent`; an item's id is what picking it sends (`""`: none).
-    pub field: &'static str,
-    /// The agent's name, or "None" for a local merge with none.
-    pub value: String,
-    /// The stored agents, then those the draft brings ("new"); "None" first for a local merge.
-    pub items: Vec<MenuItem>,
-    pub hint: &'static str,
 }
 
 /// Done panel's PR skill: the user's own Open PR skill by name, or empty for Otaq's own. `FlowBoardDeliverySkill` on
@@ -503,8 +485,6 @@ pub struct View {
     pub watch: Watch,
     pub saved: Saved,
     pub hint: HintId,
-    /// The picks as Save sends them.
-    pub choices: Choices,
 }
 
 /// What the board's editor reads besides the overlay editor's facts.
@@ -636,10 +616,7 @@ fn columns(f: &Facts) -> Vec<Column> {
         let next = stages.get(i + 1).map_or("Done", |s| s.name.as_str());
         let (avatar, who) = match stage.kind {
             StageKind::Check { by: CheckBy::You } => (None, Some("You".to_owned())),
-            _ => match editor::the_agent(stage) {
-                Some(name) => (editor::agent_on(name, f).0, Some(name.clone())),
-                None => (None, None),
-            },
+            _ => (editor::stage_on(stage, f).0, editor::stage_who(stage)),
         };
         let mark = editor::mark_of(f.marks, &stage.id)
             .map(editor::mark_view)
@@ -730,10 +707,7 @@ fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
         description: stage.description.clone().unwrap_or_default(),
         description_hint: "One or two sentences: what this stage settles, and when it matters. Agents read it to \
              understand the flow; people see it on the column header and when skipping.",
-        agent: d.agent.map(|a| AgentField {
-            hint: "Any of your agents. A ticket may pick another.",
-            ..a
-        }),
+        model: d.model,
         skill: d.skill,
         skill_tag,
         skill_hint: "How the agent does it.",
@@ -751,7 +725,6 @@ fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
             on: stage.options.contains(&StageOption::Skip),
         },
         problem: d.problem,
-        fixes: d.fixes,
         mark: d.mark,
         remove: "Remove stage",
         remove_note: has_tickets.then_some(REMOVING_WAITS),
@@ -793,7 +766,7 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
             ),
         ],
         modes_off: either,
-        agent: delivery_agent(f),
+        model: delivery_model(f),
         skill: d.can_open_pr().then(|| delivery_skill(f)),
         mode_note: (!either && d.mode == DeliveryMode::Automatic).then_some(
             "Automatically: delivered as soon as the last stage passes, without Approve. Solo autopilot merges this \
@@ -803,42 +776,29 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
     }
 }
 
-/// Done panel's Agent field: the delivery's agent among the stored agents and those the draft brings.
-fn delivery_agent(f: &Facts) -> DeliveryAgent {
-    let d = &f.file.flow.delivery;
-    let current = d.agent.as_deref().unwrap_or_default();
-    let is = |name: &str| name.eq_ignore_ascii_case(current);
-    let mut items = Vec::new();
-    if !d.can_open_pr() {
-        items.push(MenuItem::new("", "None").checked(d.agent.is_none()));
-    }
-    items.extend(
-        f.stored
-            .iter()
-            .map(|a| MenuItem::new(a.name.clone(), a.name.clone()).checked(is(&a.name))),
-    );
-    items.extend(
-        f.file
-            .agents
-            .iter()
-            .filter(|a| {
-                !f.stored
-                    .iter()
-                    .any(|s| s.name.eq_ignore_ascii_case(&a.name))
-            })
-            .map(|a| {
-                MenuItem::new(a.name.clone(), a.name.clone())
-                    .hint("new")
-                    .checked(is(&a.name))
-            }),
-    );
-    DeliveryAgent {
-        label: "Agent",
-        field: AGENT_FIELD,
-        value: d.agent.clone().unwrap_or_else(|| "None".to_owned()),
-        items,
-        hint: "Writes the merge message when a ticket reaches Review, and opens the PR.",
-    }
+/// Done panel's model: who writes the merge message (and the PR's) and opens the PR (UX-69), read-only for now.
+fn delivery_model(f: &Facts) -> Option<ModelLine> {
+    let who = &f.file.flow.delivery.who;
+    who.model.as_ref()?;
+    let lists = crate::view_models::agents::AgentTools {
+        connected: f.tools.connected.clone(),
+        lists: f.tools.lists.clone(),
+        failed: Vec::new(),
+    };
+    Some(ModelLine {
+        label: "Model",
+        avatar: editor::who_on(who, f).map(|on| ToolAvatarView::of(on.tool, on.model.as_deref())),
+        value: crate::view_models::agents::model_text_line(
+            who.model.as_deref(),
+            who.effort.as_deref(),
+            &lists,
+            f.tools.default_model.as_ref(),
+        ),
+        instructions: who.instructions.clone(),
+        warning: None,
+        hint: "Writes the merge message when a ticket reaches Review, and opens the PR. Set in the flow file\u{2019}s \
+               `delivery:`.",
+    })
 }
 
 /// Done panel's PR skill: where the user's own Open PR skill goes.
@@ -1212,7 +1172,8 @@ fn suggestion(f: &Facts) -> Option<Suggestion> {
 
 /// What the pretend ticket's card says in a stage it passes, and what happens there.
 fn pass_step(flow: &Flow, stage: &Stage, round: u32) -> WatchStep {
-    let agent = editor::the_agent(stage).map_or("An agent", String::as_str);
+    let who = editor::stage_who(stage);
+    let agent = who.as_deref().unwrap_or("An agent");
     let (state, text) = match stage.kind {
         StageKind::Agent => {
             let skill = stage
@@ -1330,7 +1291,8 @@ pub fn walk(flow: &Flow, base: &str, fail: bool) -> Vec<WatchStep> {
                 continue;
             };
             let rounds = stage.rounds.unwrap_or(CHECK_ROUNDS);
-            let agent = editor::the_agent(stage).map_or("the checker", String::as_str);
+            let who = editor::stage_who(stage);
+            let agent = who.as_deref().unwrap_or("the checker");
             let (state, text) = match stage.kind {
                 StageKind::Check { by: CheckBy::Agent } => (
                     format!("Checking \u{b7} round 1 of {rounds}"),
@@ -1351,7 +1313,8 @@ pub fn walk(flow: &Flow, base: &str, fail: bool) -> Vec<WatchStep> {
                 state,
                 text,
             });
-            let fixer = editor::the_agent(back).map_or("An agent", String::as_str);
+            let fixer = editor::stage_who(back);
+            let fixer = fixer.as_deref().unwrap_or("An agent");
             steps.push(WatchStep {
                 column: back.id.clone(),
                 name: back.name.clone(),
@@ -1450,7 +1413,6 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         watch: watch(f, b.base_branch),
         saved: saved(f),
         hint: HintId::FlowColumns,
-        choices: editor::choices_kept(f),
     }
 }
 
@@ -1486,13 +1448,11 @@ mod tests {
     /// stage goes at once, so no note shows (a stage only the draft has never shows it).
     #[test]
     fn the_remove_note_shows_only_with_tickets_in_the_stage() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let f = Facts {
             project: "SHOP",
             project_name: "shop",
@@ -1502,7 +1462,6 @@ mod tests {
             applies: &DraftApplies::Nothing,
             file: &file,
             in_use: &file,
-            stored: &stored,
             tools: &tools,
             skills: &[],
             writing: &[],
@@ -1510,7 +1469,6 @@ mod tests {
             selected: Some("validate"),
             agent: None,
             new_agent: None,
-            choices: &choices,
         };
         let note = |occupied: &[String]| {
             view(&f, &board(occupied))
@@ -1604,9 +1562,8 @@ mod tests {
     #[test]
     fn a_stage_whose_skill_has_a_byte_order_mark_warns() {
         use crate::view_models::flow_editor::SkillState;
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored, users_skill};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, users_skill};
         use otaq_core::agent_tools::Tool;
-        use otaq_core::agents::AgentModel;
         use otaq_core::skills::found::{FoundSkill, SkillScope};
 
         let mut file = shop_web();
@@ -1617,15 +1574,10 @@ mod tests {
             .expect("Validate")
             .skill = Some("retest-docs".into());
         let draft = proposal(&file, true);
-        let mut stored = stored();
-        for a in &mut stored {
-            a.model = AgentModel::Tool {
-                tool: Tool::Codex,
-                model: None,
-            };
+        for s in file.flow.stages.iter_mut().filter(|s| s.runs_agent()) {
+            s.who = otaq_core::flow::WhoDoesIt::on(Tool::Codex.as_str());
         }
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let warnings = |skill: &FoundSkill| {
             let skills = [skill.clone()];
             let f = Facts {
@@ -1637,7 +1589,6 @@ mod tests {
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &skills,
                 writing: &[],
@@ -1645,7 +1596,6 @@ mod tests {
                 selected: Some("validate"),
                 agent: None,
                 new_agent: None,
-                choices: &choices,
             };
             let card = columns(&f)
                 .into_iter()
@@ -1689,15 +1639,13 @@ mod tests {
     /// shortcut, and Show conversation opens the agent that made it.
     #[test]
     fn the_box_follows_noyans_conversation() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
         use crate::view_models::noyan_button::fixtures::agent;
         use otaq_core::flow::draft::StageMark;
 
         let file = shop_web();
         let mut draft = proposal(&file, false);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let marks = [StageMark {
             stage_id: "review".into(),
             stage: "Review".into(),
@@ -1718,7 +1666,6 @@ mod tests {
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -1726,7 +1673,6 @@ mod tests {
                 selected: None,
                 agent: a,
                 new_agent: None,
-                choices: &choices,
             })
         };
 
@@ -1788,7 +1734,6 @@ mod tests {
             applies: &DraftApplies::Nothing,
             file: &file,
             in_use: &file,
-            stored: &stored,
             tools: &tools,
             skills: &[],
             writing: &[],
@@ -1796,7 +1741,6 @@ mod tests {
             selected: None,
             agent: Some(&a),
             new_agent: None,
-            choices: &choices,
         })
         .map(|s| s.title);
         assert_eq!(
@@ -1838,13 +1782,11 @@ mod tests {
     /// keeps its Needs you with Answer. Once answered, the agent drafts again.
     #[test]
     fn the_box_answers_noyans_question() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let box_of = |a: &otaq_core::project_agents::ProjectAgent| {
             ask(&Facts {
                 project: "SHOP",
@@ -1855,7 +1797,6 @@ mod tests {
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -1863,7 +1804,6 @@ mod tests {
                 selected: None,
                 agent: Some(a),
                 new_agent: None,
-                choices: &choices,
             })
         };
 
@@ -1944,13 +1884,11 @@ mod tests {
     /// be asked again.
     #[test]
     fn the_drafting_line_goes_when_the_draft_does() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let line = |a: &otaq_core::project_agents::ProjectAgent| {
             let f = Facts {
                 project: "SHOP",
@@ -1961,7 +1899,6 @@ mod tests {
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -1969,7 +1906,6 @@ mod tests {
                 selected: None,
                 agent: Some(a),
                 new_agent: None,
-                choices: &choices,
             };
             (drafting(&f).map(|d| d.text), suggest_off(&f))
         };
@@ -2000,7 +1936,7 @@ mod tests {
     /// warns that the skill is written but not committed yet (Apply doesn't commit it), still only a warning.
     #[test]
     fn a_written_skill_warns_it_is_not_committed_yet() {
-        use crate::view_models::flow_editor::fixtures::{plan_draft, stored, written_plan};
+        use crate::view_models::flow_editor::fixtures::{plan_draft, written_plan};
         use otaq_core::flow::proposal::{Level, Warning};
 
         let (file, mut draft) = plan_draft(Some("plan-ticket"));
@@ -2009,9 +1945,7 @@ mod tests {
             stage: Some("Plan".into()),
             text: "You don't have the skill `plan-ticket`".into(),
         }];
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let written = [written_plan()];
         let plan_warning = |written: &[otaq_core::flow::draft::WrittenSkill]| {
             let f = Facts {
@@ -2023,7 +1957,6 @@ mod tests {
                 applies: &DraftApplies::AtOnce,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -2031,7 +1964,6 @@ mod tests {
                 selected: None,
                 agent: None,
                 new_agent: None,
-                choices: &choices,
             };
             columns(&f)
                 .into_iter()
@@ -2052,13 +1984,11 @@ mod tests {
     /// place (Suggest stays off); once the user answers and it works again, "drafting a change" comes back.
     #[test]
     fn needs_you_replaces_the_drafting_line_while_the_agent_waits() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let line = |a: &otaq_core::project_agents::ProjectAgent| {
             let f = Facts {
                 project: "SHOP",
@@ -2069,7 +1999,6 @@ mod tests {
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -2077,7 +2006,6 @@ mod tests {
                 selected: None,
                 agent: Some(a),
                 new_agent: None,
-                choices: &choices,
             };
             let d = drafting(&f).unwrap();
             (d.needs_you, d.text, d.show, suggest_off(&f))
@@ -2141,13 +2069,11 @@ mod tests {
     /// has it whole.
     #[test]
     fn needs_you_for_a_long_command_stays_one_line() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let line = |a: &otaq_core::project_agents::ProjectAgent| {
             let d = drafting(&Facts {
                 project: "SHOP",
@@ -2158,7 +2084,6 @@ mod tests {
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -2166,7 +2091,6 @@ mod tests {
                 selected: None,
                 agent: Some(a),
                 new_agent: None,
-                choices: &choices,
             })
             .unwrap();
             (d.text, d.tooltip.unwrap_or_default())

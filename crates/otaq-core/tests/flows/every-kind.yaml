@@ -1,52 +1,37 @@
-agents:
-  - name: Spec writer
-    instructions: |
-      Ask one question at a time.
-      Write what was agreed into the ticket.
-
-      Never write code.
-    model: default
-  - name: Rust developer
-    instructions: "Follow our error-handling rules: no unwrap in library code."
-    model: default
-  - name: Quick developer
-    model: default
-  - name: Validator
-    model: default
-  - name: Security reviewer
-    instructions: |-
-      Never edit files.
-      Fail on unescaped SQL.
-    model: default
-  - name: Shipper
-    model: default
-  - name: Noyan
-    model: default
 flow:
   - id: product-spec
     name: Product spec
     kind: agent
-    agent: Spec writer
+    model: default
     skill: tuq:product-spec
+    instructions: |-
+      Ask one question at a time.
+      Write what was agreed into the ticket.
+
+      Never write code.
     options: [skip]
   - id: dev
     name: Dev
     kind: agent
-    agent: Rust developer
+    model: default
     skill: otaq:work-ticket
+    instructions: "Follow our error-handling rules: no unwrap in library code."
   - id: validate
     name: Validate
     kind: check
     by: agent
-    agent: Validator
+    model: default
     skill: otaq:validate
     rounds: 3
   - id: security
     name: Security
     kind: check
     by: agent
-    agent: Security reviewer
+    model: default
     skill: team-security-review
+    instructions: |-
+      Never edit files.
+      Fail on unescaped SQL.
     rounds: 2
   - id: qa
     name: QA
@@ -57,5 +42,5 @@ flow:
 delivery:
   delivers: pr
   mode: automatic
-  agent: Shipper
+  model: default
   skill: otaq:open-pr

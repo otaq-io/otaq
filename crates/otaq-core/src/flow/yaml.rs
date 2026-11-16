@@ -1,5 +1,5 @@
-//! Reading and writing flow files (STG-01, d0108). Reading goes through serde (`serde-saphyr`); an unknown field is
-//! an error naming it, and a field that doesn't belong to the stage's kind is refused with the stage's name.
+//! Reading and writing flow files (STG-01, d0108, UX-65). Reading goes through serde (`serde-saphyr`); an unknown
+//! field is an error naming it, and a field that doesn't belong to the stage's kind is refused with the stage's name.
 //! Writing is Otaq's own, so every file it writes has one layout and reads back unchanged:
 //!
 //! ```yaml
@@ -7,46 +7,55 @@
 //!   - id: dev
 //!     name: Dev
 //!     kind: agent
-//!     agent: Developer
+//!     model: claude:opus
+//!     effort: high
 //!     skill: otaq:work-ticket
+//!     instructions: Keep the public API stable.
 //!     options: [skip]
 //!   - id: validate
 //!     name: Validate
 //!     kind: check
 //!     by: agent
-//!     agent: Validator
+//!     model: codex
 //!     skill: otaq:validate
 //!     rounds: 3
 //!     fail_to: Dev
 //! delivery:
 //!   delivers: either
 //!   mode: click
-//!   agent: Developer
+//!   model: claude:opus
+//!   effort: high
 //!   skill: otaq:open-pr
 //! ```
 //!
-//! Fields come in a fixed order (stages: `id name kind by agent skill options rounds fail_to description`; the delivery:
-//! `delivers mode agent skill`; agents: `name instructions model why`); a field with nothing in it is left out.
-//! `agents:` is left out when the file defines none. Every flow says how its work is delivered after the last stage
-//! (`delivery:`): it is a setting of the flow, not a stage. Every stage is its own column. A proposal may add a
+//! Fields come in a fixed order (stages: `id name kind by model effort skill instructions options rounds fail_to
+//! description`; the delivery: `delivers mode model effort skill instructions`); a field with nothing in it is left
+//! out. A stage an agent works or checks, and the delivery, say who does it (UX-65, UX-69): `model:` is a tool
+//! (`claude`, its default model), `tool:model` (`claude:opus`) or, in Otaq's shipped files and older ones, `default`
+//! (the account's default model's tool, set when the flow is applied); `effort:` is one of the tool's levels;
+//! `instructions:` are added to the stage's skill (UX-67). Every flow says how its work is delivered after the last
+//! stage (`delivery:`): it is a setting of the flow, not a stage. Every stage is its own column. A proposal may add a
 //! top-level `why:` (stage id or name → its reason, shown under Why these changes); it is read only by `flow propose`
 //! ([`read_proposal`]) and never written, so the flow keeps its descriptions and no reasons.
 //!
-//! Older files still read: their Delivery stage (`kind: delivery` with `mode` and `delivers`) reads as the flow's
-//! `delivery:`, and a stage's `column:` (`own`, `with-previous`) is read and ignored. An agent check names its one
-//! agent with `agent:`, like an Agent stage; an older file's `agents: [Validator]` (one name) still reads as `agent:
-//! Validator`, and its check with several agents reads as one check stage per agent ([`Split`]). A check's `fail_to`
-//! names a stage by its name, as `agent:` names agents; Otaq keeps it by the stage's id, so a rename carries it
-//! along, and a stage removed leaves the check on the nearest Agent stage (d0131). Comments are not kept.
+//! Older files still read, and are written in today's shape (UX-73): a top-level `agents:` list and stages (and the
+//! delivery) naming one of them with `agent:` read as each stage's own model and instructions from that list (an
+//! `agent:` the file doesn't define is refused); their Delivery stage (`kind: delivery` with `mode` and `delivers`)
+//! reads as the flow's `delivery:`, and a stage's `column:` (`own`, `with-previous`) is read and ignored. An older
+//! check's `agents: [Validator]` (one name) reads as `agent: Validator`, and its check with several agents reads as one
+//! check stage per agent ([`Split`]). A check's `fail_to` names a stage by its name; Otaq keeps it by the stage's id, so
+//! a rename carries it along, and a stage removed leaves the check on the nearest Agent stage (d0131). Comments are not
+//! kept.
 
 use std::fmt;
 
 use serde::Deserialize;
 
 use super::model::{
-    CheckBy, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,
-    StageOption,
+    CheckBy, Delivers, Delivery, DeliveryMode, Flow, FlowFile, Stage, StageKind, StageOption,
+    WhoDoesIt,
 };
+use crate::agents::AgentModel;
 
 /// Why a flow file can't be read: the YAML's own error (with the line), or a stage field that doesn't fit its kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +72,7 @@ impl std::error::Error for FormatError {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawFile {
+    /// An older file's agents (UX-73), which its stages name: read into each stage's own model and instructions.
     #[serde(default)]
     agents: Vec<RawAgent>,
     flow: Vec<RawStage>,
@@ -79,11 +89,15 @@ struct RawFile {
 struct RawDelivery {
     delivers: Option<Delivers>,
     mode: Option<DeliveryMode>,
+    model: Option<String>,
+    effort: Option<String>,
+    instructions: Option<String>,
+    /// An older file's agent name (UX-73).
     agent: Option<String>,
     skill: Option<String>,
 }
 
-/// An older file's stage `column:`: read so the file still opens, then ignored (every stage is its own column).
+/// An older stage `column:`: read so the file still opens, then ignored (every stage is its own column).
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum RawColumn {
@@ -91,21 +105,23 @@ enum RawColumn {
     WithPrevious,
 }
 
+/// An older file's agent (UX-73): its name, instructions and model, which the stages naming it take.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawAgent {
     name: String,
-    /// An old file's agent role (`noyan`): read so the file still opens, then ignored (an agent has no role; the
-    /// agent Noyan uses is an app setting).
+    /// An old file's agent role (`noyan`): read so the file still opens, then ignored.
     #[serde(default, rename = "role")]
     _role: serde::de::IgnoredAny,
     #[serde(default)]
     instructions: String,
-    /// An old file's agent skills: read so the file still opens, then ignored (an agent has no skills).
+    /// An old file's agent skills: read so the file still opens, then ignored.
     #[serde(default, rename = "skills")]
     _skills: serde::de::IgnoredAny,
     model: String,
-    why: Option<String>,
+    /// Why the flow had it: read, then ignored.
+    #[serde(default, rename = "why")]
+    _why: serde::de::IgnoredAny,
 }
 
 #[derive(Deserialize)]
@@ -117,7 +133,12 @@ struct RawStage {
     by: Option<CheckBy>,
     #[serde(default)]
     column: Option<RawColumn>,
+    model: Option<String>,
+    effort: Option<String>,
+    instructions: Option<String>,
+    /// An older file's agent name (UX-73).
     agent: Option<String>,
+    /// An older check's agents (UX-73, [`Split`]).
     agents: Option<Vec<String>>,
     skill: Option<String>,
     #[serde(default)]
@@ -140,19 +161,10 @@ enum RawKind {
     Delivery,
 }
 
-/// An agents file (`otaq-agents.yaml`, AGM-02): only `agents:`.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawAgentsFile {
-    agents: Vec<RawAgent>,
-}
-
-/// The stage templates file (`stage-templates.yaml`): the agents its stages name, then each template.
+/// The stage templates file (`stage-templates.yaml`): each template.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawTemplatesFile {
-    #[serde(default)]
-    agents: Vec<RawAgent>,
     templates: Vec<RawTemplate>,
 }
 
@@ -173,11 +185,10 @@ pub struct StageTemplate {
     pub stage: Stage,
 }
 
-/// Reads a stage templates file: its agents (as a flow file's) and its templates, each stage read as a flow file's
-/// stage is (an agent check names one agent; a template has no `fail_to`, which names another stage).
-pub fn read_templates(text: &str) -> Result<(Vec<FlowAgent>, Vec<StageTemplate>), FormatError> {
+/// Reads a stage templates file: each stage read as a flow file's stage is, with its own model (a template has no
+/// `fail_to`, which names another stage, and names no agent).
+pub fn read_templates(text: &str) -> Result<Vec<StageTemplate>, FormatError> {
     let raw: RawTemplatesFile = serde_saphyr::from_str(text).map_err(format_error)?;
-    let agents = raw.agents.into_iter().map(agent).collect();
     let mut templates = Vec::with_capacity(raw.templates.len());
     for t in raw.templates {
         if t.stage.fail_to.is_some() {
@@ -186,10 +197,10 @@ pub fn read_templates(text: &str) -> Result<(Vec<FlowAgent>, Vec<StageTemplate>)
                 t.stage.name
             )));
         }
-        let (mut stage, more) = stage(t.stage)?;
-        if !more.is_empty() {
+        let (mut stage, older) = stage(t.stage)?;
+        if !older.is_empty() {
             return Err(FormatError(format!(
-                "{} is a template: an agent check names one agent",
+                "{} is a template: say who does it with `model:`",
                 stage.name
             )));
         }
@@ -202,7 +213,7 @@ pub fn read_templates(text: &str) -> Result<(Vec<FlowAgent>, Vec<StageTemplate>)
             stage,
         });
     }
-    Ok((agents, templates))
+    Ok(templates)
 }
 
 /// The YAML's own error: its first line ("line 5 column 5: unknown field `colour`, expected one of id, name, …");
@@ -213,13 +224,49 @@ fn format_error(e: impl fmt::Display) -> FormatError {
     FormatError(first.strip_prefix("error: ").unwrap_or(first).to_owned())
 }
 
-fn agent(a: RawAgent) -> FlowAgent {
-    FlowAgent {
-        name: a.name,
-        instructions: a.instructions,
-        model: a.model,
-        why: why(a.why),
+/// A lookup of an older file's agent by its name: the stored agents the migration reads ([`read_older`]).
+pub type AgentLookup<'a> = &'a dyn Fn(&str) -> Option<WhoDoesIt>;
+
+/// What an older file's agent name stands for (UX-71, UX-73): looked up by `account` first (the stored agents the
+/// migration reads), then among the file's own `agents:`, by name ignoring case; one neither has is `unknown` when the
+/// migration gives one, else refused.
+struct Older<'a> {
+    file: Vec<RawAgent>,
+    account: Option<AgentLookup<'a>>,
+    unknown: Option<&'a WhoDoesIt>,
+}
+
+impl Older<'_> {
+    /// Who does the work of something that names the agent `name` (`what`: "Dev", "The delivery").
+    fn who(&self, what: &str, name: &str) -> Result<WhoDoesIt, FormatError> {
+        if let Some(who) = self.account.and_then(|account| account(name)) {
+            return Ok(who);
+        }
+        let folded = name.trim().to_lowercase();
+        let Some(agent) = self
+            .file
+            .iter()
+            .find(|a| a.name.trim().to_lowercase() == folded)
+        else {
+            return match self.unknown {
+                Some(who) => Ok(who.clone()),
+                None => Err(FormatError(unknown_agent_message(what, name))),
+            };
+        };
+        Ok(WhoDoesIt {
+            model: Some(agent.model.trim().to_owned()).filter(|m| !m.is_empty()),
+            effort: None,
+            instructions: why(Some(agent.instructions.clone())),
+        })
     }
+}
+
+/// "Dev names the agent Rust developer, which the file doesn't define: say who does it with `model:`".
+pub fn unknown_agent_message(what: &str, name: &str) -> String {
+    format!(
+        "{what} names the agent {name}, which the file doesn't define: say who does it with `model:`, and \
+         `effort:` and `instructions:` if it has them"
+    )
 }
 
 /// Reads a flow file. The STG-02 rules are [`super::check`]'s; this only refuses what isn't a flow at all.
@@ -227,18 +274,28 @@ pub fn read(text: &str) -> Result<FlowFile, FormatError> {
     read_with_written_ids(text).map(|(file, _)| file)
 }
 
+/// [`read`] for the migration (UX-71): an older file's agent names are looked up by `account` (the stored agents)
+/// first, then in the file's own `agents:`; a name neither has is `unknown` when given, else refused.
+pub fn read_older(
+    text: &str,
+    account: &dyn Fn(&str) -> Option<WhoDoesIt>,
+    unknown: Option<&WhoDoesIt>,
+) -> Result<FlowFile, FormatError> {
+    read_all(text, Some(account), unknown).map(|read| read.file)
+}
+
 /// [`read`], also saying which stages had their id written (in stage order): the others got one from their name,
 /// which a proposal matches to the flow it changes instead ([`super::proposal`]). A copy split off an older check
 /// ([`Split`]) counts as written when its stage's id was.
 pub fn read_with_written_ids(text: &str) -> Result<(FlowFile, Vec<bool>), FormatError> {
-    read_all(text).map(|read| (read.file, read.written))
+    read_all(text, None, None).map(|read| (read.file, read.written))
 }
 
 /// A proposed document as `flow propose` reads it: [`read_with_written_ids`], plus its top-level `why:`, the reason for
 /// each change by stage id or name ("security: From 41 /security-review runs in shop-web (Claude Code)."), which the
 /// draft shows under Why these changes. The flow itself never holds them.
 pub fn read_proposal(text: &str) -> Result<(FlowFile, Vec<bool>, Whys), FormatError> {
-    read_all(text).map(|read| (read.file, read.written, read.whys))
+    read_all(text, None, None).map(|read| (read.file, read.written, read.whys))
 }
 
 /// A proposal's reasons, by stage id or name, trimmed; empty lines dropped.
@@ -246,13 +303,14 @@ pub type Whys = std::collections::BTreeMap<String, String>;
 
 /// [`read`], also saying which check stages were split because they listed several agents ([`Split`]).
 pub fn read_split(text: &str) -> Result<(FlowFile, Vec<Split>), FormatError> {
-    read_all(text).map(|read| (read.file, read.splits))
+    read_all(text, None, None).map(|read| (read.file, read.splits))
 }
 
-/// An older document written with a Delivery stage or a stage's `column:`, as Otaq writes it now (the delivery as
-/// the flow's `delivery:`, no columns); `None` for a document already in today's form, or one that doesn't read.
+/// An older document (agents, a Delivery stage or a stage's `column:`), as Otaq writes it now (each stage's own model,
+/// the delivery as the flow's `delivery:`, no columns); `None` for a document already in today's form, or one that
+/// doesn't read.
 pub fn upgraded(text: &str) -> Option<String> {
-    read_all(text)
+    read_all(text, None, None)
         .ok()
         .filter(|read| read.old_form)
         .map(|read| write(&read.file))
@@ -264,7 +322,7 @@ struct Read {
     /// Which stages had their id written ([`read_with_written_ids`]).
     written: Vec<bool>,
     splits: Vec<Split>,
-    /// It has a Delivery stage or a stage's `column:` ([`upgraded`]).
+    /// It has agents, a Delivery stage or a stage's `column:` ([`upgraded`]).
     old_form: bool,
     /// A proposal's reasons ([`read_proposal`]).
     whys: Whys,
@@ -275,8 +333,8 @@ struct Read {
 /// other copy gets the id `<id>-<agent>` (the agent's name as an id: `security-validator`, with `-2` added if that
 /// id is taken) and the name `<stage> · <agent>` ("Security · Validator", with " 2" added if that name is taken), so
 /// every read of the same document gives the same ids. Each copy keeps the stage's kind, skill, rounds, fails go to,
-/// options and why, and is its own column, as every stage is. The split is never stored by reading:
-/// a document written from the flow ([`write`]) holds it, so the user's next change saves it.
+/// options and why, takes its agent's model and instructions, and is its own column, as every stage is. The split is
+/// never stored by reading: a document written from the flow ([`write`]) holds it, so the user's next change saves it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Split {
     /// The stage's id, which its first copy keeps.
@@ -285,18 +343,26 @@ pub struct Split {
     pub copies: Vec<String>,
 }
 
-fn read_all(text: &str) -> Result<Read, FormatError> {
+fn read_all(
+    text: &str,
+    account: Option<AgentLookup<'_>>,
+    unknown: Option<&WhoDoesIt>,
+) -> Result<Read, FormatError> {
     let raw: RawFile = serde_saphyr::from_str(text).map_err(format_error)?;
-    let agents = raw.agents.into_iter().map(agent).collect();
+    let mut old_form = !raw.agents.is_empty();
+    let older = Older {
+        file: raw.agents,
+        account,
+        unknown,
+    };
     let mut stages = Vec::with_capacity(raw.flow.len());
     let mut others = Vec::with_capacity(raw.flow.len());
-    let mut old_form = false;
     // An older file's Delivery stage, by its name: the flow's delivery.
     let mut old_delivery: Option<(String, Delivery)> = None;
     for raw in raw.flow {
         old_form |= raw.column.is_some() || matches!(raw.kind, RawKind::Delivery);
         if matches!(raw.kind, RawKind::Delivery) {
-            let (name, delivery) = old_delivery_stage(raw)?;
+            let (name, delivery) = old_delivery_stage(raw, &older)?;
             if let Some((first, _)) = &old_delivery {
                 return Err(FormatError(format!(
                     "{first} and {name} are both Delivery stages: a flow is delivered one way, set once with \
@@ -306,7 +372,17 @@ fn read_all(text: &str) -> Result<Read, FormatError> {
             old_delivery = Some((name, delivery));
             continue;
         }
-        let (stage, more) = stage(raw)?;
+        let (mut stage, names) = stage(raw)?;
+        let mut more = Vec::new();
+        let mut names = names.into_iter();
+        if let Some(first) = names.next() {
+            old_form = true;
+            stage.who = checked_who(&stage.name, older.who(&stage.name, &first)?)?;
+        }
+        for name in names {
+            let who = checked_who(&stage.name, older.who(&stage.name, &name)?)?;
+            more.push((name, who));
+        }
         stages.push(stage);
         others.push(more);
     }
@@ -314,7 +390,10 @@ fn read_all(text: &str) -> Result<Read, FormatError> {
     give_ids(&mut stages);
     fail_to_ids(&mut stages)?;
     let delivery = match (raw.delivery, old_delivery) {
-        (Some(raw), None) => delivery(raw)?,
+        (Some(raw), None) => {
+            old_form |= raw.agent.is_some();
+            delivery(raw, &older)?
+        }
         (None, Some((_, delivery))) => delivery,
         (Some(_), Some((name, _))) => {
             return Err(FormatError(format!(
@@ -341,7 +420,6 @@ fn read_all(text: &str) -> Result<Read, FormatError> {
         .collect();
     Ok(Read {
         file: FlowFile {
-            agents,
             flow: Flow { stages, delivery },
         },
         written,
@@ -352,8 +430,13 @@ fn read_all(text: &str) -> Result<Read, FormatError> {
 }
 
 /// Splits each agent check that listed several agents ([`Split`]): `others[i]` are stage `i`'s agents after its
-/// first. Runs once every stage has its id and its fails go to are ids, so a copy keeps them.
-fn split(stages: &mut Vec<Stage>, written: &mut Vec<bool>, others: Vec<Vec<String>>) -> Vec<Split> {
+/// first, each with who it stands for. Runs once every stage has its id and its fails go to are ids, so a copy keeps
+/// them.
+fn split(
+    stages: &mut Vec<Stage>,
+    written: &mut Vec<bool>,
+    others: Vec<Vec<(String, WhoDoesIt)>>,
+) -> Vec<Split> {
     let mut splits = Vec::new();
     let mut at = 0;
     for more in others {
@@ -364,7 +447,7 @@ fn split(stages: &mut Vec<Stage>, written: &mut Vec<bool>, others: Vec<Vec<Strin
             continue;
         }
         let mut copies = Vec::with_capacity(more.len());
-        for agent in more {
+        for (agent, who) in more {
             let id = unique(&format!("{}-{}", first.id, slug(&agent)), "-", |id| {
                 stages.iter().any(|s| s.id == id)
             });
@@ -374,7 +457,7 @@ fn split(stages: &mut Vec<Stage>, written: &mut Vec<bool>, others: Vec<Vec<Strin
             let copy = Stage {
                 id: id.clone(),
                 name,
-                agent: Some(agent),
+                who,
                 ..first.clone()
             };
             stages.insert(at, copy);
@@ -401,56 +484,35 @@ fn unique(base: &str, sep: &str, taken: impl Fn(&str) -> bool) -> String {
     out
 }
 
-/// Reads an agents file (`otaq-agents.yaml`, AGM-02): its `agents:`, as a flow file's.
-pub fn read_agents(text: &str) -> Result<Vec<FlowAgent>, FormatError> {
-    let raw: RawAgentsFile = serde_saphyr::from_str(text).map_err(format_error)?;
-    Ok(raw.agents.into_iter().map(agent).collect())
-}
-
-/// Writes an agents file in Otaq's layout (a flow file's `agents:`).
-pub fn write_agents(agents: &[FlowAgent]) -> String {
-    let mut out = String::new();
-    write_agents_into(&mut out, agents);
-    out
-}
-
-fn write_agents_into(out: &mut String, agents: &[FlowAgent]) {
-    if agents.is_empty() {
-        return;
+/// Writes who does a stage's or the delivery's work into `item`: `model`, `effort`, then `skill` and `instructions`.
+fn write_who(item: &mut Item<'_>, who: &WhoDoesIt, skill: Option<&String>) {
+    if let Some(model) = &who.model {
+        item.field("model", model);
     }
-    out.push_str("agents:\n");
-    for agent in agents {
-        let mut item = Item::new(out);
-        item.field("name", &agent.name);
-        if !agent.instructions.is_empty() {
-            item.text("instructions", &agent.instructions);
-        }
-        item.field("model", &agent.model);
-        if let Some(why) = &agent.why {
-            item.text("why", why);
-        }
+    if let Some(effort) = &who.effort {
+        item.field("effort", effort);
+    }
+    if let Some(skill) = skill {
+        item.field("skill", skill);
+    }
+    if let Some(instructions) = &who.instructions {
+        item.text("instructions", instructions);
     }
 }
 
 /// Writes a flow file in Otaq's layout (above).
 pub fn write(file: &FlowFile) -> String {
     let mut out = String::new();
-    write_agents_into(&mut out, &file.agents);
     out.push_str("flow:\n");
     for stage in &file.flow.stages {
-        let mut item = Item::new(&mut out);
+        let mut item = Item::new(&mut out, 1);
         item.field("id", &stage.id);
         item.field("name", &stage.name);
         item.field("kind", stage.kind.as_str());
         if let StageKind::Check { by } = stage.kind {
             item.field("by", by.as_str());
         }
-        if let Some(agent) = &stage.agent {
-            item.field("agent", agent);
-        }
-        if let Some(skill) = &stage.skill {
-            item.field("skill", skill);
-        }
+        write_who(&mut item, &stage.who, stage.skill.as_ref());
         item.list("options", stage.options.iter().map(StageOption::as_str));
         if let Some(rounds) = stage.rounds {
             item.number("rounds", rounds);
@@ -469,29 +531,35 @@ pub fn write(file: &FlowFile) -> String {
     }
     let delivery = &file.flow.delivery;
     out.push_str("delivery:\n");
-    let field = |out: &mut String, key: &str, value: &str| {
-        out.push_str(&format!("  {key}: {}\n", scalar(value)));
-    };
-    field(&mut out, "delivers", delivery.delivers.as_str());
-    field(&mut out, "mode", delivery.mode.as_str());
-    if let Some(agent) = &delivery.agent {
-        field(&mut out, "agent", agent);
-    }
-    if let Some(skill) = &delivery.skill {
-        field(&mut out, "skill", skill);
-    }
+    let mut item = Item::new(&mut out, 0);
+    item.field("delivers", delivery.delivers.as_str());
+    item.field("mode", delivery.mode.as_str());
+    write_who(&mut item, &delivery.who, delivery.skill.as_ref());
     out
 }
 
-/// The flow's `delivery:`: what it delivers and when, and its agent: the one that writes the delivery's message while
-/// a ticket waits in Review (the squash commit's, and a PR's title and description) and opens the PR (with an optional
-/// skill). A delivery that can open a PR names it; a local merge may, and without one its message is Otaq's plain one.
-fn delivery(raw: RawDelivery) -> Result<Delivery, FormatError> {
-    checked_delivery("The delivery", raw.mode, raw.delivers, raw.agent, raw.skill)
+/// The flow's `delivery:`: what it delivers and when, and who writes the message the delivery uses while a ticket
+/// waits in Review (the squash commit's, and a PR's title and description) and opens the PR (with an optional skill).
+/// A delivery that can open a PR names its model; a local merge may, and without one its message is Otaq's plain one.
+fn delivery(raw: RawDelivery, older: &Older<'_>) -> Result<Delivery, FormatError> {
+    let who = WhoDoesIt {
+        model: raw.model,
+        effort: raw.effort,
+        instructions: raw.instructions,
+    };
+    checked_delivery(
+        "The delivery",
+        raw.mode,
+        raw.delivers,
+        who,
+        raw.agent,
+        raw.skill,
+        older,
+    )
 }
 
 /// An older file's Delivery stage (`kind: delivery`), as the flow's delivery; its name, for the errors.
-fn old_delivery_stage(raw: RawStage) -> Result<(String, Delivery), FormatError> {
+fn old_delivery_stage(raw: RawStage, older: &Older<'_>) -> Result<(String, Delivery), FormatError> {
     let name = raw.name.trim().to_owned();
     let refuse = |field: &str| {
         Err(FormatError(format!(
@@ -510,7 +578,20 @@ fn old_delivery_stage(raw: RawStage) -> Result<(String, Delivery), FormatError> 
     if raw.agents.is_some() {
         return refuse("agents");
     }
-    let delivery = checked_delivery(&name, raw.mode, raw.delivers, raw.agent, raw.skill)?;
+    let who = WhoDoesIt {
+        model: raw.model,
+        effort: raw.effort,
+        instructions: raw.instructions,
+    };
+    let delivery = checked_delivery(
+        &name,
+        raw.mode,
+        raw.delivers,
+        who,
+        raw.agent,
+        raw.skill,
+        older,
+    )?;
     Ok((name, delivery))
 }
 
@@ -518,8 +599,10 @@ fn checked_delivery(
     what: &str,
     mode: Option<DeliveryMode>,
     delivers: Option<Delivers>,
+    who: WhoDoesIt,
     agent: Option<String>,
     skill: Option<String>,
+    older: &Older<'_>,
 ) -> Result<Delivery, FormatError> {
     let (Some(mode), Some(delivers)) = (mode, delivers) else {
         return Err(FormatError(format!(
@@ -528,29 +611,78 @@ fn checked_delivery(
     };
     let agent = agent.map(|a| a.trim().to_owned()).filter(|a| !a.is_empty());
     let skill = skill.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
+    let who = match agent {
+        Some(name) if who != WhoDoesIt::default() => {
+            return Err(FormatError(format!(
+                "{what} names the agent {name} and its own model: say who does it once, with `model:`"
+            )));
+        }
+        Some(name) => older.who(what, &name)?,
+        None => who,
+    };
+    let who = checked_who(what, who)?;
     if delivers == Delivers::Local {
-        // A local merge may name the agent that writes its squash message while the ticket waits in Review; the
+        // A local merge may name the model that writes its squash message while the ticket waits in Review; the
         // skill is the one a PR is opened with.
         if skill.is_some() {
             return Err(FormatError(format!(
                 "{what} is a Local merge, which opens no PR: `skill` belongs to a delivery that opens a PR"
             )));
         }
-    } else if agent.is_none() {
+    } else if who.model.is_none() {
         return Err(FormatError(format!(
-            "{what} can open a PR: name the agent that opens it with `agent:`"
+            "{what} can open a PR: say which model writes and opens it with `model:`"
         )));
     }
     Ok(Delivery {
         mode,
         delivers,
-        agent,
+        who,
         skill,
     })
 }
 
-/// A stage from its raw fields: the kind's own fields must be there, and no other kind's. With an older agent
-/// check's agents after its first (`agents: [Security reviewer, Validator]`), which [`split`] makes copies of.
+/// Who does a stage's (or the delivery's, `what`) work, as kept: each field trimmed, none when empty; its model one
+/// that reads ([`AgentModel::parse`]) and its effort one of its tool's levels.
+fn checked_who(what: &str, who: WhoDoesIt) -> Result<WhoDoesIt, FormatError> {
+    let model = who
+        .model
+        .map(|m| m.trim().to_owned())
+        .filter(|m| !m.is_empty());
+    let effort = who
+        .effort
+        .map(|e| e.trim().to_owned())
+        .filter(|e| !e.is_empty());
+    let parsed = match &model {
+        Some(text) => {
+            Some(AgentModel::parse(text).map_err(|e| FormatError(format!("{what}'s model: {e}")))?)
+        }
+        None => None,
+    };
+    if let Some(level) = &effort {
+        match &parsed {
+            None => {
+                return Err(FormatError(format!(
+                    "{what} has an effort but no model: say which model it runs with `model:`"
+                )));
+            }
+            Some(model) => {
+                if let Some(refused) = crate::agents::effort_refusal(model, level) {
+                    return Err(FormatError(format!("{what}'s effort: {refused}")));
+                }
+            }
+        }
+    }
+    Ok(WhoDoesIt {
+        model,
+        effort,
+        instructions: why(who.instructions),
+    })
+}
+
+/// A stage from its raw fields: the kind's own fields must be there, and no other kind's. With an older stage's agent
+/// names (`agent: Developer`, or a check's `agents: [Security reviewer, Validator]`, which [`split`] makes copies
+/// of), which [`read_all`] reads as the stage's own model.
 fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
     let name = raw.name.trim().to_owned();
     if name.is_empty() {
@@ -598,59 +730,71 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
     if !matches!(kind, StageKind::Check { .. }) && raw.fail_to.is_some() {
         return refuse(what, "fail_to", "a check");
     }
-    // An agent check has one agent, named with `agent:`; an older file's `agents: [X]` reads as `agent: X`, and its
+    let who = WhoDoesIt {
+        model: raw.model,
+        effort: raw.effort,
+        instructions: raw.instructions,
+    };
+    // An older stage names its agent with `agent:`; an older check's `agents: [X]` reads as `agent: X`, and its
     // `agents: [X, Y]` as `agent: X` with a copy of the stage for Y after it ([`split`]).
-    let mut more = Vec::new();
-    let agent = match (raw.agent, raw.agents) {
-        (agent, None) => agent.map(|a| a.trim().to_owned()),
+    let mut names = Vec::new();
+    match (raw.agent, raw.agents) {
         (Some(_), Some(_)) => {
             return Err(FormatError(format!(
-                "{name} is an agent check: name its agent once, with `agent:`"
+                "{name} is an agent check: say who does it once, with `model:`"
             )));
         }
+        (Some(agent), None) => names.push(agent.trim().to_owned()),
         (None, Some(agents)) => {
-            let mut agents = agents
-                .into_iter()
-                .map(|a| a.trim().to_owned())
-                .filter(|a| !a.is_empty());
-            let first = agents.next();
-            for agent in agents {
-                if first.as_ref() != Some(&agent) && !more.contains(&agent) {
-                    more.push(agent);
+            for agent in agents.into_iter().map(|a| a.trim().to_owned()) {
+                if !agent.is_empty() && !names.contains(&agent) {
+                    names.push(agent);
                 }
             }
-            first
         }
-    };
-    // Who runs the stage: an agent for an Agent stage and an agent check.
+        (None, None) => {}
+    }
+    names.retain(|n| !n.is_empty());
+    if !names.is_empty() && who != WhoDoesIt::default() {
+        return Err(FormatError(format!(
+            "{name} names the agent {} and its own model: say who does it once, with `model:`",
+            names[0]
+        )));
+    }
+    // Who does it: a model for an Agent stage and an agent check. One with no model yet reads (a draft's); the
+    // checks refuse it (Rule::NoModel). With no `skill:` it reads and passes the checks: Otaq's own skill for that
+    // stage runs.
     let runs_agent = match kind {
         StageKind::Agent | StageKind::Check { by: CheckBy::Agent } => true,
         StageKind::Check { by: CheckBy::You } => false,
     };
-    // An Agent stage or an agent check with no `skill:` reads and passes the checks: Otaq's own skill for that stage
-    // runs. An agent check with no agent yet reads too; the checks refuse it (Rule::NoCheckAgent).
-    if runs_agent {
-        if agent.is_none() && !agent_check {
-            return Err(FormatError(format!(
-                "{name} is {what}: name the agent that runs it with `agent:`"
-            )));
-        }
+    let who = if runs_agent {
+        checked_who(&name, who)?
     } else {
-        let belongs = "a stage an agent runs";
-        if agent.is_some() {
+        let belongs = "a stage an agent works or checks";
+        if !names.is_empty() {
             return refuse(what, "agent", belongs);
+        }
+        if who.model.is_some() {
+            return refuse(what, "model", belongs);
+        }
+        if who.effort.is_some() {
+            return refuse(what, "effort", belongs);
+        }
+        if who.instructions.is_some() {
+            return refuse(what, "instructions", belongs);
         }
         if raw.skill.is_some() {
             return refuse(what, "skill", belongs);
         }
-    }
+        WhoDoesIt::default()
+    };
     if kind == (StageKind::Check { by: CheckBy::Agent }) && raw.rounds.is_none() {
         return Err(FormatError(format!(
             "{name} is an agent check: set its `rounds` (1 to 5)"
         )));
     }
-    // `skip` is the only option: the agent names older files list are read and ignored (a ticket picks any agent
-    // whose tool has the stage's skill).
+    // `skip` is the only option: the agent names older files list are read and ignored (UX-72).
     let options: Vec<StageOption> = raw
         .options
         .iter()
@@ -662,7 +806,7 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
         id: raw.id.map(|id| id.trim().to_owned()).unwrap_or_default(),
         name,
         kind,
-        agent,
+        who,
         skill: raw.skill,
         options,
         rounds: raw.rounds,
@@ -670,7 +814,7 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
         fail_to: raw.fail_to.map(|n| n.trim().to_owned()),
         description: why(raw.description),
     };
-    Ok((stage, more))
+    Ok((stage, names))
 }
 
 /// A `why:` or a stage's `description:` as kept: trimmed, none when empty.
@@ -739,19 +883,29 @@ pub(crate) fn slug(name: &str) -> String {
     }
 }
 
-/// One `- ` item of a top-level list: the first field opens it, the others line up under it.
+/// One `- ` item of a top-level list (`depth` 1: the first field opens it, the others line up under it), or the
+/// fields of a top-level mapping (`depth` 0: `delivery:`).
 struct Item<'a> {
     out: &'a mut String,
     first: bool,
+    list: bool,
 }
 
 impl<'a> Item<'a> {
-    fn new(out: &'a mut String) -> Self {
-        Self { out, first: true }
+    fn new(out: &'a mut String, depth: u8) -> Self {
+        Self {
+            out,
+            first: true,
+            list: depth > 0,
+        }
     }
 
     fn key(&mut self, key: &str) {
-        self.out.push_str(if self.first { "  - " } else { "    " });
+        self.out.push_str(match (self.list, self.first) {
+            (true, true) => "  - ",
+            (true, false) => "    ",
+            (false, _) => "  ",
+        });
         self.first = false;
         self.out.push_str(key);
         self.out.push(':');
@@ -804,7 +958,7 @@ impl<'a> Item<'a> {
         });
         for line in body.split('\n') {
             if !line.is_empty() {
-                self.out.push_str("      ");
+                self.out.push_str(if self.list { "      " } else { "    " });
                 self.out.push_str(line);
             }
             self.out.push('\n');

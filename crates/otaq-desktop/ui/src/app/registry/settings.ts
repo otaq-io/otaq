@@ -15,10 +15,8 @@ const every =
     list;
 
 export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
-  /** M23: the agent tools (T-0360's view; T-0365 draws it), on the Agents page above the agents. */
+  /** M23: the agent tools (T-0360's view; T-0365 draws it), the Agents page (no named agents under it, UX-65). */
   "agent_tools",
-  /** The agents, the default model, the agent Noyan uses, and one agent's page (T-0410). */
-  "agents",
   /** Git & pull requests: git and the PR providers on this machine. Other screens open Settings here by this id. */
   "git",
   /** Limits & usage: the optional agent limit, then each tool's "% left". */

@@ -400,9 +400,9 @@ impl Board {
         }))
     }
 
-    /// Whose session opens the ticket's PR (d0108 second gap review rule 6): the Dev stage's (an agent session) when
-    /// the delivery's agent is the agent that ran it, else a delivery session of the delivery's own agent. A flow
-    /// whose agents can't be read keeps the ticket's agent.
+    /// Whose session writes and opens the ticket's PR (d0108 second gap review rule 6, UX-69): the last Agent stage's
+    /// (an agent session, which has the context) when the delivery runs as that stage does, else a delivery session
+    /// on the delivery's own model. A flow that can't be read keeps the ticket's agent session.
     pub async fn delivery_session_kind(&self, ticket: &Ticket) -> crate::session::SessionKind {
         use crate::session::SessionKind;
         match self.delivery_agent_is_devs(ticket).await {
@@ -415,18 +415,32 @@ impl Board {
         }
     }
 
-    /// Whether the delivery's agent is the agent that ran the ticket's last Agent stage (its choice for that stage,
-    /// else the stage's agent).
+    /// Who writes the delivery's message in `project` (its key), as a delivery message names it: the tool its model
+    /// runs on ("Claude Code"; the model as written while no default model is set). `None` when the delivery names
+    /// no model (a Local merge with Otaq's plain message).
+    pub async fn delivery_writer(&self, project: &str) -> Result<Option<String>, BoardError> {
+        let flow = self.effective_flow(project).await?;
+        let Some(model) = flow.delivery.who.model.clone() else {
+            return Ok(None);
+        };
+        let default = self.store().default_model().await?;
+        let on = crate::agents::AgentModel::parse(&model)
+            .ok()
+            .and_then(|m| m.on(default.as_ref()));
+        Ok(Some(
+            on.map_or(model, |on| on.tool.display_name().to_owned()),
+        ))
+    }
+
+    /// Whether the delivery runs as the ticket's last Agent stage does (UX-69): it names no model of its own, or its
+    /// model and effort are that stage's and it has no instructions of its own.
     async fn delivery_agent_is_devs(&self, ticket: &Ticket) -> Result<bool, BoardError> {
-        use crate::agents::resolve;
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         let skips = self.ticket_skips(ticket, &flow).await?;
         let Some(dev) = engine::back_from_delivery(&flow, &skips) else {
             return Ok(false);
         };
-        let delivery = resolve::delivery_agent(self, ticket.key.project.as_str()).await?;
-        let dev = resolve::running_agent(self, ticket, &dev.id).await?;
-        Ok(delivery.id == dev.id)
+        Ok(same_as_stage(&flow.delivery.who, &dev.who))
     }
 
     /// An automatic Delivery merged the ticket (AMG-02, FLW-15): "Merged automatically" (and "Delivered without
@@ -786,11 +800,61 @@ async fn record_stop(
     Ok(())
 }
 
+/// Whether the delivery `delivery` runs as the stage whose own is `stage` (UX-69): it names no model of its own, or the
+/// same model and effort with no instructions of its own.
+pub fn same_as_stage(delivery: &crate::flow::WhoDoesIt, stage: &crate::flow::WhoDoesIt) -> bool {
+    let model = |m: &Option<String>| {
+        m.as_deref()
+            .and_then(|m| crate::agents::AgentModel::parse(m).ok())
+    };
+    match model(&delivery.model) {
+        None => true,
+        Some(own) => {
+            Some(own) == model(&stage.model)
+                && delivery.effort == stage.effort
+                && delivery.instructions.is_none()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::flow::default::{REVIEW, VALIDATE};
-    use crate::flow::{Delivers, StageOption};
+    use crate::flow::{Delivers, StageOption, WhoDoesIt};
+
+    /// UX-69: the last Agent stage's session writes the PR when the delivery names no model, or the same model and
+    /// effort with no instructions of its own; any difference is a session on the delivery's own model.
+    #[test]
+    fn the_stages_session_writes_the_pr_only_when_the_delivery_runs_as_it_does() {
+        let dev = WhoDoesIt {
+            model: Some("claude:opus".into()),
+            effort: Some("high".into()),
+            instructions: Some("Mind the tests.".into()),
+        };
+        let same = WhoDoesIt {
+            instructions: None,
+            ..dev.clone()
+        };
+        assert!(same_as_stage(&same, &dev));
+        assert!(same_as_stage(&WhoDoesIt::default(), &dev));
+        for other in [
+            WhoDoesIt {
+                model: Some("codex".into()),
+                ..same.clone()
+            },
+            WhoDoesIt {
+                effort: Some("low".into()),
+                ..same.clone()
+            },
+            WhoDoesIt {
+                instructions: Some("Write it for the reviewers.".into()),
+                ..same.clone()
+            },
+        ] {
+            assert!(!same_as_stage(&other, &dev), "{other:?}");
+        }
+    }
 
     /// The default flow delivering automatically (`delivers`), Review kept.
     fn automatic(delivers: Delivers) -> Flow {

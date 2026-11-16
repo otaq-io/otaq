@@ -612,8 +612,7 @@ impl Board {
         }))
     }
 
-    /// Names the ticket's open round's row with the agent of `stage` (the ticket's chosen option in its place,
-    /// Q517), once: a round opens with one row (a submit, a pass into the check, a drag, Retry). The row is a run of
+    /// Names the ticket's open round's row with who checks `stage` ([`round_agent`]), once: a round opens with one row (a submit, a pass into the check, a drag, Retry). The row is a run of
     /// the stage (STG-05).
     pub(crate) async fn name_round_agent(
         &self,
@@ -1638,25 +1637,30 @@ fn verdict_of(agent: &str, outcome: Option<ValidationOutcome>) -> String {
     }
 }
 
-/// The agent of a round of `stage` for `ticket`: the ticket's chosen agent for it, else the stage's (Q517). `None`
-/// for a stage that names none.
+/// Who checks a round of the agent check `stage`, as the round names it: the tool its model runs on ("Codex"; a
+/// `default` model's, the account's default model's tool). `None` for a stage that names no model.
 async fn round_agent(
     tx: &mut Transaction<'_, Sqlite>,
-    ticket: &Ticket,
+    _ticket: &Ticket,
     stage: &Stage,
 ) -> Result<Option<String>, BoardError> {
-    let Some(agent) = stage.check_agent() else {
+    let Some(model) = stage
+        .model()
+        .filter(|_| stage.is_agent_check())
+        .and_then(|m| crate::agents::AgentModel::parse(m).ok())
+    else {
         return Ok(None);
     };
-    let chosen: Option<String> = sqlx::query_scalar(
-        "SELECT a.name FROM ticket_stage_choices c JOIN agents a ON a.id = c.agent_id
-         WHERE c.ticket_id = ? AND c.stage_id = ? AND c.choice = 'agent'",
-    )
-    .bind(&ticket.id)
-    .bind(&stage.id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    Ok(Some(chosen.unwrap_or_else(|| agent.to_owned())))
+    let tool = match model.tool() {
+        Some(tool) => Some(tool),
+        None => sqlx::query_scalar::<_, String>("SELECT value_json FROM settings WHERE key = ?")
+            .bind(crate::store::settings::DEFAULT_MODEL)
+            .fetch_optional(&mut **tx)
+            .await?
+            .and_then(|json| serde_json::from_str::<crate::agents::ModelRef>(&json).ok())
+            .map(|m| m.tool),
+    };
+    Ok(tool.map(|t| t.display_name().to_owned()))
 }
 
 /// The name of the agent check a ticket at `place` is in ("Validate", "Security"); "The check" when it isn't in one.

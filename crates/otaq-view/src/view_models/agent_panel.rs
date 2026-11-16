@@ -13,20 +13,20 @@
 //! agent line, Created and changed, its terminal and the footer. The page only draws; which agent it shows is page
 //! state, and [`AgentPanelView::opens_on`] says where a project opens the first time.
 //!
-//! The agent line names the named agent (M22): on the empty agent panel the agent Noyan uses (one app setting, "Noyan
-//! uses <agent>"), or the one picked for this conversation, which the first message starts ("Strong · starts when you
-//! send"); on a running agent the one its session started on ("Strong · 52k"). The empty agent panel's **Agent** pick
-//! lists every agent, so a new conversation can start on another than the setting's. The tool follows the name only once two tools are connected and differs
-//! from it ("Standard · Codex"); with one tool the line is the name alone.
+//! The agent line names the tool (UX-65, UX-70): on the empty agent panel the one "Noyan starts on" (an app setting)
+//! runs on, or the model picked for this conversation, which the first message starts ("Claude Code · starts when you
+//! send"); on a running agent the one its session started on ("Claude Code · 52k"). The empty agent panel's **Model**
+//! pick ([`ModelPick`]) lists the default model and every connected tool's models, with the tool's effort levels, so a
+//! new conversation can start on another than the setting's.
 //!
 //! **Tool problems** (SHL-04, d0087; *Its tool isn't available*, *Its tool is at its limit*): a running or ended
 //! agent whose tool can't run now shows the notice "Codex isn't available · logged out. This agent continues after
 //! you sign in." with Sign in…: the conversation waits for its tool, and no other agent is offered in its place (no
 //! fallback agents); a first message held before its start shows its notice in the empty agent panel (Model
-//! unavailable · Open agent… opens Settings → Agents at the agent it would start on, Q-O).
+//! unavailable: start a new conversation on another model, Q-O).
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::Agent;
+use otaq_core::agents::NoyanStartsOn;
 use otaq_core::board::stage_choices::{SKIP, TicketChoices};
 use otaq_core::board::tickets::{Field, Ticket, TicketUpdate};
 use otaq_core::domain::{Priority, Status, StatusSet, TicketKey};
@@ -158,15 +158,15 @@ pub fn agent_name(name: &str, tool: Tool, tools: &Tools) -> String {
     }
 }
 
-/// What a new Noyan conversation starts on: the agent Noyan uses (or the one picked for it) on its tool and model, else
-/// (no agent, or no default model yet) the new-session tool under its own name.
+/// What a new Noyan conversation starts on: `on` (the conversation's pick, else "Noyan starts on"; `default` while
+/// none) on its tool and model, named by the tool; the new-session tool while no default model is set.
 pub(crate) fn starts_on(
-    new_agent: Option<&Agent>,
+    on: Option<&NoyanStartsOn>,
     tools: &Tools,
 ) -> (String, Tool, Option<String>) {
-    let on = new_agent.and_then(|a| Some((a, a.model.on(tools.default_model.as_ref())?)));
-    match on {
-        Some((agent, on)) => (agent.name.clone(), on.tool, on.model),
+    let who = on.cloned().unwrap_or_default().who();
+    match who.model.on(tools.default_model.as_ref()) {
+        Some(m) => (AvatarTool::from(m.tool).name().to_owned(), m.tool, m.model),
         None => {
             let tool = new_agent_tool();
             (AvatarTool::from(tool).name().to_owned(), tool, None)
@@ -174,10 +174,10 @@ pub(crate) fn starts_on(
     }
 }
 
-/// The name of what a new Project agent starts on ([`starts_on`]): "Strong", or "Claude Code" before any named agent
-/// exists. Ask the agent's tooltip names it too.
-pub fn new_agent_name(new_agent: Option<&Agent>, tools: &Tools) -> String {
-    starts_on(new_agent, tools).0
+/// The name of what a new Noyan conversation starts on ([`starts_on`]): its tool's ("Claude Code"). Ask the agent's
+/// tooltip names it too.
+pub fn new_agent_name(on: Option<&NoyanStartsOn>, tools: &Tools) -> String {
+    starts_on(on, tools).0
 }
 
 /// A Project agent's named agent, as its session saved it at start (T-0336); the tool's name for a session from
@@ -221,22 +221,109 @@ pub struct Empty {
     pub send: &'static str,
     /// A first message held before its start (§7.2, SCH-04 `[M23]`): its notice above the box.
     pub notice: Option<Callout>,
-    /// The agent picked for this conversation (the page passes it back as `agent_panel.send`'s `agent`); `None` for
-    /// the agent Noyan uses.
-    pub starts_on: Option<String>,
-    /// The conversation's own pick of agent, shown with two or more agents: every agent, the one it starts on
-    /// selected. Picking one sets `starts_on`; picking the agent Noyan uses clears it.
-    pub pick: Option<AgentPick>,
+    /// The conversation's own pick of model and effort (UX-70), with at least one tool connected: the page passes
+    /// the picked `model` and `effort` back as `agent_panel.send`'s `on` when [`ModelPick::own`].
+    pub pick: Option<ModelPick>,
 }
 
-/// The empty agent panel's pick of agent for the new conversation ("Agent: Noyan").
+/// The empty agent panel's pick of model and effort for the new conversation ("Model: Claude Code · opus", "Effort:
+/// high"), "Noyan starts on" until the user picks another (UX-70). `AgentPanelModelPick` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentPanelAgentPick")]
-pub struct AgentPick {
+#[ts(rename = "AgentPanelModelPick")]
+pub struct ModelPick {
     pub label: &'static str,
-    /// The agent Noyan uses (the app setting): picking it starts on the setting again.
-    pub usual: Option<String>,
-    pub options: Vec<crate::view_models::agent_page::Choice>,
+    /// What it starts on: `default`, a tool (`claude`) or `tool:model` (`claude:opus`).
+    pub model: String,
+    /// `default` ("Your default model"), then each connected tool's models: ids as [`Self::model`].
+    pub models: Vec<crate::view_models::agents::Choice>,
+    pub effort_label: &'static str,
+    /// The picked effort level; `None` for the tool's own.
+    pub effort: Option<String>,
+    /// "Tool default" (id empty), then the model's tool's levels; empty for a tool with none (and `default`).
+    pub efforts: Vec<crate::view_models::agents::Choice>,
+    /// The pick differs from "Noyan starts on": the page sends it.
+    pub own: bool,
+}
+
+/// The pick's `default` entry.
+pub const DEFAULT_MODEL: &str = "Your default model";
+/// The pick's effort entry for the tool's own.
+pub const TOOL_DEFAULT_EFFORT: &str = "Tool default";
+
+/// The pick of model and effort for a new conversation, on `on` (the conversation's pick, else `usual`, "Noyan starts
+/// on"). `None` with no tool connected.
+pub fn model_pick(
+    on: Option<&NoyanStartsOn>,
+    usual: Option<&NoyanStartsOn>,
+    tools: &Tools,
+) -> Option<ModelPick> {
+    use crate::view_models::agents::{ListState, choice};
+    if tools.connected.is_empty() {
+        return None;
+    }
+    let usual = usual.cloned().unwrap_or_default();
+    let now = on.cloned().unwrap_or_else(|| usual.clone());
+    let text = |on: &NoyanStartsOn| on.who().model.text();
+    let model = text(&now);
+    let mut models = vec![choice("default", DEFAULT_MODEL, model == "default")];
+    for &tool in Tool::ALL.iter().filter(|t| tools.connected.contains(t)) {
+        let state = match tools.list(tool) {
+            Some(list) => ListState::Listed(list),
+            None => ListState::Loading,
+        };
+        let picker = crate::view_models::model_picker::picker(tool, state, None, false, None);
+        let mut ids = vec![tool.as_str().to_owned()];
+        models.push(choice(
+            tool.as_str(),
+            &format!(
+                "{} \u{b7} {}",
+                tool_problems::tool_word(tool),
+                crate::view_models::agents::TOOL_DEFAULT
+            ),
+            model == tool.as_str(),
+        ));
+        for item in picker.groups.iter().flat_map(|g| &g.items) {
+            let Some(value) = item.value.as_deref() else {
+                continue;
+            };
+            let id = format!("{}:{value}", tool.as_str());
+            if ids.contains(&id) {
+                continue;
+            }
+            models.push(choice(
+                &id,
+                &format!("{} \u{b7} {}", tool_problems::tool_word(tool), item.label),
+                model == id,
+            ));
+            ids.push(id);
+        }
+    }
+    let levels = now
+        .who()
+        .model
+        .tool()
+        .map(Tool::effort_levels)
+        .unwrap_or_default();
+    let effort = now.effort.clone().filter(|e| levels.contains(&e.as_str()));
+    let efforts = match levels {
+        [] => Vec::new(),
+        levels => std::iter::once(choice("", TOOL_DEFAULT_EFFORT, effort.is_none()))
+            .chain(
+                levels
+                    .iter()
+                    .map(|l| choice(l, l, effort.as_deref() == Some(*l))),
+            )
+            .collect(),
+    };
+    Some(ModelPick {
+        label: "Model",
+        own: text(&now) != text(&usual) || now.effort != usual.effort,
+        model,
+        models,
+        effort_label: "Effort",
+        effort,
+        efforts,
+    })
 }
 
 /// The tool a new agent starts on while there are no named agents (before the starter entry exists): the first.
@@ -244,10 +331,10 @@ fn new_agent_tool() -> Tool {
     Tool::ALL[0]
 }
 
-/// The empty agent panel, naming what the first message starts: `new_agent`, the agent Noyan uses or the one picked
-/// for this conversation (`None` before any named agent exists).
-pub fn empty(project_name: &str, new_agent: Option<&Agent>, tools: &Tools) -> Empty {
-    let (name, tool, model) = starts_on(new_agent, tools);
+/// The empty agent panel, naming what the first message starts: `on`, "Noyan starts on" or the model picked for this
+/// conversation (`None`: the default model).
+pub fn empty(project_name: &str, on: Option<&NoyanStartsOn>, tools: &Tools) -> Empty {
+    let (name, tool, model) = starts_on(on, tools);
     let model = model.as_deref();
     // "Strong"; "Standard · Codex" once two tools are connected, in the line and the hint alike (`SbFln`).
     let name = agent_name(&name, tool, tools);
@@ -270,7 +357,6 @@ pub fn empty(project_name: &str, new_agent: Option<&Agent>, tools: &Tools) -> Em
         hint: format!("Enter starts {name}"),
         send: "Send",
         notice: None,
-        starts_on: None,
         pick: None,
     }
 }
@@ -873,20 +959,18 @@ pub struct Facts<'a> {
     /// Where its started created tickets are ([`whereabouts`]).
     pub whereabouts: &'a [Whereabouts],
     pub project_name: &'a str,
-    /// The agent Noyan uses (the app setting, `agents::resolve::noyan_agent`), which the empty agent panel's first
-    /// message starts unless the conversation picks another; `None` while none is set.
-    pub new_agent: Option<&'a Agent>,
+    /// "Noyan starts on" (the app setting, `noyan.starts_on`), which the empty agent panel's first message starts
+    /// unless the conversation picks another; `None` while it isn't known (the default model).
+    pub new_agent: Option<&'a NoyanStartsOn>,
     pub window_width: Option<f32>,
     pub now_ms: i64,
     /// The user's keys, for the buttons' and the footer's keys (KEY-08).
     pub keys: KeyLabels,
     /// The agent tools (several: the tool in the lines, avatars; their problems: the notices).
     pub tools: &'a Tools,
-    /// Every named agent (the empty agent panel's pick, a held message's agent).
-    pub agent_list: &'a [Agent],
-    /// The agent picked for this conversation in the empty agent panel, instead of the agent Noyan uses.
-    pub start_on: Option<&'a Agent>,
-    /// The project's key (Settings → Agents for the agent a held message would start on, Q-O).
+    /// The model and effort picked for this conversation in the empty agent panel, instead of "Noyan starts on".
+    pub start_on: Option<&'a NoyanStartsOn>,
+    /// The project's key.
     pub project: &'a str,
 }
 
@@ -967,31 +1051,13 @@ pub fn view(f: &Facts) -> AgentPanelView {
     }
 }
 
-/// The empty agent panel of `f`: on the agent picked for this conversation, else on the agent Noyan uses with a held
-/// first message's notice; the pick lists every agent.
+/// The empty agent panel of `f`: on the model picked for this conversation, else on "Noyan starts on" with a held
+/// first message's notice; the pick lists the connected tools' models.
 fn empty_of(f: &Facts) -> Empty {
-    let picked = f
-        .start_on
-        .filter(|on| f.new_agent.is_none_or(|usual| usual.id != on.id));
-    let on = picked.or(f.new_agent);
-    let pick = (f.agent_list.len() > 1).then(|| AgentPick {
-        label: "Agent",
-        usual: f.new_agent.map(|a| a.id.clone()),
-        options: f
-            .agent_list
-            .iter()
-            .map(|a| {
-                crate::view_models::agent_page::choice(
-                    &a.id,
-                    &a.name,
-                    on.is_some_and(|on| on.id == a.id),
-                )
-            })
-            .collect(),
-    });
-    if let Some(on) = picked {
+    let pick = model_pick(f.start_on, f.new_agent, f.tools);
+    let usual = f.new_agent.cloned().unwrap_or_default();
+    if let Some(on) = f.start_on.filter(|on| **on != usual) {
         return Empty {
-            starts_on: Some(on.id.clone()),
             pick,
             ..empty(f.project_name, Some(on), f.tools)
         };
@@ -1001,7 +1067,7 @@ fn empty_of(f: &Facts) -> Empty {
         .holds
         .iter()
         .find(|h| h.role == otaq_core::agents::SessionRole::ProjectAgent)
-        .map(|hold| tool_problems::first_message_notice(hold, f.project, f.agent_list, f.tools));
+        .map(|hold| tool_problems::first_message_notice(hold, f.tools));
     Empty {
         notice,
         pick,
@@ -1137,7 +1203,6 @@ pub fn gallery() -> Gallery {
             now_ms: NOW,
             keys: KeyLabels::base(Platform::Mac),
             tools: &one,
-            agent_list: &[],
             start_on: None,
             project: "NOTE",
         }),
@@ -1159,7 +1224,6 @@ pub fn gallery() -> Gallery {
                     now_ms: NOW,
                     keys: KeyLabels::base(Platform::Mac),
                     tools: &one,
-                    agent_list: &[],
                     start_on: None,
                     project: "NOTE",
                 }),
@@ -1186,9 +1250,10 @@ fn several_tools_states(now: i64) -> Vec<GalleryState> {
     use otaq_core::agents::{HoldReason, SessionRole as Role};
     use tool_problems::fixtures::{self as tf, CODEX};
 
-    let standard = crate::view_models::agents::fixtures::on(CODEX, sample_agent("Standard", None));
-    let sonnet = sample_agent("Sonnet", Some("sonnet"));
-    let named = vec![standard.clone(), sonnet];
+    let standard = NoyanStartsOn {
+        model: Some(CODEX.as_str().to_owned()),
+        effort: None,
+    };
     let mut checkout = otaq_core::project_agents::ProjectAgent {
         tool: CODEX,
         session: Some(session_on("Standard")),
@@ -1231,7 +1296,6 @@ fn several_tools_states(now: i64) -> Vec<GalleryState> {
             now_ms: now,
             keys: KeyLabels::base(Platform::Mac),
             tools,
-            agent_list: &named,
             start_on: None,
             project: "SHOP",
         }),
@@ -1298,9 +1362,15 @@ fn gallery_agent(id: &str, name: &str) -> ProjectAgent {
     }
 }
 
-/// An agent on the first tool, for the gallery and tests.
-fn sample_agent(name: &str, model: Option<&str>) -> Agent {
-    crate::view_models::agents::fixtures::agent(&name.to_lowercase(), name, model)
+/// "Noyan starts on" the first tool with `model`, for the gallery and tests (`name` says which, for the reader).
+fn sample_agent(_name: &str, model: Option<&str>) -> NoyanStartsOn {
+    NoyanStartsOn {
+        model: Some(match model {
+            Some(model) => format!("{}:{model}", Tool::ALL[0].as_str()),
+            None => Tool::ALL[0].as_str().to_owned(),
+        }),
+        effort: None,
+    }
 }
 
 /// A Project agent's session started on the named agent `name`, for the gallery and tests.
@@ -1318,7 +1388,7 @@ pub(crate) fn session_on(name: &str) -> otaq_core::session::SessionInfo {
         tool_session_id: None,
         model: None,
         agent: Some(otaq_core::session::SessionAgent {
-            id: name.to_lowercase(),
+            runs_for: otaq_core::agents::About::Noyan.scope(),
             name: name.to_owned(),
         }),
         model_ran: None,
@@ -1465,7 +1535,7 @@ mod tests {
             ("Claude Code", "\u{b7} starts when you send")
         );
         assert_eq!(e.hint, "Enter starts Claude Code");
-        // shop-web's Project agent default is Strong.
+        // "Noyan starts on" Claude Code · opus: the line names the tool.
         let strong = sample_agent("Strong", Some("opus"));
         let agents = list(Vec::new());
         let v = view(&Facts {
@@ -1475,10 +1545,10 @@ mod tests {
         let e = v.empty.unwrap();
         assert_eq!(
             (e.line.agent.as_str(), e.line.note.as_str()),
-            ("Strong", "\u{b7} starts when you send")
+            ("Claude Code", "\u{b7} starts when you send")
         );
         assert_eq!(e.line.avatar, None, "one tool: no avatar");
-        assert_eq!(e.hint, "Enter starts Strong");
+        assert_eq!(e.hint, "Enter starts Claude Code");
         assert_eq!(
             agent_name("Strong", Tool::ALL[0], &Tools::one(None)),
             "Strong",
@@ -1523,7 +1593,6 @@ mod tests {
             now_ms: 0,
             keys: KeyLabels::base(Platform::Mac),
             tools: one_tool(),
-            agent_list: &[],
             start_on: None,
             project: "NOTE",
         }
@@ -2152,9 +2221,7 @@ mod tests {
     /// choice it had, the stage's own agent when nobody had chosen.
     #[test]
     fn undo_of_a_stage_choice_sets_back_the_choice_it_had() {
-        use otaq_core::board::stage_choices::{
-            Choice, OptionAgent, SetBy, StageChoice, StageOptions,
-        };
+        use otaq_core::board::stage_choices::{Choice, SetBy, StageChoice, StageOptions};
 
         let key: TicketKey = "SHOP-9".parse().unwrap();
         let mut choices = TicketChoices {
@@ -2162,12 +2229,6 @@ mod tests {
             stages: vec![StageOptions {
                 stage_id: "dev".into(),
                 stage: "Dev".into(),
-                usual: Some(OptionAgent {
-                    name: "Rust developer".into(),
-                    agent_id: Some("rust".into()),
-                    tool: None,
-                }),
-                agents: Vec::new(),
                 can_skip: true,
                 choice: Some(StageChoice {
                     stage_id: "dev".into(),
@@ -2196,7 +2257,7 @@ mod tests {
             Some(Request::TicketSetChoice(SetChoiceParams {
                 key: "SHOP-9".into(),
                 stage: "dev".into(),
-                choice: "Rust developer".into(),
+                choice: "required".into(),
             }))
         );
         // The stage started: its choice can't change, so no Undo.
@@ -2506,7 +2567,7 @@ mod tests {
             (line(0), line(1), line(2)),
             (
                 Some("Claude Code".to_owned()),
-                Some("Strong".to_owned()),
+                Some("Claude Code".to_owned()),
                 Some("Strong".to_owned())
             )
         );
@@ -2522,12 +2583,15 @@ mod tests {
         a
     }
 
-    fn named() -> Vec<Agent> {
-        let standard = crate::view_models::agents::fixtures::on(
-            tool_problems::fixtures::CODEX,
-            sample_agent("Standard", None),
-        );
-        vec![standard, sample_agent("Sonnet", Some("sonnet"))]
+    /// "Noyan starts on" Codex, and the model a conversation may pick instead: Claude Code · sonnet.
+    fn named() -> Vec<NoyanStartsOn> {
+        vec![
+            NoyanStartsOn {
+                model: Some(tool_problems::fixtures::CODEX.as_str().to_owned()),
+                effort: None,
+            },
+            sample_agent("Sonnet", Some("sonnet")),
+        ]
     }
 
     #[test]
@@ -2537,75 +2601,78 @@ mod tests {
         let agents = list(Vec::new());
         let e = view(&Facts {
             tools: &tools,
-            agent_list: &named,
             new_agent: Some(&named[0]),
             ..facts(&agents, None)
         })
         .empty
         .unwrap();
-        assert_eq!(e.line.agent, "Standard \u{b7} Codex");
-        assert_eq!(e.hint, "Enter starts Standard \u{b7} Codex");
+        assert_eq!(e.line.agent, "Codex");
+        assert_eq!(e.hint, "Enter starts Codex");
         assert_eq!(e.line.avatar.as_ref().unwrap().letters, "CX");
-        assert_eq!((e.notice, e.starts_on), (None, None));
+        assert_eq!(e.notice, None);
+        assert!(!e.pick.unwrap().own);
     }
 
-    /// A new conversation can pick another agent than the one Noyan uses: the empty agent panel lists every agent with
-    /// the one it starts on selected; a pick starts on it (and is passed on), picking the agent Noyan uses is the
-    /// setting again. With one agent there is nothing to pick.
+    /// A new conversation can start on another model and effort than "Noyan starts on" (UX-70): the empty agent
+    /// panel's pick lists the default model and the connected tools' models, the one it starts on selected; a pick
+    /// of its own starts on it (and is passed on), picking the setting's is the setting again.
     #[test]
-    fn a_new_conversation_picks_its_agent() {
+    fn a_new_conversation_picks_its_model() {
         let tools = tool_problems::fixtures::several();
         let named = named();
         let agents = list(Vec::new());
         let base = || Facts {
             tools: &tools,
-            agent_list: &named,
             new_agent: Some(&named[0]),
             ..facts(&agents, None)
         };
-        let picked = |e: &Empty| -> Vec<(String, bool)> {
+        let selected = |e: &Empty| -> Vec<String> {
             e.pick
                 .as_ref()
                 .unwrap()
-                .options
+                .models
                 .iter()
-                .map(|o| (o.label.clone(), o.selected))
+                .filter(|o| o.selected)
+                .map(|o| o.id.clone())
                 .collect()
         };
         let e = view(&base()).empty.unwrap();
         let pick = e.pick.as_ref().unwrap();
-        assert_eq!(pick.label, "Agent");
-        assert_eq!(pick.usual.as_deref(), Some(named[0].id.as_str()));
-        assert_eq!(
-            picked(&e),
-            [("Standard".to_owned(), true), ("Sonnet".to_owned(), false)]
-        );
+        assert_eq!(pick.label, "Model");
+        assert_eq!(pick.model, "codex");
+        assert!(!pick.own);
+        assert_eq!(pick.models[0].id, "default");
+        assert!(pick.models.iter().any(|m| m.id == "claude"));
+        assert_eq!(selected(&e), ["codex"]);
         let e = view(&Facts {
             start_on: Some(&named[1]),
             ..base()
         })
         .empty
         .unwrap();
-        assert_eq!(e.line.agent, "Sonnet \u{b7} Claude Code");
-        assert_eq!(e.starts_on.as_deref(), Some(named[1].id.as_str()));
-        assert_eq!(
-            picked(&e),
-            [("Standard".to_owned(), false), ("Sonnet".to_owned(), true)]
-        );
+        assert_eq!(e.line.agent, "Claude Code");
+        let pick = e.pick.as_ref().unwrap();
+        assert!(pick.own);
+        assert_eq!(pick.model, "claude:sonnet");
+        assert!(!pick.efforts.is_empty(), "Claude Code has effort levels");
         let e = view(&Facts {
             start_on: Some(&named[0]),
             ..base()
         })
         .empty
         .unwrap();
-        assert_eq!(e.starts_on, None, "the agent Noyan uses is the setting");
+        assert!(
+            !e.pick.unwrap().own,
+            "the setting's own model is the setting"
+        );
+        let none = Tools::default();
         let e = view(&Facts {
-            agent_list: &named[..1],
+            tools: &none,
             ..base()
         })
         .empty
         .unwrap();
-        assert_eq!(e.pick, None);
+        assert_eq!(e.pick, None, "no tool connected: nothing to pick");
     }
 
     /// Its tool isn't available: the amber notice with Sign in…; at its limit, neutral with Resume after reset; the
@@ -2618,7 +2685,6 @@ mod tests {
         let notice = |tools: &Tools| {
             view(&Facts {
                 tools,
-                agent_list: &named,
                 new_agent: Some(&named[0]),
                 ..facts(&agents, Some("c1"))
             })
@@ -2662,7 +2728,6 @@ mod tests {
         agents.holds = vec![hold];
         let base = Facts {
             tools: &tools,
-            agent_list: &named,
             new_agent: Some(&named[0]),
             project: "SHOP",
             ..facts(&agents, None)
@@ -2670,21 +2735,15 @@ mod tests {
         let e = view(&base).empty.unwrap();
         let n = e.notice.unwrap();
         assert_eq!(n.heading, "Model unavailable");
-        assert_eq!(
-            n.buttons[0].action,
-            tool_problems::Action::AgentSettings {
-                project: "SHOP".into(),
-                agent: Some("standard".into())
-            }
-        );
+        assert!(n.buttons.is_empty());
         let e = view(&Facts {
             start_on: Some(&named[1]),
             ..base
         })
         .empty
         .unwrap();
-        assert_eq!(e.line.agent, "Sonnet \u{b7} Claude Code");
-        assert_eq!(e.starts_on.as_deref(), Some("sonnet"));
+        assert_eq!(e.line.agent, "Claude Code");
+        assert_eq!(e.pick.unwrap().model, "claude:sonnet");
         assert_eq!(e.notice, None);
     }
 }

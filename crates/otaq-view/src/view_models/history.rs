@@ -2220,7 +2220,7 @@ mod tests {
     fn a_helpers_rows_name_the_agent_in_charge() {
         let mut dev = session("s1", 0, None, None);
         dev.agent = Some(otaq_core::session::SessionAgent {
-            id: "dev".into(),
+            runs_for: "dev".into(),
             name: "Developer".into(),
         });
         let helper = |at, what: &str, label: &str, title: &str, note: Option<&str>| HistoryEvent {

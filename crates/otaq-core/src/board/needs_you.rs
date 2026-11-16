@@ -158,10 +158,10 @@ pub struct NeedsYouItem {
     /// question's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<QuestionItem>,
-    /// The tool refused the model of this role's agent (AGT-05, SDD §7.2 `[M22]`): the item offers Change agent
-    /// (Developer: a Start failed ticket) or Change validator (Validator: No result) in place of its first action.
+    /// The tool refused the model of this role's stage (AGT-05, SDD §7.2 `[M22]`): the item offers Edit flow (the
+    /// Developer's stage: a Start failed ticket; the Validator's: No result) in place of its first action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub change_agent: Option<SessionRole>,
+    pub fix_model: Option<SessionRole>,
     /// Group 3: the stage it waits in (FLW-14: each row names its stage).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting_in: Option<WaitingIn>,
@@ -274,7 +274,7 @@ pub fn needs_you_items_with(
                     blocked: u32::try_from(blocks.get(&ticket.key).copied().unwrap_or(0))
                         .unwrap_or(u32::MAX),
                     message: None,
-                    change_agent: change_agent(ticket),
+                    fix_model: fix_model(ticket),
                     waiting_in,
                     piece: ticket.flags.piece_wait.clone(),
                     helpers_to_resume: ticket.flags.helpers_to_resume.clone(),
@@ -295,9 +295,9 @@ pub fn needs_you_count(items: &[NeedsYouItem]) -> usize {
     items.len()
 }
 
-/// Whose agent to change when the tool refused its model: the Developer of a Start failed ticket (Start
-/// interrupted at the `model` step), the Validator of a No result the validator's model caused.
-pub fn change_agent(ticket: &Ticket) -> Option<SessionRole> {
+/// Whose stage's model to fix when the tool refused it: the Developer of a Start failed ticket (Start interrupted at
+/// the `model` step), the Validator of a No result the validator's model caused.
+pub fn fix_model(ticket: &Ticket) -> Option<SessionRole> {
     match ticket.status {
         Status::StartInterrupted => ticket
             .start_problem
@@ -585,7 +585,7 @@ impl Board {
                     target_status: target.status,
                     question,
                 }),
-                change_agent: None,
+                fix_model: None,
                 waiting_in: None,
                 piece: None,
                 helpers_to_resume: Vec::new(),

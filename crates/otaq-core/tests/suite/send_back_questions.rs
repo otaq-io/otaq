@@ -117,7 +117,7 @@ async fn send(w: &TestService, shell: &AgentShell, method: &str, params: Value) 
 
 /// Names the agent `session` runs, as a real launch records it.
 async fn runs_agent(w: &TestService, session: &str, id: &str, name: &str) {
-    sqlx::query("UPDATE sessions SET agent_id = ?, agent_name = ? WHERE id = ?")
+    sqlx::query("UPDATE sessions SET runs_for = ?, agent_name = ? WHERE id = ?")
         .bind(id)
         .bind(name)
         .bind(session)

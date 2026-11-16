@@ -33,18 +33,16 @@
 //! (amber: its tool isn't available, or its model is no longer listed) or **Limit** (neutral: its tool is at its
 //! limit), never turquoise and never in Needs you. A model that can't run (its tool not available, the model no
 //! longer listed) says **Can't start** ("Spec writer's model can't run: Claude Code isn't available"). A held agent
-//! waits for its own tool: the card says why and offers **Open agent…** (AGM-03, d0108 second gap review rule 7), or
+//! waits for its own tool: the card says why and offers **Edit flow…** (AGM-03, d0108 second gap review rule 7), or
 //! Skip this check on a check held for the plan limit that the flow marks skippable. A swapped model changes nothing
 //! on the card (the sheet says it).
 //!
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
-use otaq_core::agents::facts::{
-    BoardAgents, CardAgents, CardHold, CardStart, OwnAgent, RunsOnTool,
-};
+use otaq_core::agents::facts::{BoardAgents, CardAgents, CardHold, CardStart, RunsOnTool};
 use otaq_core::agents::{HoldReason, SessionRole as Role};
 use otaq_core::board::human_check::Arrival;
-use otaq_core::board::needs_you::change_agent;
+use otaq_core::board::needs_you::fix_model;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, HandOffKind, MergeCheckState, Priority, Status, TicketKey};
 use otaq_core::flow::model::Delivers;
@@ -182,18 +180,17 @@ pub struct AgentFacts {
     pub validator_on: Option<RunsOnTool>,
     /// Waiting before an Agent stage: where it starts (AGM-09).
     pub starts: Option<CardStart>,
-    /// The agent whose model the tool refused (Open agent…).
-    pub refused_agent: Option<String>,
-    /// The agent of the stage the ticket is in or waits before.
+    /// The stage (its id) whose model the tool refused (Edit flow…).
+    pub refused_stage: Option<String>,
+    /// The tool the stage the ticket is in or waits before runs on.
     pub stage_agent: Option<String>,
-    /// The agent the ticket chose for a stage instead of the stage's own, from the moment it is set (Backlog on).
-    pub own_agent: Option<OwnAgent>,
     /// The stages the user chose to skip for the ticket, by name.
     pub skips: Vec<String>,
 }
 
 impl AgentFacts {
-    /// From the service's facts for one card, with the number of agents.
+    /// From the service's facts for one card, with the number of tools connected (the card names one only when there
+    /// are several).
     pub fn of(card: &CardAgents, count: usize) -> Self {
         Self {
             count,
@@ -203,9 +200,8 @@ impl AgentFacts {
             developer_on: card.running_developer_on.clone(),
             validator_on: card.running_validator_on.clone(),
             starts: card.starts.clone(),
-            refused_agent: card.refused_agent.clone(),
+            refused_stage: card.refused_stage.clone(),
             stage_agent: card.stage_agent.clone(),
-            own_agent: card.own_agent.clone(),
             skips: card.skips.clone(),
         }
     }
@@ -224,7 +220,7 @@ impl CardExtras {
         let Some(card) = board.cards.iter().find(|c| &c.key == key) else {
             return self;
         };
-        self.agents = AgentFacts::of(card, board.agent_count);
+        self.agents = AgentFacts::of(card, board.connected.len());
         let avatar = |on: &Option<RunsOnTool>, role: Role| match on {
             Some(on) => Some(ToolAvatarView::of(on.tool, on.model.as_deref())),
             None => card
@@ -385,12 +381,9 @@ pub enum CardActionKind {
     RetryMerge,
     /// Auto-merge stopped: back to Ready for Review, still validated, not merged again.
     MoveToReview,
-    /// A model that can't run (AGM-03; d0108 second gap review rule 7): Settings → Agents opens on that agent's page
-    /// (the card's [`open_agent`]); replaces Change agent (Q280).
-    OpenAgent,
-    /// A held stage (it waits for its tool, so it hasn't started): the ticket's Change agent… dialog, another agent
-    /// for that stage whose tool has its skill and can run now.
-    ChangeAgent,
+    /// A model that can't run, or a held stage (AGM-03, UX-65): Edit flow opens on that stage (the card's
+    /// [`edit_flow_stage`]), where its model is picked.
+    EditFlow,
     /// A stage held because its tool doesn't have its skill: Otaq's finder is asked again and the stage starts if the
     /// skill is found now (`ticket.check_again`).
     CheckAgain,
@@ -571,10 +564,10 @@ pub struct Footer {
     pub tokens: Option<Tokens>,
     pub signal: Option<Signal>,
     pub action: Option<CardAction>,
-    /// A second button after the action: Open agent… next to Skip this check (`s03-54`).
+    /// A second button after the action: Edit flow… next to Skip this check (`s03-54`).
     pub second: Option<CardAction>,
     /// The two buttons stand one under the other, each its own width: Send back with PR comments over Mark merged,
-    /// Skip this check over Open agent… (`s03-46`, `s03-54`).
+    /// Skip this check over Edit flow… (`s03-46`, `s03-54`).
     pub stacked: bool,
 }
 
@@ -2155,7 +2148,7 @@ pub fn who(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<String> {
         return None;
     }
     if let Some(hold) = held(ticket, status, x) {
-        return hold.agent.clone();
+        return Some(crate::view_models::tool_problems::tool_word(hold.tool).to_owned());
     }
     match status {
         Status::Checking | Status::CheckerNeedsYou => a.running_validator.clone(),
@@ -2207,10 +2200,10 @@ pub const CHECK_AGAIN: &str = "Check again";
 /// The flag and line of a held role (0086, SDD §7.2; *03 → A model that can't run*): **Can't start** (red) for a
 /// model that can't run, its tool not available or the model no longer listed ("Spec writer's model can't run: Claude
 /// Code isn't available"); Limit (neutral) for a tool at its limit ("Claude Code limit · resets 3:45 pm"). The
-/// buttons say what helps (Open agent…, Skip this check). It waits for its own tool.
+/// buttons say what helps (Edit flow…, Skip this check). It waits for its own tool.
 fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
     let tool = AvatarTool::from(h.tool).name();
-    let agent = h.agent.as_deref().unwrap_or("The agent");
+    let agent = "The stage";
     let cant_run = |why: String| format!("{agent}\u{2019}s model can\u{2019}t run: {why}");
     let flag = |label: &str, full: String, palette: Palette, icon: IconName| HeadFlag {
         rank: Rank::Limit,
@@ -2269,10 +2262,8 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
         }
         // The model on hover: "Old GPT · Codex · gpt-5.4 is no longer in Codex's list".
         HoldReason::ModelUnavailable => {
-            let mut named = vec![agent.to_owned()];
-            if x.several_tools && !agent.eq_ignore_ascii_case(tool) {
-                named.push(tool.to_owned());
-            }
+            let _ = x;
+            let mut named = vec![tool.to_owned()];
             named.extend(h.model.clone());
             let why = match &h.model {
                 Some(model) => format!("{tool} no longer lists {model}"),
@@ -2575,7 +2566,9 @@ pub fn footer_agent(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<F
         tooltip: None,
     };
     if let Some(hold) = held(ticket, status, x) {
-        return hold.agent.clone().map(plain);
+        return Some(plain(
+            crate::view_models::tool_problems::tool_word(hold.tool).to_owned(),
+        ));
     }
     if runs(status) {
         let (name, on) = match status {
@@ -2624,7 +2617,7 @@ fn developer_tool(x: &CardExtras) -> &'static str {
 
 /// A Start failed ticket's refusal (AGT-05): the tool's own message, kept on the start problem.
 pub fn start_refusal(ticket: &Ticket) -> Option<&str> {
-    (change_agent(ticket) == Some(Role::Developer))
+    (fix_model(ticket) == Some(Role::Developer))
         .then(|| ticket.start_problem.as_ref().map(|p| p.message.as_str()))
         .flatten()
 }
@@ -2632,7 +2625,7 @@ pub fn start_refusal(ticket: &Ticket) -> Option<&str> {
 /// A No result on the validator's model (AGT-05): the model and the tool's message, from the round's text ("The
 /// validator couldn't run `claude-fable-5-1`: There's an issue…", `validation::couldnt_run_text`).
 pub fn validator_refusal(ticket: &Ticket) -> Option<(Option<String>, String)> {
-    if change_agent(ticket) != Some(Role::Validator) {
+    if fix_model(ticket) != Some(Role::Validator) {
         return None;
     }
     let text = ticket.signal.as_ref()?.text.as_deref()?;
@@ -2736,10 +2729,8 @@ pub const CHECK_FAILED: &str = "Check failed";
 /// Stop on "Merging · running the merge check" (d0120, Q475): nothing is merged.
 pub const STOP: &str = "Stop";
 
-/// "Open agent…": Settings → Agents on the agent whose model can't run (d0108 second gap review rule 7).
-pub const OPEN_AGENT: &str = "Open agent\u{2026}";
-/// "Change agent…": another agent for the stage waiting for its tool.
-pub const CHANGE_AGENT: &str = crate::view_models::tool_problems::CHANGE_AGENT;
+/// "Edit flow…": the flow editor on the stage whose model can't run, or that waits for its tool (UX-65).
+pub const EDIT_FLOW: &str = crate::view_models::tool_problems::EDIT_FLOW;
 
 /// "Skip this check" on a check held for the plan limit (FLW-13, `s03-54`).
 pub const SKIP_THIS_CHECK: &str = "Skip this check";
@@ -2752,7 +2743,7 @@ pub const SEND_BACK_WITH_PR_COMMENTS: &str = "Send back with PR comments";
 /// An agent check's last round failed (FLW-13, `s03-44`; d0108 "Move on anyway").
 pub const MOVE_ON_ANYWAY: &str = "Move on anyway";
 
-/// The second button: on a held session Open agent… after Change agent…, Change agent… after Skip this check
+/// The second button: on a held session Edit flow… after Check again or Skip this check
 /// (`s03-54`); Fail after Pass, Mark merged after Send back with PR comments (`s03-46`).
 fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
     let quiet = |kind, label: &'static str| {
@@ -2769,10 +2760,10 @@ fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<Card
     if let Some(hold) = held(ticket, status, x) {
         return match hold.can_skip_check && x.skippable_check {
             _ if hold.reason == HoldReason::MissingSkill => {
-                quiet(CardActionKind::ChangeAgent, CHANGE_AGENT)
+                quiet(CardActionKind::EditFlow, EDIT_FLOW)
             }
-            true => quiet(CardActionKind::ChangeAgent, CHANGE_AGENT),
-            false => quiet(CardActionKind::OpenAgent, OPEN_AGENT),
+            true => quiet(CardActionKind::EditFlow, EDIT_FLOW),
+            false => None,
         };
     }
     match status {
@@ -2792,11 +2783,11 @@ fn your_check_buttons(ticket: &Ticket) -> bool {
     ticket.flags.pr_number.is_none() && !ticket.flags.pr_rework
 }
 
-/// The agent Open agent… opens: a held session's, else the one whose model the tool refused.
-pub fn open_agent(ticket: &Ticket, x: &CardExtras) -> Option<String> {
+/// The stage (its id) Edit flow… opens on: a held session's, else the one whose model the tool refused.
+pub fn edit_flow_stage(ticket: &Ticket, x: &CardExtras) -> Option<String> {
     held(ticket, ticket.status, x)
-        .and_then(|h| h.agent_id.clone())
-        .or_else(|| x.agents.refused_agent.clone())
+        .and_then(|h| h.stage_id.clone())
+        .or_else(|| x.agents.refused_stage.clone())
 }
 
 /// The card's one action (*Ticket Card v2 → footer*): Answer, Reply, Open, Resume, Review, Mark merged, Retry
@@ -2835,10 +2826,10 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             false,
         );
     }
-    // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the sheet.
-    // A held role (M23, AGM-03) waits for its own tool: Change agent… then Open agent…, or on a check at the plan
-    // limit the flow marks skippable Skip this check then Change agent… ([`second_action`]); quiet buttons.
-    // A stage held for its skill: Check again, then Change agent… (only agents whose tool has the skill).
+    // A model the tool refused (AGT-05): Edit flow on its stage; Retry start / Retry validation stay in the sheet.
+    // A held role (M23, AGM-03) waits for its own tool: Edit flow…, or on a check at the plan limit the flow marks
+    // skippable Skip this check then Edit flow… ([`second_action`]); quiet buttons.
+    // A stage held for its skill: Check again, then Edit flow….
     if let Some(hold) = held(ticket, status, x) {
         return match hold.can_skip_check && x.skippable_check {
             _ if hold.reason == HoldReason::MissingSkill => a(
@@ -2848,11 +2839,11 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
                 false,
             ),
             true => a(CardActionKind::SkipCheck, SKIP_THIS_CHECK, None, false),
-            false => a(CardActionKind::ChangeAgent, CHANGE_AGENT, None, false),
+            false => a(CardActionKind::EditFlow, EDIT_FLOW, None, false),
         };
     }
-    if change_agent(ticket).is_some() {
-        return a(CardActionKind::OpenAgent, OPEN_AGENT, None, true);
+    if fix_model(ticket).is_some() {
+        return a(CardActionKind::EditFlow, EDIT_FLOW, None, true);
     }
     if kept {
         // Answered from the sheet: that answer resumes it.
@@ -3504,7 +3495,7 @@ mod tests {
                 "Plan limit \u{b7} Skip this check",
                 Some("At limit"),
                 Some("Claude Code limit"),
-                Some("Security reviewer [Skip this check] [Change agent\u{2026}]"),
+                Some("Claude Code [Skip this check] [Edit flow\u{2026}]"),
             ),
         ];
         let names: Vec<&str> = card_fixtures::flow_variants()
@@ -3527,7 +3518,7 @@ mod tests {
         for (name, footer) in [
             (
                 "Plan limit \u{b7} Skip this check",
-                "Security reviewer [Change agent\u{2026}] [Open agent\u{2026}]",
+                "Claude Code [Edit flow\u{2026}]",
             ),
             ("Security failed \u{d7}3", "[Move on anyway]"),
         ] {
@@ -3646,7 +3637,7 @@ mod tests {
             (None, Tone::Paused, Tone::Secondary, Outline::Normal, None),
             "amber, not faded"
         );
-        // Send back with PR comments over Mark merged, Skip this check over Open agent…; Pass · Fail side by side.
+        // Send back with PR comments over Mark merged, Skip this check over Edit flow…; Pass · Fail side by side.
         let stacked = |name| variant(name).1.footer.expect("a footer").stacked;
         assert!(stacked("PR #481 open \u{b7} opened by Shipper"));
         assert!(stacked("Plan limit \u{b7} Skip this check"));
@@ -5478,13 +5469,13 @@ mod tests {
                 "Start failed on the model",
                 Some("Start failed"),
                 Some("Claude Code couldn\u{2019}t run the model"),
-                Some("[Open agent\u{2026}]"),
+                Some("[Edit flow\u{2026}]"),
             ),
             (
                 "No result \u{b7} the checker\u{2019}s model",
                 Some("No result"),
                 Some("Checker couldn\u{2019}t run its model"),
-                Some("[Open agent\u{2026}]"),
+                Some("[Edit flow\u{2026}]"),
             ),
             (
                 "Project default \u{b7} no footer",
@@ -5543,7 +5534,7 @@ mod tests {
         let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
         assert_eq!(
             (action.kind, action.primary, action.label.as_ref()),
-            (CardActionKind::OpenAgent, true, "Open agent\u{2026}")
+            (CardActionKind::EditFlow, true, "Edit flow\u{2026}")
         );
         assert_eq!(start_refusal(&t), Some(card_fixtures::MODEL_ISSUE_MESSAGE));
 
@@ -5556,7 +5547,7 @@ mod tests {
             "The checker couldn\u{2019}t run claude-fable-5-1"
         );
         let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
-        assert_eq!(action.kind, CardActionKind::OpenAgent);
+        assert_eq!(action.kind, CardActionKind::EditFlow);
         assert_eq!(
             validator_refusal(&t),
             Some((
@@ -5565,8 +5556,8 @@ mod tests {
             ))
         );
         assert_eq!(
-            serde_json::to_value(CardActionKind::OpenAgent).unwrap(),
-            "open_agent"
+            serde_json::to_value(CardActionKind::EditFlow).unwrap(),
+            "edit_flow"
         );
 
         // Another start problem and another No result keep today's line and action.
@@ -5669,8 +5660,8 @@ mod tests {
                 "Claude Code couldn\u{2019}t run the model",
                 Tone::Error,
                 Some("Claude Code couldn\u{2019}t run the model"),
-                "[Open agent\u{2026}]",
-                Some((K::OpenAgent, true)),
+                "[Edit flow\u{2026}]",
+                Some((K::EditFlow, true)),
             ),
             (
                 "Start failed \u{b7} Codex",
@@ -5679,28 +5670,28 @@ mod tests {
                 "Codex couldn\u{2019}t run the model",
                 Tone::Error,
                 Some("Codex couldn\u{2019}t run the model"),
-                "[Open agent\u{2026}]",
-                Some((K::OpenAgent, true)),
+                "[Edit flow\u{2026}]",
+                Some((K::EditFlow, true)),
             ),
             (
                 "Model unavailable",
                 "CX",
                 Some(("Can\u{2019}t start", Palette::Error)),
-                "Old GPT\u{2019}s model can\u{2019}t run: Codex no longer lists gpt-5.4",
+                "The stage\u{2019}s model can\u{2019}t run: Codex no longer lists gpt-5.4",
                 Tone::Error,
-                Some("Old GPT \u{b7} Codex \u{b7} gpt-5.4 is no longer in Codex\u{2019}s list"),
-                "Old GPT [Change agent\u{2026}] [Open agent\u{2026}]",
-                Some((K::ChangeAgent, false)),
+                Some("Codex \u{b7} gpt-5.4 is no longer in Codex\u{2019}s list"),
+                "Codex [Edit flow\u{2026}]",
+                Some((K::EditFlow, false)),
             ),
             (
                 "Model unavailable \u{b7} the checker",
                 "CX",
                 Some(("Can\u{2019}t start", Palette::Error)),
-                "Old GPT\u{2019}s model can\u{2019}t run: Codex no longer lists gpt-5.4",
+                "The stage\u{2019}s model can\u{2019}t run: Codex no longer lists gpt-5.4",
                 Tone::Error,
-                Some("Old GPT \u{b7} Codex \u{b7} gpt-5.4 is no longer in Codex\u{2019}s list"),
-                "Old GPT [Change agent\u{2026}] [Open agent\u{2026}]",
-                Some((K::ChangeAgent, false)),
+                Some("Codex \u{b7} gpt-5.4 is no longer in Codex\u{2019}s list"),
+                "Codex [Edit flow\u{2026}]",
+                Some((K::EditFlow, false)),
             ),
             (
                 "Swapped model \u{b7} not on the card",
@@ -5719,28 +5710,28 @@ mod tests {
                 "Claude Code limit",
                 Tone::Muted,
                 None,
-                "Light [Change agent\u{2026}] [Open agent\u{2026}]",
-                Some((K::ChangeAgent, false)),
+                "Claude Code [Edit flow\u{2026}]",
+                Some((K::EditFlow, false)),
             ),
             (
                 "Tool not available (0086)",
                 "CX",
                 Some(("Can\u{2019}t start", Palette::Error)),
-                "Standard\u{2019}s model can\u{2019}t run: Codex isn\u{2019}t available",
+                "The stage\u{2019}s model can\u{2019}t run: Codex isn\u{2019}t available",
                 Tone::Error,
                 None,
-                "Standard [Change agent\u{2026}] [Open agent\u{2026}]",
-                Some((K::ChangeAgent, false)),
+                "Codex [Edit flow\u{2026}]",
+                Some((K::EditFlow, false)),
             ),
             (
                 "Checker held \u{b7} tool not available",
                 "CP",
                 Some(("Can\u{2019}t start", Palette::Error)),
-                "Verifier\u{2019}s model can\u{2019}t run: GitHub Copilot isn\u{2019}t available",
+                "The stage\u{2019}s model can\u{2019}t run: GitHub Copilot isn\u{2019}t available",
                 Tone::Error,
                 None,
-                "Verifier [Change agent\u{2026}] [Open agent\u{2026}]",
-                Some((K::ChangeAgent, false)),
+                "Copilot [Edit flow\u{2026}]",
+                Some((K::EditFlow, false)),
             ),
         ];
         let variants = card_fixtures::tool_variants();
@@ -5887,7 +5878,7 @@ mod tests {
         assert_eq!(flag_of(&vm), Some("Can\u{2019}t start"));
         assert_eq!(
             line(&vm),
-            Some("Validator can\u{2019}t start: missing skill")
+            Some("The stage can\u{2019}t start: missing skill")
         );
         let footer = vm.footer.unwrap();
         assert_eq!(
@@ -5897,7 +5888,7 @@ mod tests {
             ),
             (
                 Some((CardActionKind::CheckAgain, "Check again")),
-                Some((CardActionKind::ChangeAgent, "Change agent\u{2026}"))
+                Some((CardActionKind::EditFlow, "Edit flow\u{2026}"))
             )
         );
     }
@@ -5915,7 +5906,7 @@ mod tests {
             None,
             "Spec writer",
         );
-        hold.agent_id = Some("spec-writer".into());
+        hold.stage_id = Some("spec-writer".into());
         let x = CardExtras {
             agents: AgentFacts {
                 holds: vec![hold],
@@ -5928,7 +5919,7 @@ mod tests {
         assert_eq!(flag_of(&vm), Some("Can\u{2019}t start"));
         assert_eq!(
             line(&vm),
-            Some("Spec writer\u{2019}s model can\u{2019}t run: Claude Code isn\u{2019}t available")
+            Some("The stage\u{2019}s model can\u{2019}t run: Claude Code isn\u{2019}t available")
         );
         let footer = vm.footer.unwrap();
         assert_eq!(
@@ -5936,21 +5927,18 @@ mod tests {
                 footer.action.as_ref().map(|a| (a.kind, a.label.as_ref())),
                 footer.second.as_ref().map(|a| (a.kind, a.label.as_ref()))
             ),
-            (
-                Some((CardActionKind::ChangeAgent, "Change agent\u{2026}")),
-                Some((CardActionKind::OpenAgent, "Open agent\u{2026}"))
-            )
+            (Some((CardActionKind::EditFlow, "Edit flow\u{2026}")), None)
         );
-        assert_eq!(open_agent(&t, &x).as_deref(), Some("spec-writer"));
+        assert_eq!(edit_flow_stage(&t, &x).as_deref(), Some("spec-writer"));
         let refused = CardExtras {
             agents: AgentFacts {
-                refused_agent: Some("fable".into()),
+                refused_stage: Some("fable".into()),
                 ..card_fixtures::named("Fable test")
             },
             ..main_project()
         };
         assert_eq!(
-            open_agent(
+            edit_flow_stage(
                 &ticket("SHOP-48", "Gift wrap", Status::StartInterrupted),
                 &refused
             )
@@ -6043,7 +6031,7 @@ mod tests {
         );
         assert_eq!(
             vm.situation.unwrap().hovers[0].title,
-            "Old GPT \u{b7} gpt-5.4 is no longer in Codex\u{2019}s list"
+            "Codex \u{b7} gpt-5.4 is no longer in Codex\u{2019}s list"
         );
     }
 
@@ -6073,7 +6061,7 @@ mod tests {
             assert_eq!(flag_of(&vm), Some(CANT_START), "{status}");
             assert_eq!(
                 line(&vm),
-                Some("Standard\u{2019}s model can\u{2019}t run: Codex isn\u{2019}t available"),
+                Some("The stage\u{2019}s model can\u{2019}t run: Codex isn\u{2019}t available"),
                 "{status}"
             );
         }
@@ -6114,7 +6102,7 @@ mod tests {
         assert_eq!(line(&vm), Some("GitHub Copilot limit"));
         assert_eq!(
             vm.footer.unwrap().action.unwrap().kind,
-            CardActionKind::ChangeAgent
+            CardActionKind::EditFlow
         );
     }
 
@@ -6170,14 +6158,11 @@ mod tests {
             }),
             holds: Vec::new(),
             starts: None,
-            refused_agent: None,
+            refused_stage: None,
             stage_agent: None,
-            instead_of: None,
-            own_agent: None,
             skips: Vec::new(),
         };
         let board = |connected: Vec<Tool>| BoardAgents {
-            agent_count: 3,
             cards: vec![card.clone()],
             connected,
         };

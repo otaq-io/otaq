@@ -1,20 +1,21 @@
 //! `otaq prime`: the context a ticket's agent reads first (PLG-02, AGM-06; d0032, d0040, d0108).
 //!
-//! The ticket (title, What and why, base branch), then what its agent is told (AGM-06): **the agent's
-//! instructions**, then **the project's notes**, then **the stage it works in and that stage's skill**, then **the
+//! The ticket (title, What and why, base branch), then what its agent is told (AGM-06, UX-67): **its stage's
+//! instructions** (the delivery's, for the session that writes the PR), then **the project's notes**, then **the stage it works in and that stage's skill**, then **the
 //! flow**: every stage of the ticket's flow with what it is for (its description), then the **earlier stages** ([`Board::earlier_stages`]: each stage's latest run with its agent and result, oldest first),
 //! then the ticket's **comments** in full, oldest first (CMT-07, d0109: the hand-over between stages; a report is
 //! only named, never printed) and the **manual checks** listed for the user (d0125). After them the tickets it
 //! depends on with their last comment from an Agent stage, pending questions, recorded decisions, and Otaq's own rules
-//! (`stage next`, `stage done`, `--manual-check`). A ticket's agent sets no stage choices (only the user picks a
-//! stage's agent), so its prime lists none; Noyan's lists them ([`reader_choices`]). The output is concise Markdown for an agent ([`render`]); `--json` prints
+//! (`stage next`, `stage done`, `--manual-check`). A ticket's agent sets no stage choices, so its prime lists none;
+//! Noyan's lists the stages a new ticket may skip ([`skip_choices`]). The output is concise Markdown for an agent
+//! ([`render`]); `--json` prints
 //! the [`PrimeContext`] itself.
 
 use serde::{Deserialize, Serialize};
 
 use crate::agent_tools::AgentTool;
-use crate::agent_tools::models::{ModelKind, ModelList, ModelLists};
-use crate::agents::{Agent, AgentModel, ModelRef, SessionRole};
+use crate::agent_tools::models::{ModelKind, ModelList};
+use crate::agents::SessionRole;
 use crate::board::comments::FeedbackComment;
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::manual_checks::ManualCheck;
@@ -118,14 +119,14 @@ pub struct Parent {
     pub last_comment: Option<TicketComment>,
 }
 
-/// What an agent is told to follow (AGM-06; d0108, d0040, d0068): its agent's own instructions, then the notes every
-/// agent in the project gets.
+/// What an agent is told to follow (AGM-06, UX-67; d0108, d0040, d0068): its stage's own instructions (the
+/// delivery's, for the session that writes the PR), then the notes every agent in the project gets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Instructions {
-    /// The agent's name ("Developer"), when the session runs one.
+    /// Where its own come from: the stage's name ("Dev"), or "Delivery".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
-    /// The agent's own instructions; empty when it has none.
+    /// The stage's own instructions; empty when it has none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub own: String,
     /// The project's name ("shop-web").
@@ -136,7 +137,7 @@ pub struct Instructions {
 }
 
 impl Instructions {
-    /// "## Agent instructions (Developer)" with the agent's own (`heading` names them), then "## Notes every agent in
+    /// "## Agent instructions (Dev)" with the stage's own (`heading` names them), then "## Notes every agent in
     /// shop-web gets"; each only when it has text.
     pub fn render(&self, heading: &str) -> String {
         let mut out = String::new();
@@ -164,7 +165,7 @@ impl Instructions {
 pub struct CurrentStage {
     /// The stage's name ("Dev").
     pub name: String,
-    /// The agent that runs it for this ticket (its choice, else the stage's own; AGM-05).
+    /// Who runs it, when named (an older context's agent); `None` now: the stage says who does it (UX-65).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
     /// The stage's skill, named as the caller's tool names it: Otaq's own by the plugin's namespace
@@ -278,46 +279,14 @@ impl EarlierStage {
     }
 }
 
-/// A stage of a new ticket whose choice Noyan may pass on for the user (AGM-06, AGM-08), with what it offers.
+/// A stage of a new ticket whose choice Noyan may pass on for the user (AGM-06, AGM-08): only skipping it (UX-72: a
+/// ticket can't pick its own model).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimeChoice {
     /// The stage's name ("Dev").
     pub stage: String,
-    /// The stage's own agent first, then every other agent whose tool has the stage's skill.
-    pub options: Vec<PrimeOption>,
     /// The flow marks the stage skippable.
     pub can_skip: bool,
-}
-
-/// An agent a stage offers, as `prime` lists it: "Quick developer · default · Claude Code · haiku: Small fixes only."
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PrimeOption {
-    pub name: String,
-    /// The stage's own agent.
-    pub usual: bool,
-    /// The model it runs on, as Settings shows it ([`agent_model_text`]); empty for a name that isn't an agent.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub model: String,
-    /// The first line of its instructions; empty when it has none.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub about: String,
-}
-
-impl PrimeOption {
-    /// "Rust developer (the stage's own) · Claude Code · sonnet: Follow our error-handling rules."
-    pub fn label(&self) -> String {
-        let mut out = self.name.clone();
-        if self.usual {
-            out.push_str(" (the stage's own)");
-        }
-        if !self.model.is_empty() {
-            out.push_str(&format!(" \u{b7} {}", self.model));
-        }
-        if !self.about.is_empty() {
-            out.push_str(&format!(": {}", self.about));
-        }
-        out
-    }
 }
 
 /// A model as Settings shows it (AGT-02, AUDIT-y C2), for the core's own texts: "tool default" (no model, or the
@@ -339,112 +308,37 @@ pub fn model_text(model: Option<&str>, list: Option<&ModelList>) -> String {
 /// The tool default beside a tool's name: "Claude Code · tool default".
 const TOOL_DEFAULT: &str = "tool default";
 
-/// An agent's model as `prime` names it (AGM-01): "Claude Code · Opus · always the newest · effort high", or
-/// "default · Claude Code · haiku" for `default` (what the default model is today; just "default" while none is
-/// set).
-pub fn agent_model_text(agent: &Agent, default: Option<&ModelRef>, models: &ModelLists) -> String {
-    let on = |m: &ModelRef| {
-        let copy = models.copy(m.tool);
-        format!(
-            "{} \u{b7} {}",
-            m.tool.display_name(),
-            model_text(m.model.as_deref(), copy.as_ref().map(|c| &c.list))
-        )
-    };
-    let mut text = match (&agent.model, default) {
-        (AgentModel::Default, Some(m)) => format!("default \u{b7} {}", on(m)),
-        (AgentModel::Default, None) => "default".to_owned(),
-        (AgentModel::Tool { tool, model }, _) => on(&ModelRef {
-            tool: *tool,
-            model: model.clone(),
-        }),
-    };
-    if let Some(effort) = &agent.effort {
-        text.push_str(&format!(" \u{b7} effort {effort}"));
-    }
-    text
-}
-
 /// The stage choices of a new ticket in `project` that Noyan's prime lists (AGM-06, AGM-08): every stage a ticket may
-/// choose for, each agent with its model and its instructions' first line.
-pub async fn reader_choices(
-    board: &Board,
-    project: &str,
-    models: &ModelLists,
-) -> Result<Vec<PrimeChoice>, BoardError> {
+/// skip.
+pub async fn skip_choices(board: &Board, project: &str) -> Result<Vec<PrimeChoice>, BoardError> {
     let stages: Vec<StageOptions> = board.new_ticket_choices(project).await?.stages;
-    if stages.is_empty() {
-        return Ok(Vec::new());
-    }
-    let default = board.store().default_model().await?;
-    let mut choices = Vec::with_capacity(stages.len());
-    for stage in stages {
-        let mut options = Vec::new();
-        let offered = stage
-            .usual
-            .iter()
-            .map(|a| (a, true))
-            .chain(stage.agents.iter().map(|a| (a, false)));
-        for (option, usual) in offered {
-            let agent = match &option.agent_id {
-                Some(id) => board.store().agent(id).await?,
-                None => None,
-            };
-            options.push(PrimeOption {
-                name: option.name.clone(),
-                usual,
-                model: agent
-                    .as_ref()
-                    .map(|a| agent_model_text(a, default.as_ref(), models))
-                    .unwrap_or_default(),
-                about: agent
-                    .as_ref()
-                    .and_then(|a| {
-                        a.instructions
-                            .lines()
-                            .map(str::trim)
-                            .find(|l| !l.is_empty())
-                    })
-                    .unwrap_or_default()
-                    .to_owned(),
-            });
-        }
-        choices.push(PrimeChoice {
-            stage: stage.stage,
-            options,
-            can_skip: stage.can_skip,
-        });
-    }
-    Ok(choices)
+    Ok(stages
+        .into_iter()
+        .filter(|s| s.can_skip)
+        .map(|s| PrimeChoice {
+            stage: s.stage,
+            can_skip: s.can_skip,
+        })
+        .collect())
 }
 
-/// The "## Stage choices" section of Noyan's prime (AGM-06, AGM-08): nothing when no stage has a choice, else how to
-/// pass on only the choices the user names (`--by-user`), with an example, and each stage's choices.
+/// The "## Stage choices" section of Noyan's prime (AGM-06, AGM-08): nothing when no stage may be skipped, else how to
+/// pass on only the skips the user names (`--by-user`), with an example, and each stage that may be skipped.
 pub fn render_choices(choices: &[PrimeChoice]) -> String {
     let Some(first) = choices.first() else {
         return String::new();
     };
     let cmd = naming::COMMAND_NAME;
-    let pick = first
-        .options
-        .iter()
-        .find(|o| !o.usual)
-        .map(|o| o.name.clone())
-        .unwrap_or_else(|| crate::board::stage_choices::SKIP.to_owned());
+    let skip = crate::board::stage_choices::SKIP;
     let lead = format!(
-        "A new ticket runs every stage with the stage's own agent. Pass on only the choices the user names, with \
-         --by-user: `{cmd} create \"Title\" --stage \"{}={pick}\" --by-user --stdin`.",
+        "A new ticket runs every stage of the flow, each on its stage's own model. Pass on only the skips the user \
+         names, with --by-user: `{cmd} create \"Title\" --stage \"{}={skip}\" --by-user --stdin`.",
         first.stage
     );
     let mut out = format!("\n## Stage choices\n\n{lead}\n\n");
-    for c in choices {
+    for c in choices.iter().filter(|c| c.can_skip) {
         out.push_str(&format!("- {}\n", c.stage));
-        for option in &c.options {
-            out.push_str(&format!("  - {}\n", option.label()));
-        }
-        if c.can_skip {
-            out.push_str("  - skip: the ticket passes this stage\n");
-        }
+        out.push_str("  - skip: the ticket passes this stage\n");
     }
     out
 }
@@ -470,12 +364,12 @@ impl Board {
     }
 
     /// The prime context of `role`'s session (its stage: an Agent stage's, or an agent check's), with its skills by
-    /// their own names, and the agent the stage runs for the ticket.
+    /// their own names, and the stage it runs in.
     async fn unnamed_prime_context(
         &self,
         key: &str,
         role: SessionRole,
-    ) -> Result<(PrimeContext, Option<Agent>), BoardError> {
+    ) -> Result<(PrimeContext, Option<Stage>), BoardError> {
         let ticket = self.ticket(key).await?;
         let project = ticket.key.project.to_string();
         let tickets = self.tickets(&project).await?;
@@ -500,13 +394,10 @@ impl Board {
             _ => crate::agents::resolve::agent_stage_of(&flow, &ticket, &skips),
         }
         .cloned();
-        let agent = match &stage {
-            Some(stage) => crate::agents::resolve::running_agent(self, &ticket, &stage.id)
-                .await
-                .ok(),
-            None => None,
-        };
-        let instructions = self.instructions(&project, agent.as_ref()).await?;
+        let own = stage
+            .as_ref()
+            .and_then(|s| Some((s.name.as_str(), s.who.instructions.as_deref()?)));
+        let instructions = self.instructions(&project, own).await?;
         let flow_stages = flow_stages(&flow, stage.as_ref().map(|s| s.id.as_str()), &skips);
         let earlier = self
             .earlier_stages(&ticket, &flow, stage.as_ref().map(|s| s.id.as_str()))
@@ -543,9 +434,9 @@ impl Board {
             commit_skill: String::new(),
             restack_skill: String::new(),
             instructions,
-            stage: stage.map(|s| CurrentStage {
+            stage: stage.clone().map(|s| CurrentStage {
                 name: s.name,
-                agent: agent.as_ref().map(|a| a.name.clone()),
+                agent: None,
                 skill: s.skill,
             }),
             flow: flow_stages,
@@ -557,18 +448,19 @@ impl Board {
             created_not_started,
             long_text_file: None,
         };
-        Ok((context, agent))
+        Ok((context, stage))
     }
 
-    /// What an agent in `project` is told to follow (AGM-06): `agent`'s own instructions, then the project's notes;
-    /// `None` when both are empty.
+    /// What an agent in `project` is told to follow (AGM-06, UX-67): `own`'s instructions (where they come from, "Dev"
+    /// or "Delivery", and the text), then the project's notes; `None` when both are empty.
     pub async fn instructions(
         &self,
         project: &str,
-        agent: Option<&Agent>,
+        own: Option<(&str, &str)>,
     ) -> Result<Option<Instructions>, BoardError> {
-        let own = agent
-            .map(|a| a.instructions.trim().to_owned())
+        let from = own.map(|(from, _)| from.to_owned());
+        let own = own
+            .map(|(_, text)| text.trim().to_owned())
             .unwrap_or_default();
         let notes = self
             .project_settings(project)
@@ -580,7 +472,7 @@ impl Board {
             return Ok(None);
         }
         Ok(Some(Instructions {
-            agent: agent.map(|a| a.name.clone()),
+            agent: from.filter(|_| !own.is_empty()),
             own,
             project: self.project(project).await?.name,
             notes,
@@ -1016,8 +908,8 @@ fn render_approved_earlier(approved: &ApprovedEarlier, diff: &str) -> String {
     out
 }
 
-/// "Your stage": the stage, the agent that runs it and its skill ("Dev, as Developer, with the skill
-/// `/otaq:work-ticket`."), in a working agent's prime and a validator's.
+/// "Your stage": the stage and its skill ("Dev, with the skill `/otaq:work-ticket`."), in a working agent's prime and a
+/// validator's.
 fn render_your_stage(stage: &CurrentStage) -> String {
     let mut out = format!("\n## Your stage\n\n{}", stage.name);
     if let Some(agent) = &stage.agent {

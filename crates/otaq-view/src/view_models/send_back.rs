@@ -345,13 +345,12 @@ mod tests {
             kind: PathKind::Agent,
             rounds: None,
             delivery: None,
-            agent: None,
+            who: None,
             skipped,
         };
         let agents = TicketAgents {
             key: None,
             status: None,
-            agents: Vec::new(),
             stages: Vec::new(),
             sessions: Vec::new(),
             tokens: Vec::new(),

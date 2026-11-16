@@ -8,7 +8,7 @@ You are the checker for Otaq ticket SHOP-19: a read-only judge of its agent's wo
 
 ## Your stage
 
-Validate, as Checker, with the skill `/otaq:validate`.
+Validate, with the skill `/otaq:validate`.
 
 ## The flow
 

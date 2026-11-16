@@ -31,12 +31,10 @@ pub enum Rule {
     SkipStrandsHumanCheck,
     /// Two stages with one id or one name.
     Duplicate,
-    /// A stage or the delivery names an agent that isn't one of the agents (AGM-01).
-    UnknownAgent,
     /// A check's fails go to a stage that isn't an Agent stage before it (d0131).
     FailTo,
-    /// An agent check with no agent (it has one).
-    NoCheckAgent,
+    /// A stage an agent works or checks with no model (UX-65: it says who does it).
+    NoModel,
     /// A stage's skill is a tool's built-in command (`/security-review`), which isn't a skill, and the user has no
     /// skill of that name.
     BuiltInCommand,
@@ -48,44 +46,6 @@ pub struct Problem {
     /// The id of the stage it is about, when it is about one.
     pub stage: Option<String>,
     pub message: String,
-}
-
-/// "Dev names the agent Rust developer, which isn't one of your agents".
-pub fn unknown_agent_message(stage: &Stage, name: &str) -> String {
-    format!(
-        "{} names the agent {name}, which isn't one of your agents",
-        stage.name
-    )
-}
-
-/// The agents a flow names (AGM-01: a stage's `agent`, an agent check's too, and the delivery's that opens a PR),
-/// each against `known` (whether an agent of that name is there); a problem per unknown name, in stage order, the
-/// delivery's last.
-pub fn check_agents(flow: &Flow, known: impl Fn(&str) -> bool) -> Result<(), Vec<Problem>> {
-    let mut problems = Vec::new();
-    for stage in &flow.stages {
-        for name in stage.every_agent() {
-            if !known(name) {
-                problems.push(Problem {
-                    rule: Rule::UnknownAgent,
-                    stage: Some(stage.id.clone()),
-                    message: unknown_agent_message(stage, name),
-                });
-            }
-        }
-    }
-    if let Some(name) = flow.delivery.agent.as_deref().filter(|n| !known(n)) {
-        problems.push(Problem {
-            rule: Rule::UnknownAgent,
-            stage: None,
-            message: format!("The delivery names the agent {name}, which isn't one of your agents"),
-        });
-    }
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems)
-    }
 }
 
 /// "Security: `/security-review` is Claude Code's built-in command, not a skill. …": `tools` are the tools that have
@@ -173,12 +133,15 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
         }
     }
 
-    for stage in stages.iter().filter(|s| s.is_agent_check()) {
-        if stage.check_agent().is_none() {
+    for stage in stages.iter().filter(|s| s.runs_agent()) {
+        if stage.model().is_none() {
             add(
-                Rule::NoCheckAgent,
+                Rule::NoModel,
                 Some(stage),
-                format!("{} is an agent check with no agent: name one", stage.name),
+                format!(
+                    "{} has no model: say who does it with `model:` (a tool, or `tool:model`)",
+                    stage.name
+                ),
             );
         }
     }

@@ -154,7 +154,7 @@ async fn an_agents_proposal_lands_in_the_draft_with_marks() {
         let mut visual = file.flow.stage("security").unwrap().clone();
         visual.id = String::new();
         visual.name = "Visual check".into();
-        visual.agent = Some("Visual checker".into());
+        visual.who = otaq_core::flow::WhoDoesIt::on("codex");
         visual.skill = Some("otaq:validate".into());
         let after = file.flow.position("validate").unwrap() + 1;
         file.flow.stages.insert(after, visual);
@@ -164,11 +164,6 @@ async fn an_agents_proposal_lands_in_the_draft_with_marks() {
             .find(|s| s.id == "security")
             .unwrap()
             .rounds = Some(3);
-        file.agents.push(otaq_core::flow::FlowAgent {
-            name: "Visual checker".into(),
-            model: "default".into(),
-            ..Default::default()
-        });
     });
     let proposal = w
         .board
@@ -195,7 +190,7 @@ async fn an_agents_proposal_lands_in_the_draft_with_marks() {
         marks,
         [
             ("Plan", Mark::Added, "Checkout slowness"),
-            ("Visual check", Mark::New, "Checkout slowness"),
+            ("Visual check", Mark::Added, "Checkout slowness"),
             ("Security", Mark::Changed, "Checkout slowness"),
         ]
     );

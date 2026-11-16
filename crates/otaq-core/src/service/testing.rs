@@ -76,6 +76,37 @@ pub struct TestService {
     shared: std::sync::Weak<super::Shared>,
 }
 
+/// Who does a stage (or Noyan), as a test edits it ([`TestService::edit_agent`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Page {
+    pub model: crate::agents::AgentModel,
+    pub effort: Option<String>,
+    /// Empty when there are none.
+    pub instructions: String,
+}
+
+impl Page {
+    fn of(who: &crate::flow::WhoDoesIt) -> Self {
+        Self {
+            model: who
+                .model
+                .as_deref()
+                .and_then(|m| crate::agents::AgentModel::parse(m).ok())
+                .unwrap_or(crate::agents::AgentModel::Default),
+            effort: who.effort.clone(),
+            instructions: who.instructions.clone().unwrap_or_default(),
+        }
+    }
+
+    fn who(&self) -> crate::flow::WhoDoesIt {
+        crate::flow::WhoDoesIt {
+            model: Some(self.model.text()),
+            effort: self.effort.clone(),
+            instructions: Some(self.instructions.clone()).filter(|i| !i.trim().is_empty()),
+        }
+    }
+}
+
 impl TestService {
     pub async fn start() -> Self {
         Self::start_with(|config| config).await
@@ -100,61 +131,99 @@ impl TestService {
             .expect("project added")
     }
 
-    /// Puts the agent called `name` on `model` (no model-list check), keeping the rest of its page: an agent on
-    /// another tool, as Settings → Agents would save it.
-    pub async fn set_agent_model(
-        &self,
-        name: &str,
-        model: crate::agents::AgentModel,
-    ) -> crate::agents::Agent {
+    /// Puts what the shipped default flow's agent `name` did on `model` (no model-list check), with no effort, keeping
+    /// its instructions ([`Self::edit_agent`]).
+    pub async fn set_agent_model(&self, name: &str, model: crate::agents::AgentModel) {
         self.edit_agent(name, |page| {
             page.model = model;
             page.effort = None;
         })
-        .await
+        .await;
     }
 
-    /// Changes the agent called `name` as `edit` says (no checks), as Settings → Agents would save it; a model
-    /// change clears its mark.
-    pub async fn edit_agent(
-        &self,
-        name: &str,
-        edit: impl FnOnce(&mut crate::agents::store::NewAgent),
-    ) -> crate::agents::Agent {
+    /// Changes who does what the shipped default flow's agent `name` did, as `edit` says (no checks), in every
+    /// project's flow, as Edit flow would save it: `Developer` is every Agent stage and the delivery, `Checker` every
+    /// agent check, `Noyan` "Noyan starts on" (its instructions are dropped, UX-74). A model change clears the marks.
+    pub async fn edit_agent(&self, name: &str, edit: impl FnOnce(&mut Page)) {
         let store = self.board.store();
-        let agent = store
-            .agent_named(name)
-            .await
-            .expect("agents read")
-            .unwrap_or_else(|| panic!("no agent {name}"));
-        let mut page = crate::agents::store::NewAgent {
-            name: agent.name.clone(),
-            instructions: agent.instructions.clone(),
-            model: agent.model.clone(),
-            effort: agent.effort.clone(),
+        if name == "Noyan" {
+            let now = store.noyan_starts_on().await.expect("Noyan's setting");
+            let mut page = Page {
+                model: now.who().model,
+                effort: now.effort.clone(),
+                instructions: String::new(),
+            };
+            edit(&mut page);
+            store
+                .set_noyan_starts_on(&crate::agents::NoyanStartsOn {
+                    model: Some(page.model.text()),
+                    effort: page.effort,
+                })
+                .await
+                .expect("Noyan's setting saved");
+            crate::agents::mark::clear(store, &crate::agents::About::Noyan)
+                .await
+                .expect("Noyan's mark cleared");
+            return;
+        }
+        let developer = match name {
+            "Developer" => true,
+            "Checker" => false,
+            other => panic!("no agent {other}: name a stage's model in the flow"),
         };
-        edit(&mut page);
-        let model_changed = page.model != agent.model;
-        store
-            .update_agent(&agent.id, &page, model_changed)
-            .await
-            .expect("agent saved");
-        store
-            .agent(&agent.id)
-            .await
-            .expect("agents read")
-            .expect("the agent")
+        let mut edit = Some(edit);
+        let mut page = None;
+        for project in store.projects().await.expect("projects") {
+            let file = self
+                .board
+                .current_flow_file(&project.key)
+                .await
+                .expect("the project's flow");
+            let first = file
+                .flow
+                .stages
+                .iter()
+                .find(|s| match developer {
+                    true => s.is_agent_stage(),
+                    false => s.is_agent_check(),
+                })
+                .expect("a stage for the agent");
+            let page = match &page {
+                Some(page) => page,
+                None => {
+                    let mut new = Page::of(&first.who);
+                    (edit.take().expect("edited once"))(&mut new);
+                    page.insert(new)
+                }
+            };
+            let who = page.who();
+            self.board
+                .edit_flow_for_tests(&project.key, |file| {
+                    for stage in &mut file.flow.stages {
+                        let runs = match developer {
+                            true => stage.is_agent_stage(),
+                            false => stage.is_agent_check(),
+                        };
+                        if runs {
+                            stage.who = who.clone();
+                        }
+                    }
+                    if developer && file.flow.delivery.who.model.is_some() {
+                        file.flow.delivery.who = who.clone();
+                    }
+                })
+                .await;
+        }
     }
 
     /// The user's skill in `folder` (its SKILL.md's `name:`) for `step`: for Validate and Open PR named on that stage
     /// of every project's flow (Q296: a flow names the stage's skill). Nothing is copied or imported: the folder stays
-    /// where it is, as the user's own skills do. The agent that runs `step` on the default flow (Developer; Validator
-    /// for Validate).
+    /// where it is, as the user's own skills do.
     pub async fn use_step_skill(
         &self,
         step: crate::board::settings::WorkflowStep,
         folder: &std::path::Path,
-    ) -> crate::agents::Agent {
+    ) {
         use crate::board::settings::WorkflowStep;
         let text = std::fs::read_to_string(folder.join(crate::skills::folder::SKILL_FILE))
             .expect("the skill's SKILL.md");
@@ -163,7 +232,6 @@ impl TestService {
             self.name_stage_skill(step, Some(&name)).await;
         }
         self.claude_has_skill(&name).await;
-        self.step_agent(step).await
     }
 
     /// Gives Claude Code the user's skill `name` in every project: a folder in the checkout's `.claude/skills`
@@ -226,19 +294,6 @@ impl TestService {
     /// Puts `step` back on the shipped skill: the stage names Otaq's skill again.
     pub async fn drop_step_skill(&self, step: crate::board::settings::WorkflowStep) {
         self.name_stage_skill(step, None).await;
-    }
-
-    async fn step_agent(&self, step: crate::board::settings::WorkflowStep) -> crate::agents::Agent {
-        let role = match step {
-            crate::board::settings::WorkflowStep::Validate => "Checker",
-            _ => "Developer",
-        };
-        self.board
-            .store()
-            .agent_named(role)
-            .await
-            .expect("agents read")
-            .expect("the step's agent")
     }
 
     /// Creates a ticket in Backlog as the user.
@@ -533,13 +588,13 @@ impl TestService {
         }
     }
 
-    /// Records that `shell`'s session runs the flow agent `id` named `name` on Claude Code, as a session started for
-    /// a stage does (its comments are that agent's, CMT-04).
-    pub async fn run_as_agent(&self, shell: &AgentShell, id: &str, name: &str) {
+    /// Records that `shell`'s session runs for `runs_for` (a stage's scope, [`crate::agents::About::scope`]) named
+    /// `name` on Claude Code, as a session started for a stage does (its comments are that session's, CMT-04).
+    pub async fn run_as_agent(&self, shell: &AgentShell, runs_for: &str, name: &str) {
         sqlx::query(
-            "UPDATE sessions SET agent_id = ?, agent_name = ?, tool = 'claude' WHERE id = ?",
+            "UPDATE sessions SET runs_for = ?, agent_name = ?, tool = 'claude' WHERE id = ?",
         )
-        .bind(id)
+        .bind(runs_for)
         .bind(name)
         .bind(&shell.session)
         .execute(self.board.store().pool())

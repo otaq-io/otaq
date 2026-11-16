@@ -1372,11 +1372,11 @@ impl Validation {
     async fn ready_one(
         &self,
         ticket: &Ticket,
-    ) -> Result<Result<(crate::agents::Agent, RunsOn), Box<Held>>, BoardError> {
+    ) -> Result<Result<(crate::agents::Who, RunsOn), Box<Held>>, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         // Every round resolves its agent again: the agent's model may change between rounds (AGM-05, d0088).
-        let agent = resolve::session_agent(board, ticket, SessionRole::Validator).await?;
+        let agent = resolve::session_who(board, ticket, SessionRole::Validator).await?;
         let scope = Scope::ticket(ticket);
         let runs_on = match inner.gate.get() {
             Some(gate) => match gate
@@ -1386,7 +1386,7 @@ impl Validation {
                 Gated::Launch(runs_on) => runs_on,
                 Gated::Held(held) => return Ok(Err(held)),
             },
-            None => RunsOn::agent(&agent, board.store().default_model().await?.as_ref()),
+            None => RunsOn::who(&agent, board.store().default_model().await?.as_ref()),
         };
         Ok(Ok((agent, runs_on)))
     }
@@ -1396,7 +1396,7 @@ impl Validation {
         &self,
         ticket: &Ticket,
         row: Option<&str>,
-        agent: &crate::agents::Agent,
+        agent: &crate::agents::Who,
         runs_on: RunsOn,
         prompt: CheckPrompt,
         start: Start,

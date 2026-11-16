@@ -23,8 +23,8 @@ export type ActionRoute =
   | { kind: "pass" }
   | { kind: "mark_closed" }
   | { kind: "run" }
-  // Open agent… (AGM-03, d0108 second gap review rule 7): Settings → Agents on the sheet's `open_agent`.
-  | { kind: "open_agent" };
+  // Edit flow… (UX-65): the project's flow at the stage whose model can't run (the sheet's `edit_flow_stage`).
+  | { kind: "edit_flow" };
 
 // No `default`: a new action fails ESLint's switch-exhaustiveness-check until it gets its route.
 export function actionRoute(action: SheetAction): ActionRoute {
@@ -84,14 +84,17 @@ export function actionRoute(action: SheetAction): ActionRoute {
       return { kind: "mark_closed" };
     case "run":
       return { kind: "run" };
+    // The sheet's Edit flow… keeps the action's older id.
     case "open_agent":
-      return { kind: "open_agent" };
+      return { kind: "edit_flow" };
   }
 }
 
-/** Settings → Agents on `agent`'s page (Open agent…), or on the list when the agent isn't known. */
-export function agentSettings(agent: string | null): { section: "agents"; agent?: string } {
-  return agent === null ? { section: "agents" } : { section: "agents", agent };
+/** Edit flow on `key`'s project (`SHOP-30` is SHOP's), at `stage` when known. */
+export function editFlowAt(key: string, stage: string | null): { project: string; select?: string } {
+  const at = key.lastIndexOf("-");
+  const project = at > 0 ? key.slice(0, at) : key;
+  return stage === null ? { project } : { project, select: stage };
 }
 
 /** Where a "…" menu item goes; ids are `sheet_actions.rs`'s, `close.rs`'s, `card_menu.rs`'s and `delete.rs`'s. */
@@ -146,13 +149,13 @@ export type CardRoute =
   | { kind: "send_answer" }
   | {
       kind: "overlay";
-      id: "start_from_scratch" | "open_pr" | "local_merge" | "send_back" | "send_back_pr" | "change_agent";
+      id: "start_from_scratch" | "open_pr" | "local_merge" | "send_back" | "send_back_pr";
     }
   // Pass (FLW-14): `review.pass`, then the delivery choices when a click Delivery comes next.
   | { kind: "pass" }
   | { kind: "mark_closed" }
   | { kind: "run_tab" }
-  | { kind: "open_agent" }
+  | { kind: "edit_flow" }
   | { kind: "provider_settings" }
   | { kind: "none" };
 
@@ -204,12 +207,9 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     // RUN-01: the `▶ :4020` chip shows the Run tab (its Open and Stop).
     case "run_chip":
       return { kind: "run_tab" };
-    // AGM-03: Open agent… opens Settings → Agents on the agent that can't run (the sheet's `open_agent`).
-    case "open_agent":
-      return { kind: "open_agent" };
-    // Change agent…: the dialog that picks another agent for the stage waiting for its tool.
-    case "change_agent":
-      return { kind: "overlay", id: "change_agent" };
+    // Edit flow… (UX-65): the stage whose model can't run is changed in the project's flow.
+    case "edit_flow":
+      return { kind: "edit_flow" };
     // Answer, Reply and Open (Ticket Card v2): the sheet the click opens is where it is dealt with.
     case "open":
     case "review":

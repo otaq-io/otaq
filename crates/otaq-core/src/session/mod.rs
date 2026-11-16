@@ -209,18 +209,19 @@ pub struct SessionInfo {
     pub size: Option<TerminalSize>,
 }
 
-/// The agent a session ran (ADP-04, AGM-05): its id (no foreign key: a session outlives its agent) and its name at
-/// the session's start ("Developer", shown "Developer (deleted)" once it is gone).
+/// Who a session ran as (ADP-04, AGM-05, UX-65): what its model came from ([`crate::agents::About::scope`]: a
+/// stage of its project's flow, the delivery, Noyan; where a mark about its model goes) and the name shown for it at
+/// its start (its tool's, "Claude Code"; an older session's agent name, "Developer").
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionAgent {
-    pub id: String,
+    pub runs_for: String,
     pub name: String,
 }
 
 impl SessionAgent {
-    fn of_columns(id: Option<String>, name: Option<String>) -> Option<Self> {
+    fn of_columns(runs_for: Option<String>, name: Option<String>) -> Option<Self> {
         Some(Self {
-            id: id?,
+            runs_for: runs_for.unwrap_or_default(),
             name: name?,
         })
     }
@@ -370,7 +371,7 @@ impl StoredConversation {
             Option<String>,
         );
         let sql = format!(
-            "SELECT s.tool, s.tool_session_id, s.model, s.effort, s.agent_id, s.agent_name FROM sessions s
+            "SELECT s.tool, s.tool_session_id, s.model, s.effort, s.runs_for, s.agent_name FROM sessions s
              WHERE s.ticket_id = ?1 AND s.tool IS NOT NULL AND s.tool_session_id IS NOT NULL
                    AND COALESCE(s.end_reason, '') <> ?2
                    AND (s.kind = 'agent'
@@ -386,13 +387,13 @@ impl StoredConversation {
             .fetch_optional(pool)
             .await?;
         Ok(
-            row.and_then(|(tool, id, model, effort, agent_id, agent_name)| {
+            row.and_then(|(tool, id, model, effort, runs_for, agent_name)| {
                 Some(Self {
                     tool: tool.parse().ok()?,
                     id,
                     model,
                     effort,
-                    agent: SessionAgent::of_columns(agent_id, agent_name),
+                    agent: SessionAgent::of_columns(runs_for, agent_name),
                 })
             }),
         )
@@ -432,11 +433,11 @@ pub async fn moved_on(
     let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT s.model_ran,
                 (SELECT b.model_ran FROM sessions b
-                 WHERE b.ticket_id = s.ticket_id AND b.kind = s.kind AND b.agent_id = s.agent_id
+                 WHERE b.ticket_id = s.ticket_id AND b.kind = s.kind AND b.runs_for = s.runs_for
                    AND b.model_ran IS NOT NULL
                    AND (b.started_at < s.started_at OR (b.started_at = s.started_at AND b.id < s.id))
                  ORDER BY b.started_at DESC, b.id DESC LIMIT 1)
-         FROM sessions s WHERE s.id = ? AND s.ticket_id IS NOT NULL AND s.agent_id IS NOT NULL",
+         FROM sessions s WHERE s.id = ? AND s.ticket_id IS NOT NULL AND s.runs_for IS NOT NULL",
     )
     .bind(session)
     .fetch_optional(pool)
@@ -1024,7 +1025,7 @@ impl Sessions {
         if stored {
             sqlx::query(
                 "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, model, state, started_at,
-                                       agent_id, agent_name, effort, project_agent_id, tuq_version)
+                                       runs_for, agent_name, effort, project_agent_id, tuq_version)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&info.id)
@@ -1036,7 +1037,7 @@ impl Sessions {
             .bind(&info.model)
             .bind(info.state.as_str())
             .bind(info.started_at)
-            .bind(info.agent.as_ref().map(|a| &a.id))
+            .bind(info.agent.as_ref().map(|a| &a.runs_for))
             .bind(info.agent.as_ref().map(|a| &a.name))
             .bind(&info.effort)
             .bind(&project_agent)
@@ -1613,7 +1614,7 @@ impl Sessions {
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort, s.tuq_version
+                    s.tool, s.tool_session_id, s.model, s.runs_for, s.agent_name, s.model_ran, s.effort, s.tuq_version
              FROM sessions s JOIN projects p ON p.id = s.project_id
              WHERE s.ticket_id = ? ORDER BY s.started_at DESC, s.id DESC",
         )
@@ -1713,7 +1714,7 @@ impl Sessions {
         }
         let row: Row = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort, s.tuq_version,
+                    s.tool, s.tool_session_id, s.model, s.runs_for, s.agent_name, s.model_ran, s.effort, s.tuq_version,
                     t.number
              FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
              WHERE s.id = ?",
@@ -1864,8 +1865,8 @@ impl Inner {
                     || info.kind == SessionKind::Helper
                     // A check agent's last session stays beside the others' (d0130: one terminal each).
                     || (info.kind == SessionKind::Validator
-                        && other_info.agent.as_ref().map(|a| &a.name)
-                            != info.agent.as_ref().map(|a| &a.name))
+                        && other_info.agent.as_ref().map(|a| &a.runs_for)
+                            != info.agent.as_ref().map(|a| &a.runs_for))
             });
         }
         tracing::info!(session = id, reason = %reason, "session ended");
@@ -2097,7 +2098,7 @@ struct SessionRow {
     tool: Option<String>,
     tool_session_id: Option<String>,
     model: Option<String>,
-    agent_id: Option<String>,
+    runs_for: Option<String>,
     agent_name: Option<String>,
     model_ran: Option<String>,
     effort: Option<String>,
@@ -2118,7 +2119,7 @@ impl SessionRow {
             tool: self.tool.and_then(|t| t.parse().ok()),
             tool_session_id: self.tool_session_id,
             model: self.model,
-            agent: SessionAgent::of_columns(self.agent_id, self.agent_name),
+            agent: SessionAgent::of_columns(self.runs_for, self.agent_name),
             effort: self.effort,
             model_ran: self.model_ran,
             tuq_version: self.tuq_version,

@@ -2,13 +2,13 @@ flow:
   - id: product-spec
     name: Product spec
     kind: agent
-    agent: Spec writer
+    model: default
     skill: tuq:product-spec
     options: [skip]
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: default
     skill: otaq:work-ticket
     options: [skip]
 delivery:
