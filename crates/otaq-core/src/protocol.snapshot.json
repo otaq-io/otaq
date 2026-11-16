@@ -387,6 +387,10 @@
     "AgentToolsList": {
       "kind": "struct",
       "fields": {
+        "default_model": {
+          "ty": "Option<ModelRef>",
+          "omittable": true
+        },
         "tools": {
           "ty": "Vec<crate::agent_tools::connected::ToolStatus>",
           "required": true

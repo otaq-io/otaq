@@ -947,7 +947,13 @@ pub(super) async fn agent_tools(app: &App) -> Tools {
 /// Every tool's state alone (`agent_tools.list`), for what needs only which tools are connected.
 pub(super) async fn tool_states(app: &App) -> Tools {
     match app.service.send(Request::AgentToolsList).await {
-        Ok(Reply::AgentTools(list)) => Tools::from_statuses(list.tools),
+        Ok(Reply::AgentTools(list)) => {
+            let list = *list;
+            Tools {
+                default_model: list.default_model,
+                ..Tools::from_statuses(list.tools)
+            }
+        }
         _ => Tools::one(None),
     }
 }

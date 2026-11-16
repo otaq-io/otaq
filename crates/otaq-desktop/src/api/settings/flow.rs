@@ -167,12 +167,13 @@ async fn section(app: &App, key: &str) -> Result<vm::Section, RequestError> {
             other => return Err(unexpected("flow.waiting", &other)),
         };
     let tools = agent_tools(app, false).await?;
+    let default_model = super::super::editor::tool_states(app).await.default_model;
     Ok(vm::section(&vm::Inputs {
         project: &project,
         current: &current,
         versions: versions.len(),
         waiting: waiting.as_ref(),
-        default_model: None,
+        default_model: default_model.as_ref(),
         tools: &tools,
         other_projects: all.len().saturating_sub(1),
         now_ms: otaq_core::store::now_ms(),

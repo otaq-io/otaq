@@ -200,8 +200,8 @@ pub async fn list(app: &App, request: Request) -> Result<AgentToolsList, Request
 async fn page_of(app: &App, list: &AgentToolsList) -> Page {
     let rows = page::page(&list.tools, otaq_core::store::now_ms());
     let mut tools = super::editor::agent_tools(app).await;
-    // `default` is the account's default model, which the service keeps; it is set to the first tool connected,
-    // so that is the tool `default` reads as here.
+    // `default` is the account's default model, which the service sends with the tools. Until a tool first connects
+    // there is none; the service then sets it to that tool, so the first connected one is what `default` reads as.
     if tools.default_model.is_none() {
         tools.default_model = Some(ModelRef {
             tool: tools

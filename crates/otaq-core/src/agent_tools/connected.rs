@@ -249,6 +249,10 @@ impl NotAvailable {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentToolsList {
     pub tools: Vec<ToolStatus>,
+    /// The account's default model: the tool and model a flow's `default` runs on (UX-68), so a page shows the tool
+    /// it really is. `None` until a tool first connects ([`crate::agents::shipped::ensure_default_model`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<crate::agents::ModelRef>,
 }
 
 #[derive(Debug, Default)]
@@ -381,6 +385,7 @@ impl ConnectedTools {
         let statuses = self.lock().statuses();
         AgentToolsList {
             tools: self.with_page(statuses),
+            default_model: None,
         }
     }
 

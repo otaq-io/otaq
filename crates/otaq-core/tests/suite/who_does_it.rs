@@ -286,3 +286,25 @@ async fn holds_are_one_per_scope_and_role() {
             .is_empty()
     );
 }
+
+/// UX-68: `agent_tools.list` sends the account's default model, so a page reads `default` as the tool it really is
+/// (not the first tool connected); none until it is set.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tools_list_carries_the_accounts_default_model() {
+    let w = TestService::start().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let default_model = |reply: Reply| match reply {
+        Reply::AgentTools(list) => list.default_model,
+        other => panic!("agent_tools.list: {other:?}"),
+    };
+    let none = default_model(client.request(Request::AgentToolsList).await.unwrap());
+    assert_eq!(none, w.board.store().default_model().await.unwrap());
+
+    let codex = otaq_core::agents::ModelRef {
+        tool: Tool::Codex,
+        model: Some("gpt-5.5".into()),
+    };
+    w.board.store().set_default_model(&codex).await.unwrap();
+    let listed = default_model(client.request(Request::AgentToolsList).await.unwrap());
+    assert_eq!(listed, Some(codex));
+}

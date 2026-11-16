@@ -230,7 +230,7 @@ pub(super) async fn handle(
             )))
         }),
         Request::AgentToolsList => {
-            boxed(move || async move { Ok(Reply::AgentTools(Box::new(shared.connected.list()))) })
+            boxed(move || async move { Ok(Reply::AgentTools(Box::new(tools_list(shared).await?))) })
         }
         // Settings → About: the tuq each connected tool has (decisions 100, 102).
         Request::TuqVersions => boxed(move || async move {
@@ -255,11 +255,11 @@ pub(super) async fn handle(
                 .connected
                 .set_hidden(&shared.store, p.tool, p.hidden)
                 .await?;
-            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+            Ok(Reply::AgentTools(Box::new(tools_list(shared).await?)))
         }),
         Request::AgentToolsRecheck(p) => boxed(move || async move {
             shared.connected.recheck(p.tool).await?;
-            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+            Ok(Reply::AgentTools(Box::new(tools_list(shared).await?)))
         }),
         Request::AgentToolsSignIn(p) => boxed(move || async move {
             let terminal = shared.connected.sign_in(p.tool).await?;
@@ -271,7 +271,7 @@ pub(super) async fn handle(
         }),
         Request::AgentToolsDisconnect(p) => boxed(move || async move {
             shared.connected.disconnect(p.tool).await?;
-            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+            Ok(Reply::AgentTools(Box::new(tools_list(shared).await?)))
         }),
         Request::LimitsResumeTool(p) => boxed(move || async move {
             let resumed = crate::agents::limits::resume_tool(
@@ -2753,4 +2753,14 @@ async fn held_checker(board: &Board, ticket: &Ticket) -> Result<Option<String>, 
         return Ok(None);
     };
     Ok(Some(hold.tool.display_name().to_owned()))
+}
+
+/// Every tool's row ([`crate::agent_tools::connected::Connected::list`]) with the account's default model, which only
+/// the store knows.
+async fn tools_list(
+    shared: &Shared,
+) -> Result<crate::agent_tools::connected::AgentToolsList, BoardError> {
+    let mut list = shared.connected.list();
+    list.default_model = shared.store.default_model().await?;
+    Ok(list)
 }

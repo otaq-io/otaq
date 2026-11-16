@@ -287,6 +287,8 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         },
         None => None,
     };
+    // The account's default model: the tool a column on `default` runs on (UX-68).
+    let default_model = super::editor::tool_states(app).await.default_model;
     // The cards' named agents: the footer's "set by you" / "picked by", who has the turn (T-0345).
     let agents = match app
         .service
@@ -336,7 +338,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             was_validating: &was_validating,
             agent_filter: agent_filter.as_ref(),
             agents: agents.as_ref(),
-            default_model: None,
+            default_model: default_model.as_ref(),
             starts_held: starts_held.as_ref(),
             view: &view,
             paused: project.paused_since.is_some(),
