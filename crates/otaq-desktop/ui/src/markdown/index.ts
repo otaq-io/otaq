@@ -10,6 +10,7 @@ export {
 export { serializeMarkdown } from "./changes";
 // A comment's Markdown, drawn read-only with the description's nodes and no editor (tuq 110).
 export { CommentMarkdown, type CommentMarkdownProps } from "./comment/CommentMarkdown";
+export { renderInlineMarkdown } from "./comment/render";
 export {
   ExpandButton,
   FullView,

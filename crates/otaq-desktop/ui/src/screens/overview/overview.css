@@ -625,7 +625,8 @@ button.overview-attachment:hover {
   font-size: 12px;
 }
 
-/* WHAT THE AGENT DID and CHECKER while the ticket waits in your check (`ticket-01`). */
+/* WHAT THE AGENT DID and CHECKER while the ticket waits in your check (`ticket-01`); their texts are drawn as
+   Markdown (tuq 110) in a comment's own look (`CommentMarkdown`). */
 .in-review {
   display: flex;
   flex-direction: column;
@@ -637,14 +638,6 @@ button.overview-attachment:hover {
   align-items: center;
   gap: 6px;
   min-width: 0;
-}
-
-.in-review-text {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
 }
 
 .in-review-muted {

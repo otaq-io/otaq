@@ -11,7 +11,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vi
 
 import { markdownExtensions } from "../extensions";
 import { CommentMarkdown } from "./CommentMarkdown";
-import { isCommentLink, renderCommentMarkdown } from "./render";
+import { isCommentLink, renderCommentMarkdown, renderInlineMarkdown } from "./render";
 
 const requests = vi.hoisted(() => [] as [string, unknown][]);
 vi.mock(import("../../tauri"), async (importOriginal) => ({
@@ -418,5 +418,46 @@ describe("the description's parsing is left as it was", () => {
     expect(description(markdown)).toBe(before);
     expect(before).not.toContain("hardBreak");
     expect(before).toContain('"type":"bold"');
+  });
+});
+
+describe("one line as inline Markdown (a validation report's line)", () => {
+  /** The line drawn into a detached element. */
+  const inline = (line: string) => {
+    const el = document.createElement("span");
+    el.append(renderInlineMarkdown(line, document));
+    return el;
+  };
+
+  test("draws bold, italic, inline code and web links, with no paragraph around them", () => {
+    const el = inline("**Done**: `node test.js` passed, *see* [the run](https://e.com/run)");
+    expect(el.querySelector("p")).toBeNull();
+    expect(el.querySelector("strong")?.textContent).toBe("Done");
+    expect(el.querySelector("code")?.textContent).toBe("node test.js");
+    expect(el.querySelector("em")?.textContent).toBe("see");
+    expect(el.querySelector("a")?.getAttribute("href")).toBe("https://e.com/run");
+    expect(el.textContent).toBe("Done: node test.js passed, see the run");
+  });
+
+  test.each([
+    ["a heading's mark", "# not a heading"],
+    ["a numbered item's mark", "1. not a list"],
+    ["a bullet's mark", "- not a list"],
+    ["a quote's mark", "> not a quote"],
+    ["a rule", "---"],
+  ])("%s stays text: a line is never a block", (_, line) => {
+    const el = inline(line);
+    expect(el.textContent).toBe(line);
+    expect(el.querySelector("h1, ol, ul, li, blockquote, hr, p")).toBeNull();
+  });
+
+  test("HTML stays text, and a link that isn't a web link is its text", () => {
+    const el = inline("returns Observable<number | null>, see [x](javascript:alert(1))");
+    expect(el.textContent).toBe("returns Observable<number | null>, see x");
+    expect(el.querySelector("a")).toBeNull();
+  });
+
+  test("an empty line draws nothing", () => {
+    expect(inline("  ").childNodes).toHaveLength(0);
   });
 });

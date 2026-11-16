@@ -6,6 +6,7 @@ import { useCallback } from "react";
 
 import { showTab } from "../../app/selection";
 import { Button } from "../../components";
+import { CommentMarkdown } from "../../markdown";
 import type { FilesReviewNotes } from "../../generated/FilesReviewNotes";
 import type { OverviewInReview } from "../../generated/OverviewInReview";
 import { useServiceView } from "../../service";
@@ -14,12 +15,15 @@ import { Icon } from "../../theme/Icon";
 
 const EVENTS = ["ticket_changed", "card_status_changed"] as const;
 
-/** The checker's verdict lines, as plain text ("Every link now resolves; spelling checked."). */
+/**
+ * The checker's verdict lines as written, one per line ("Every link now resolves.\nSpelling checked."): drawn as
+ * Markdown (tuq 110), where a single line break stays a line break, so each keeps its own line.
+ */
 function verdict(notes: FilesReviewNotes): string | null {
   const lines = notes.review?.report?.summary ?? [];
   const text = lines
     .map((line) => line.map((part) => part.text).join(""))
-    .join(" ")
+    .join("\n")
     .trim();
   return text === "" ? null : text;
 }
@@ -39,7 +43,7 @@ export function InReview({ ticket, view }: { ticket: string; view: OverviewInRev
       {summary !== null && (
         <section className="in-review" aria-label={view.what_did}>
           <span className="editor-section-name">{view.what_did.toUpperCase()}</span>
-          <p className="in-review-text">{summary.text}</p>
+          <CommentMarkdown markdown={summary.text} />
         </section>
       )}
       {review !== null && (
@@ -63,7 +67,7 @@ export function InReview({ ticket, view }: { ticket: string; view: OverviewInRev
               />
             )}
           </div>
-          {said !== null && <p className="in-review-text">{said}</p>}
+          {said !== null && <CommentMarkdown markdown={said} />}
         </section>
       )}
     </>
