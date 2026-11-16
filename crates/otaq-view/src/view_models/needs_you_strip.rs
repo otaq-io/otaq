@@ -537,6 +537,12 @@ pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         (IconName::UserCheck, Tone::Review, reason.to_owned())
     } else {
         match status {
+            // Its tool stopped at its own sign-in screen (decision 118): its reason says which tool.
+            Status::NeedsYou | Status::CheckerNeedsYou
+                if otaq_core::signals::sign_in_screen::is_prompt(&item.reason) =>
+            {
+                (IconName::Hand, Tone::Attn, "sign in".to_owned())
+            }
             Status::NeedsYou | Status::CheckerNeedsYou => {
                 (IconName::Hand, Tone::Attn, "allow a command".to_owned())
             }
@@ -952,6 +958,17 @@ mod tests {
         let title = agent_chip(&a, item(t).target()).title;
         assert!(title.ends_with('\u{2026}'), "{title}");
         assert!(title.chars().count() < 700, "{title}");
+
+        // Decision 118: an agent at its tool's own sign-in screen reads "sign in".
+        let sign_in = ticket(
+            "SHOP-23",
+            "Order email",
+            Status::NeedsYou,
+            "Codex needs you to sign in",
+        );
+        let chip = ticket_chip(&sign_in, item(sign_in.clone()).target()).unwrap();
+        assert_eq!(chip.reason, "sign in");
+        assert_eq!(chip.tone, Tone::Attn);
 
         let short = ticket(
             "SHOP-22",

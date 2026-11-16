@@ -1506,6 +1506,12 @@ impl Service {
         let models = tokio::spawn(shared.models.clone().run(shared.stop.subscribe()));
         let gate = tokio::spawn(shared.gate.clone().run(shared.stop.subscribe()));
         let deliveries = tokio::spawn(shared.deliveries.clone().run(shared.stop.subscribe()));
+        // A tool's own sign-in screen at a session's start (decision 118).
+        let sign_in_screens = tokio::spawn(crate::signals::sign_in_screen::run(
+            shared.signals.clone(),
+            shared.connected.clone(),
+            shared.stop.subscribe(),
+        ));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1539,6 +1545,7 @@ impl Service {
         let _ = models.await;
         let _ = gate.await;
         let _ = deliveries.await;
+        let _ = sign_in_screens.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

@@ -348,6 +348,33 @@ mod tests {
         assert!(card.avatar.is_none(), "one tool connected: no tool mark");
     }
 
+    /// Decision 118: an agent whose Codex stopped at its own sign-in screen says so, turquoise, with Open; a
+    /// permission prompt still asks you.
+    #[test]
+    fn a_sign_in_screen_says_codex_needs_you_to_sign_in() {
+        use otaq_core::board::tickets::AgentSignal;
+        use otaq_core::domain::Status;
+        let at = |text: &str| {
+            let mut t = card_fixtures::ticket("SHOP-7", "Order email", Status::NeedsYou);
+            t.signal = Some(AgentSignal {
+                text: Some(text.into()),
+                ..AgentSignal::default()
+            });
+            let extras = CardExtras::default().with_signal(&t, NOW);
+            TicketCardView::of(&t, &extras, NOW)
+        };
+        let card = at("Codex needs you to sign in");
+        assert_eq!(
+            line(&card),
+            ("Codex needs you to sign in", Palette::Attn, Tone::Attention)
+        );
+        assert_eq!(card.action.as_ref().unwrap().label, "Open");
+        assert_eq!(
+            line(&at("Run command: ls")).0,
+            "Asks you \u{b7} run command: ls"
+        );
+    }
+
     #[test]
     fn a_working_card_is_calm() {
         let g = gallery();

@@ -1053,6 +1053,20 @@ pub trait AgentTool: Send + Sync {
         None
     }
 
+    /// Whether the tool may stop at a sign-in screen of its own when a session starts, before it sends any hook, though
+    /// its status command says it is signed in (Codex's onboarding menu with an expired ChatGPT sign-in, decision
+    /// 118): Otaq then reads such a session's screen until its first hook ([`crate::signals::sign_in_screen`]). Only
+    /// Codex.
+    fn has_sign_in_screen(&self) -> bool {
+        false
+    }
+
+    /// Whether `screen` (a session's screen as text, [`crate::session::Sessions::visible_screen`]) is the tool's own
+    /// sign-in screen ([`Self::has_sign_in_screen`]).
+    fn shows_sign_in_screen(&self, _screen: &str) -> bool {
+        false
+    }
+
     // Turn ends and models (ADP-12, AGT-05).
 
     /// Whether the tool's sessions pass long text to `otaq` through a file (`--stdin-file`) instead of stdin: Codex

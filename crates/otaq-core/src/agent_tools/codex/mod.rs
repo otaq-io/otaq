@@ -383,6 +383,16 @@ impl AgentTool for Codex {
         Some(&hooks::Dialog)
     }
 
+    /// Codex whose ChatGPT sign-in ran out (`codex login status` still says "Logged in using ChatGPT") opens its
+    /// onboarding menu instead of the conversation, and sends no hook until the user gets past it (decision 118).
+    fn has_sign_in_screen(&self) -> bool {
+        true
+    }
+
+    fn shows_sign_in_screen(&self, screen: &str) -> bool {
+        hooks::sign_in_screen(screen)
+    }
+
     fn turn_end_reports_background(&self) -> bool {
         false
     }
