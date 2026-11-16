@@ -116,8 +116,8 @@ body {
 }
 
 /*
- * The box for new work's layer: the bottom centre of the main area, over the board, the List and the ticket
- * panel (same z-index, later in the page), under the main area's overlays. Only the box takes clicks.
+ * The box for new work's layer: the bottom centre of the main area, over the board and the List, under the main
+ * area's overlays; the frame leaves it out while a ticket sheet is open (0.3 F-A-1). Only the box takes clicks.
  */
 .frame-new-work {
   position: absolute;
@@ -134,8 +134,7 @@ body {
   pointer-events: auto;
 }
 
-/* While a modal is open anywhere (a dialog, Settings, the flow editor), the box goes under it: a dialog drawn inside
-   the ticket panel shares the panel's z-index, which the box would otherwise cover. */
+/* While a modal is open anywhere (a dialog, Settings, the flow editor), the box goes under it. */
 .frame:has([aria-modal="true"]) .frame-new-work {
   z-index: 0;
 }
