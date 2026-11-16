@@ -11,6 +11,7 @@ use otaq_core::pr::flow::{FlowKind, PrFlowView};
 use serde::Serialize;
 use ts_rs::TS;
 
+use crate::machine::this_machine;
 use crate::view_models::card::{age_label, pr_provider_label};
 use crate::view_models::pr_dialog::{self as pd, PrDialog, Stage};
 use crate::view_models::review_page::ToastText;
@@ -88,15 +89,6 @@ pub struct SetUpView {
     pub text: String,
     /// "Set up GitHub…"
     pub button: String,
-}
-
-/// The machine's name in "isn't set up on this Mac".
-pub fn this_machine() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "this Mac"
-    } else {
-        "this computer"
-    }
 }
 
 /// The set-up callout for `provider` ("GitHub"), on a project named `project`.

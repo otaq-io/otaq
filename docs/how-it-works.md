@@ -112,8 +112,8 @@ is in the flow file, so Same as <project> and an imported flow file bring it alo
   own, and its card says "Delivered without all checks".
 - **Limits per tool.** When one tool hits its usage limit, is logged out, not installed, hidden or needs an update,
   only the stages on it wait; the rest keep going, and the banner says so. A stage whose model its tool no longer
-  lists waits the same way, and so does a stage on a tool that isn't set up on this Mac (Edit flow marks it). The card
-  says why and offers **Edit flow…**, open on that stage, to pick another model. Otaq never moves their work to
+  lists waits the same way, and so does a stage on a tool that isn't set up on this computer (Edit flow marks it). The
+  card says why and offers **Edit flow…**, open on that stage, to pick another model. Otaq never moves their work to
   another tool on its own. A running conversation never changes tools.
 - **Tokens per tool.** Tickets show the tokens each tool reports. The header's **Running** button (⇧⌘U, shown while
   agents run) opens what each tool has used today and what's left in each of its limit windows ("48% left"), and the

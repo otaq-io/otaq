@@ -23,6 +23,8 @@ use otaq_core::naming::PRODUCT_NAME;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::machine::this_machine;
+
 use super::banners::PERMISSION_DOCS_URL;
 use super::model_effort::{self, Use};
 use super::tool_avatar::ToolAvatarView;
@@ -331,7 +333,8 @@ pub fn used(f: &Flows) -> Used {
                 places: used_places(&on),
                 off: (!f.tools.connected.contains(&tool)).then(|| {
                     format!(
-                        "{word} isn\u{2019}t set up on this Mac: these wait until you set it up or pick another model."
+                        "{word} isn\u{2019}t set up on {}: these wait until you set it up or pick another model.",
+                        this_machine()
                     )
                 }),
             })
@@ -436,7 +439,8 @@ pub fn page(statuses: &[ToolStatus], now: i64) -> Page {
     Page {
         title: "Tools".to_owned(),
         intro: format!(
-            "The AI tools on this Mac. Which model and effort each stage uses is set in the flow, on the stage. {PRODUCT_NAME} never asks for passwords or keys and never changes their permission settings. Install and Sign in\u{2026} run the tool\u{2019}s own command in a terminal here, on your click."
+            "The AI tools on {}. Which model and effort each stage uses is set in the flow, on the stage. {PRODUCT_NAME} never asks for passwords or keys and never changes their permission settings. Install and Sign in\u{2026} run the tool\u{2019}s own command in a terminal here, on your click.",
+            this_machine()
         ),
         rows: statuses
             .iter()
@@ -1498,9 +1502,10 @@ mod tests {
             },
         );
         assert_eq!(p.rows_heading, "TOOLS");
-        assert!(p.intro.starts_with(
-            "The AI tools on this Mac. Which model and effort each stage uses is set in the flow, on the stage."
-        ));
+        assert!(p.intro.starts_with(&format!(
+            "The AI tools on {}. Which model and effort each stage uses is set in the flow, on the stage.",
+            this_machine()
+        )));
         let noyan = p.noyan.expect("Noyan starts on");
         assert_eq!(noyan.heading, "NOYAN");
         assert_eq!(noyan.label, "Noyan starts on");
@@ -1594,7 +1599,11 @@ mod tests {
         assert_eq!(
             used.rows[1].off.as_deref(),
             Some(
-                "Codex isn’t set up on this Mac: these wait until you set it up or pick another model."
+                format!(
+                    "Codex isn\u{2019}t set up on {}: these wait until you set it up or pick another model.",
+                    this_machine()
+                )
+                .as_str()
             )
         );
         assert_eq!(noyan(&f).picker.value.text, "Claude Code · default");

@@ -24,6 +24,7 @@ use ts_rs::TS;
 use super::agents::{and_list, is_tool_default, short_model};
 use super::tool_avatar::ToolAvatarView;
 use super::tool_problems::{Tools, tool_word};
+use crate::machine::this_machine;
 
 /// The field's label.
 pub const MODEL_LABEL: &str = "Model";
@@ -42,8 +43,12 @@ pub const MENU_FOOT: &str =
 pub const EFFORT_HINT: &str =
     "How hard the model thinks. Higher is slower and uses more of your plan.";
 /// A stage's Model hint (A-2).
-pub const STAGE_HINT: &str =
-    "Any model of a tool on this Mac. Every ticket at this stage uses it; it changes only here.";
+pub fn stage_hint() -> String {
+    format!(
+        "Any model of a tool on {}. Every ticket at this stage uses it; it changes only here.",
+        this_machine()
+    )
+}
 /// The most pairs the menu offers on top.
 pub const MAX_PAIRS: usize = 6;
 /// The Noyan panel header's menu (A-6, UX-70): its title, its heading, the default's note, the way to the whole field
@@ -296,9 +301,13 @@ pub fn not_set_up_text(tool: Tool, waits_at: Option<&str>) -> String {
     let word = tool_word(tool);
     match waits_at {
         Some(at) => format!(
-            "{word} isn\u{2019}t set up on this Mac. Tickets wait at {at} until you set it up or pick another model."
+            "{word} isn\u{2019}t set up on {}. Tickets wait at {at} until you set it up or pick another model.",
+            this_machine()
         ),
-        None => format!("{word} isn\u{2019}t set up on this Mac. Set it up or pick another model."),
+        None => format!(
+            "{word} isn\u{2019}t set up on {}. Set it up or pick another model.",
+            this_machine()
+        ),
     }
 }
 
@@ -632,16 +641,21 @@ mod tests {
         }
     }
 
-    const STAGE: Place = Place {
-        hint: STAGE_HINT,
-        waits_at: Some("Validate"),
-    };
+    static HINT: std::sync::LazyLock<String> = std::sync::LazyLock::new(stage_hint);
+
+    /// A stage's field, at Validate.
+    fn stage() -> Place<'static> {
+        Place {
+            hint: &HINT,
+            waits_at: Some("Validate"),
+        }
+    }
 
     /// A-3: grouped by tool, only tools set up, each starting with `default`; the ones not set up named under them.
     #[test]
     fn the_menu_groups_the_set_up_tools_each_starting_with_default() {
         let t = tools(&[Tool::Claude, Tool::Codex]);
-        let v = view(Some("codex:gpt-5.5"), Some("medium"), &[], &t, STAGE);
+        let v = view(Some("codex:gpt-5.5"), Some("medium"), &[], &t, stage());
         let heads: Vec<&str> = v.menu.groups.iter().map(|g| g.heading.as_str()).collect();
         assert_eq!(heads, ["CLAUDE CODE", "CODEX"]);
         let claude = &v.menu.groups[0];
@@ -669,21 +683,21 @@ mod tests {
         );
         assert_eq!(v.value.text, "Codex \u{b7} gpt-5.5");
         assert_eq!(v.not_set_up, None);
-        assert_eq!(v.hint, STAGE_HINT);
+        assert_eq!(v.hint, stage_hint());
     }
 
     /// The tool alone is its default; `default` is the default model's tool's.
     #[test]
     fn a_tool_alone_and_default_select_the_tools_default() {
         let mut t = tools(&[Tool::Claude, Tool::Codex]);
-        let v = view(Some("codex"), None, &[], &t, STAGE);
+        let v = view(Some("codex"), None, &[], &t, stage());
         assert!(v.menu.groups[1].items[0].selected);
         assert_eq!(v.value.text, "Codex \u{b7} default");
         t.default_model = Some(ModelRef {
             tool: Tool::Claude,
             model: None,
         });
-        let v = view(Some("default"), Some("high"), &[], &t, STAGE);
+        let v = view(Some("default"), Some("high"), &[], &t, stage());
         assert!(v.menu.groups[0].items[0].selected);
         assert_eq!(v.value.text, "Claude Code \u{b7} default");
         assert_eq!(
@@ -696,7 +710,7 @@ mod tests {
     #[test]
     fn effort_is_the_tools_levels_and_hidden_for_a_tool_with_none() {
         let t = tools(&[Tool::Codex, Tool::OpenCode]);
-        let v = view(Some("codex:gpt-5.5"), Some("medium"), &[], &t, STAGE);
+        let v = view(Some("codex:gpt-5.5"), Some("medium"), &[], &t, stage());
         let effort = v.effort.expect("Codex has levels");
         let labels: Vec<&str> = effort.levels.iter().map(|l| l.label.as_str()).collect();
         assert_eq!(
@@ -710,7 +724,7 @@ mod tests {
             .map(|l| l.id.as_str())
             .collect();
         assert_eq!(picked, ["medium"]);
-        let v = view(Some("opencode"), None, &[], &t, STAGE);
+        let v = view(Some("opencode"), None, &[], &t, stage());
         assert_eq!(v.effort, None);
     }
 
@@ -726,7 +740,7 @@ mod tests {
             at("Review", "billing-api", "claude:opus", Some("high")),
             at("Docs", "billing-api", "copilot:gpt-5.5", None),
         ];
-        let v = view(Some("codex:gpt-5.5"), Some("medium"), &uses, &t, STAGE);
+        let v = view(Some("codex:gpt-5.5"), Some("medium"), &uses, &t, stage());
         assert_eq!(v.menu.pairs_heading, Some(PAIRS_HEADING));
         let pairs: Vec<(&str, &str, bool)> = v
             .menu
@@ -752,19 +766,22 @@ mod tests {
         assert_eq!(v.menu.pairs[0].model, "claude:opus");
         assert_eq!(v.menu.pairs[0].effort.as_deref(), Some("high"));
         // No pairs, no heading.
-        assert_eq!(view(None, None, &[], &t, STAGE).menu.pairs_heading, None);
+        assert_eq!(view(None, None, &[], &t, stage()).menu.pairs_heading, None);
     }
 
     /// A-4: a model whose tool isn't set up stays, marked, with Set up <Tool> and Pick another model.
     #[test]
     fn a_tool_that_isnt_set_up_is_marked() {
         let t = tools(&[Tool::Claude]);
-        let v = view(Some("codex:gpt-5.5"), Some("medium"), &[], &t, STAGE);
+        let v = view(Some("codex:gpt-5.5"), Some("medium"), &[], &t, stage());
         let off = v.not_set_up.expect("Codex isn't set up");
         assert_eq!(
             off.text,
-            "Codex isn\u{2019}t set up on this Mac. Tickets wait at Validate until you set it up or pick another \
-             model."
+            format!(
+                "Codex isn\u{2019}t set up on {}. Tickets wait at Validate until you set it up or pick another \
+                 model.",
+                this_machine()
+            )
         );
         assert_eq!(off.set_up, "Set up Codex");
         assert_eq!(off.pick, "Pick another model");
@@ -782,7 +799,7 @@ mod tests {
             connected: vec![Tool::Codex],
             ..Tools::default()
         };
-        let v = view(Some("codex:gpt-5.5"), None, &[], &t, STAGE);
+        let v = view(Some("codex:gpt-5.5"), None, &[], &t, stage());
         let g = &v.menu.groups[0];
         assert_eq!(g.items.len(), 1);
         assert_eq!(g.status.as_deref(), Some("Loading Codex's models\u{2026}"));

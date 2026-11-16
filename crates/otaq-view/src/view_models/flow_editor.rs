@@ -643,7 +643,7 @@ pub(crate) fn who(f: &Facts, stage: &Stage, uses: &[model_effort::Use]) -> Optio
             uses,
             f.tools,
             model_effort::Place {
-                hint: model_effort::STAGE_HINT,
+                hint: &model_effort::stage_hint(),
                 waits_at: Some(&stage.name),
             },
         ),
