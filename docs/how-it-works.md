@@ -69,7 +69,11 @@ Backlog ──► Dev ───────────────────�
    **Approve & merge into main** squashes the branch into your base branch (merging the base into the branch first if it moved; Otaq never rebases).
    **Approve & open PR** pushes and opens a pull request, with a dialog where you edit the branch name, title and
    description first; the ticket then waits in Review as "PR open" until you **Mark merged** (Otaq doesn't watch the
-   PR). Once it's merged, tickets that were waiting for it start on their own.
+   PR). Once it's merged, tickets that were waiting for it start on their own. Done has a model too: click Done in
+   **Edit flow** to set the **Model**, **Effort** and **Instructions · optional** that write the pull request's title
+   and description, or the merge message. When they match the last agent stage's and Done has no instructions of its
+   own, that stage's session writes it, since it already knows the ticket. A conflict or a failed merge check still
+   goes back to the earlier agent stage on its own, and that stage's session fixes it.
 
 ### Any tool, any model
 
@@ -100,6 +104,9 @@ is in the flow file, so Same as <project> and an imported flow file bring it alo
   skill and rounds. A ticket's helpers run on the same model and effort as the stage whose agent is in charge. Noyan
   starts on the model set in Settings → Tools ("Noyan starts on"), and a new conversation can switch it before you
   send its first message. Settings → Tools also lists, per tool, the stages and projects that run on it.
+- **Done's model only writes.** Done has a model, effort and instructions of its own, used only to write the pull
+  request's title and description or the merge message ([Deliver](#how-it-works), step 6). It never fixes a conflict:
+  that goes back to the earlier agent stage.
 - **Skipping is yours.** For any stage of a ticket that hasn't started you can skip the stages the flow marks
   skippable ("Tickets may skip this stage · chosen per ticket"); a skippable check of yours offers "required" (it
   happens) and "skip". Noyan passes on only the skips you name ("2: Tech spec: skip"); otherwise every ticket runs
