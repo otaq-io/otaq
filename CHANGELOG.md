@@ -10,8 +10,9 @@ before Publish (`scripts/README.md`, "Making a release").
   **Who does it**; Done has them too, for the session that writes the pull request. Each tool's model menu starts
   with `default`, your account's model for that tool, which Otaq's ready-made flows use. The flow file holds them
   (`model:`, `effort:`, `instructions:` on each stage and under `delivery:`; no `agents:` list), so Same as
-  <project> and imported flows bring them along. Settings' Agents page is now **Tools**: your tools, the model
-  **Noyan starts on** (its panel switches it for one conversation), and which stages run on each tool. A ticket
+  <project> and imported flows bring them along. Settings' Agents page is now **Tools**: your tools and which
+  stages run on each tool. The model **Noyan starts on** has its own **Noyan** section in Settings, right after
+  Tools (its panel switches it for one conversation). A ticket
   no longer picks its own agent: every ticket runs a stage on the stage's model, and skipping is the only choice
   left per ticket. Cards name the tool, and the Session tab shows tool, model and effort. On update nothing changes
   in how tickets run: each stage takes its agent's model, effort and instructions, a ticket's own agent choice is

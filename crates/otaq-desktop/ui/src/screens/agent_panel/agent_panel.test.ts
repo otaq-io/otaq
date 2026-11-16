@@ -871,7 +871,7 @@ describe("a tool problem's notice (M23)", () => {
           effort: "high",
           avatar,
           label: "opus · high",
-          places: "the default, from Settings → Tools",
+          places: "the default, from Settings → Noyan",
           selected: true,
         },
         {
@@ -962,7 +962,7 @@ describe("a tool problem's notice (M23)", () => {
     openModel();
     expect(lines()).toEqual([
       "FOR THIS CONVERSATION",
-      "opus · high | the default, from Settings → Tools",
+      "opus · high | the default, from Settings → Noyan",
       "sonnet · medium | Dev in shop-web",
       "Another model or effort…",
     ]);

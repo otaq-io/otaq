@@ -1,6 +1,6 @@
 //! The model menu and the Effort control: how Otaq picks who does a piece of work (UX-65, UX-68, UX-75; tuq 014;
 //! canvas "Agents inside the flow", A-2…A-4). One behaviour wherever a model is picked: a stage's Who does it in Edit
-//! flow, Done's model, Settings → Tools' "Noyan starts on" and the Noyan panel's header all build their field with
+//! flow, Done's model, Settings → Noyan's "Noyan starts on" and the Noyan panel's header all build their field with
 //! [`view`] and draw it with the page's `ModelEffortField` (`components/ModelEffort.tsx`).
 //!
 //! **Model** is a menu grouped by tool, only the tools set up on this Mac (Connected, tuq 014): each tool's group
@@ -55,11 +55,11 @@ pub const MAX_PAIRS: usize = 6;
 /// and its foot.
 pub const CONVERSATION_TITLE: &str = "For this conversation";
 pub const CONVERSATION_HEADING: &str = "FOR THIS CONVERSATION";
-pub const THE_DEFAULT: &str = "the default, from Settings \u{2192} Tools";
+pub const THE_DEFAULT: &str = "the default, from Settings \u{2192} Noyan";
 pub const ANOTHER: &str = "Another model or effort\u{2026}";
 pub const CONVERSATION_FOOT: &str = "The next conversation starts on the default again.";
 /// The Noyan panel's Model hint, under the whole field ("Another model or effort…").
-pub const CONVERSATION_HINT: &str = "For this conversation only. The next conversation starts on the default from Settings \u{2192} Tools.";
+pub const CONVERSATION_HINT: &str = "For this conversation only. The next conversation starts on the default from Settings \u{2192} Noyan.";
 
 /// One place a model and effort are used, for the menu's pairs: a stage of a project's flow ("Dev" in "shop-web"),
 /// Done, or Noyan (no project).
@@ -575,7 +575,7 @@ fn pair(
 }
 
 /// The Noyan panel header's field (A-6, UX-70) for a conversation not started yet, on `model` and `effort`: its
-/// short menu "For this conversation" has the default from Settings → Tools (`default`) first, then the pairs the
+/// short menu "For this conversation" has the default from Settings → Noyan (`default`) first, then the pairs the
 /// flows use (`uses`) and the conversation's own pick when it is none of them, then [`ANOTHER`], which opens the whole
 /// field (`menu.groups`, Effort) for this conversation; the foot says the next conversation starts on the default
 /// again.

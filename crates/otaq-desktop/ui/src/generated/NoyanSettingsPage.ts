@@ -2,14 +2,13 @@
 import type { ModelEffortView } from "./ModelEffortView";
 
 /**
- * "Noyan starts on" (UX-70, A-8): the model and effort every new Noyan conversation starts on. `ToolsNoyan` on the
- * page.
+ * Settings → Noyan: "Noyan starts on" (UX-70). `NoyanSettingsPage` on the page.
  */
-export type ToolsNoyan = { 
+export type NoyanSettingsPage = { 
 /**
- * "NOYAN".
+ * "Noyan".
  */
-heading: string, 
+title: string, 
 /**
  * "Noyan starts on".
  */

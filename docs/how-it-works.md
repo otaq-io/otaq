@@ -102,8 +102,8 @@ is in the flow file, so Same as <project> and an imported flow file bring it alo
 - **One model per stage.** Every ticket at a stage runs on the stage's model, effort and instructions; a ticket can't
   pick its own. A check has one model too: two checks are two stages, one after the other, each with its own model,
   skill and rounds. A ticket's helpers run on the same model and effort as the stage whose agent is in charge. Noyan
-  starts on the model set in Settings → Tools ("Noyan starts on"), and a new conversation can switch it before you
-  send its first message. Settings → Tools also lists, per tool, the stages and projects that run on it.
+  starts on the model set in Settings → Noyan ("Noyan starts on"), and a new conversation can switch it before you
+  send its first message. Settings → Tools lists, per tool, the stages and projects that run on it, and Noyan.
 - **Done's model only writes.** Done has a model, effort and instructions of its own, used only to write the pull
   request's title and description or the merge message ([Deliver](#how-it-works), step 6). It never fixes a conflict:
   that goes back to the earlier agent stage.
@@ -238,7 +238,7 @@ split, which the agent in charge adds to the Plan. Helpers never start helpers o
 ### Noyan and terminals
 
 **Noyan** starts from the box for new work at the bottom of the board: type what you want and press ⇧↵ (Ask Noyan to
-shape it), and it opens as a panel on the left, where a conversation starts on the model set in Settings → Tools
+shape it), and it opens as a panel on the left, where a conversation starts on the model set in Settings → Noyan
 ("Noyan starts on"; its header switches it for one conversation before you send), investigates the codebase and
 writes Backlog tickets for you, including importing them from your team's tracker with your own skills. It reads code but never edits it. Noyan's button sits at the foot of the rail (⌘L), with
 **Terminal** (⌃`), which opens plain terminals in the project, and the gear for the app's Settings.

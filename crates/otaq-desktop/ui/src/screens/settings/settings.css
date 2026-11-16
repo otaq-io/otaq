@@ -2186,8 +2186,7 @@
   padding-top: 8px;
 }
 
-/* Settings → Tools' Noyan starts on (UX-70) and Where they're used (canvas A-8). */
-.tools-noyan,
+/* Settings → Tools' Where they're used (canvas A-8). */
 .tools-used {
   display: flex;
   flex-direction: column;
@@ -2195,11 +2194,18 @@
   padding-top: 20px;
 }
 
-.tools-noyan .fe-field {
+/* Settings → Noyan's Noyan starts on (UX-70): the shared field, alone on its page. */
+.noyan-starts-on {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.noyan-starts-on .fe-field {
   max-width: 420px;
 }
 
-.tools-noyan-label {
+.noyan-starts-on-label {
   font-size: 13px;
   font-weight: 600;
 }

@@ -15,9 +15,11 @@ const every =
     list;
 
 export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
-  /** M23, UX-65, UX-70: Tools: the tools on this Mac, Noyan starts on and where each tool is used. Other screens open
-   * Settings here by this id. */
+  /** M23, UX-65: Tools: the tools on this Mac and where each tool is used. Other screens open Settings here by this
+   * id. */
   "tools",
+  /** UX-70: Noyan, right after Tools: Noyan starts on. Other screens open Settings here by this id. */
+  "noyan",
   /** Git & pull requests: git and the PR providers on this machine. Other screens open Settings here by this id. */
   "git",
   /** Limits & usage: the optional agent limit, then each tool's "% left". */

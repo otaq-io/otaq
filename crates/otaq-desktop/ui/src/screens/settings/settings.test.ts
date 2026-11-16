@@ -25,12 +25,12 @@ import {
   agentToolMenu,
   AgentToolsPageBody,
   DisconnectDialogView,
-  effortEdit,
   markOf,
-  noyanEdit,
   RecheckButton,
   stepOf,
 } from "./AgentTools";
+import type { NoyanSettingsPage } from "../../generated/NoyanSettingsPage";
+import { effortEdit, NoyanSettingsBody, noyanEdit } from "./NoyanSettings";
 
 const html = (element: ReactElement) => renderToStaticMarkup(element);
 
@@ -81,10 +81,11 @@ describe("the Settings screen", () => {
   it("registers the overlay, its sections and ⌘,", () => {
     const app = registerScreens({ settings });
     expect(app.overlays.get("settings")).toBeDefined();
-    // Eight topics: Tools, Git & pull requests, Limits & usage (the limit, then usage),
+    // Nine topics: Tools, Noyan, Git & pull requests, Limits & usage (the limit, then usage),
     // Notifications, Appearance, Keyboard, Data, About.
     expect(app.settings.global.ids()).toEqual([
       "tools",
+      "noyan",
       "git",
       "agent_limits",
       "usage",
@@ -362,7 +363,6 @@ const toolsPage = (rows: AgentToolRow[]): AgentToolsPage => ({
   title: "Tools",
   intro: "The AI tools on this Mac.",
   rows_heading: "TOOLS",
-  noyan: null,
   used: null,
   rows,
   recheck: "Re-check",
@@ -398,38 +398,40 @@ const AVATAR = {
   hover: "#111",
 } as const;
 
-// Noyan starts on and Where they're used, as `agent_tools_page.rs`'s `with_flows` sends them (canvas A-8).
-const withFlows = (page: AgentToolsPage): AgentToolsPage => ({
-  ...page,
-  noyan: {
-    heading: "NOYAN",
-    label: "Noyan starts on",
-    picker: {
-      model_label: "Model",
-      value: { avatar: AVATAR, text: "Claude Code · opus", no_longer_listed: null },
-      menu: {
-        title: "Pick a model…",
-        pairs_heading: null,
-        pairs: [],
-        groups: [],
-        missing: null,
-        another: null,
-        set_up: "Set up…",
-        foot: "",
-      },
-      hint: "For new conversations. Switch for one conversation in the Noyan panel.",
-      not_set_up: null,
-      effort: {
-        label: "Effort",
-        levels: [
-          { id: "", label: "Default", selected: false },
-          { id: "medium", label: "Medium", selected: false },
-          { id: "high", label: "High", selected: true },
-        ],
-        hint: "How hard the model thinks.",
-      },
+// Settings → Noyan, as `noyan_settings.rs` sends it (UX-70).
+const NOYAN_PAGE: NoyanSettingsPage = {
+  title: "Noyan",
+  label: "Noyan starts on",
+  picker: {
+    model_label: "Model",
+    value: { avatar: AVATAR, text: "Claude Code · opus", no_longer_listed: null },
+    menu: {
+      title: "Pick a model…",
+      pairs_heading: null,
+      pairs: [],
+      groups: [],
+      missing: null,
+      another: null,
+      set_up: "Set up…",
+      foot: "",
+    },
+    hint: "For new conversations. Switch for one conversation in the Noyan panel.",
+    not_set_up: null,
+    effort: {
+      label: "Effort",
+      levels: [
+        { id: "", label: "Default", selected: false },
+        { id: "medium", label: "Medium", selected: false },
+        { id: "high", label: "High", selected: true },
+      ],
+      hint: "How hard the model thinks.",
     },
   },
+};
+
+// Where they're used, as `agent_tools_page.rs`'s `with_flows` sends it (canvas A-8).
+const withFlows = (page: AgentToolsPage): AgentToolsPage => ({
+  ...page,
   used: {
     heading: "WHERE THEY’RE USED",
     rows: [
@@ -452,8 +454,8 @@ const withFlows = (page: AgentToolsPage): AgentToolsPage => ({
   },
 });
 
-describe("Settings → Tools: Noyan starts on and where they're used", () => {
-  it("draws Noyan's model and effort under the tools, then each tool's stages, read-only", () => {
+describe("Settings → Tools: where they're used", () => {
+  it("draws each tool's stages and Noyan under the tools, read-only, and no Noyan block", () => {
     const drawn = html(
       createElement(AgentToolsPageBody, {
         page: withFlows(toolsPage([ROWS.connected])),
@@ -463,11 +465,10 @@ describe("Settings → Tools: Noyan starts on and where they're used", () => {
     );
     const at = (text: string) => drawn.indexOf(text);
     expect(at("TOOLS")).toBeGreaterThan(-1);
-    expect(at("NOYAN")).toBeGreaterThan(at("TOOLS"));
-    expect(drawn).toContain("Noyan starts on");
-    expect(drawn).toContain("Claude Code · opus");
-    expect(drawn).toContain("For new conversations. Switch for one conversation in the Noyan panel.");
-    expect(at("WHERE THEY’RE USED")).toBeGreaterThan(at("NOYAN"));
+    // Noyan starts on is Settings → Noyan's (UX-70), not a block of Tools.
+    expect(drawn).not.toContain("NOYAN");
+    expect(drawn).not.toContain("Noyan starts on");
+    expect(at("WHERE THEY’RE USED")).toBeGreaterThan(at("TOOLS"));
     expect(drawn).toContain("shop-web: Dev · billing-api: Dev, Security review · Noyan");
     expect(drawn).toContain("Codex isn’t set up on this Mac");
     expect(drawn).toContain("To change one, open its project’s flow.");
@@ -475,8 +476,20 @@ describe("Settings → Tools: Noyan starts on and where they're used", () => {
     const used = drawn.slice(at("WHERE THEY’RE USED"), at("Not shown here"));
     expect(used).not.toContain("<button");
   });
+});
 
-  it("a pick or an Effort level becomes agent_tools.noyan's edit", () => {
+describe("Settings → Noyan", () => {
+  it("draws Noyan starts on and nothing else", () => {
+    const drawn = html(createElement(NoyanSettingsBody, { page: NOYAN_PAGE }));
+    expect(drawn).toContain('data-section="noyan"');
+    expect(drawn).toContain("Noyan starts on");
+    expect(drawn).toContain("Claude Code · opus");
+    expect(drawn).toContain("For new conversations. Switch for one conversation in the Noyan panel.");
+    expect(drawn).not.toContain("WHERE THEY’RE USED");
+    expect(drawn).not.toContain("TOOLS");
+  });
+
+  it("a pick or an Effort level becomes noyan_settings.edit's edit", () => {
     expect(noyanEdit({ kind: "model", model: "codex" })).toEqual({ edit: "model", model: "codex" });
     expect(noyanEdit({ kind: "pair", model: "claude:opus", effort: "high" })).toEqual({
       edit: "pair",

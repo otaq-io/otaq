@@ -134,6 +134,7 @@ import { SettingsContext, type SettingsContextValue } from "../settings/context"
 import { WarmOffDialog } from "../settings/Dialogs";
 import { EnvVarsRow } from "../settings/EnvVars";
 import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools";
+import { NoyanSettingsBody } from "../settings/NoyanSettings";
 import { type ShortcutsCalls, ShortcutsView } from "../settings/Keyboard";
 import { Section as SettingsSectionRows, WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
@@ -1393,7 +1394,7 @@ function AgentToolsGallerySection() {
   if (!view) return null;
   const shown = dialog === null ? undefined : view.dialogs[dialog];
   return (
-    <Section title="15 · Settings → Tools: every state per tool, Noyan starts on, where they are used, the notes, Disconnect (T-0365)">
+    <Section title="15 · Settings → Tools and Settings → Noyan: every state per tool, where they are used, the notes, Disconnect, Noyan starts on (T-0365, UX-70)">
       <Caption>Last call: {picked ?? "—"}</Caption>
       <div className="gallery-wrap">
         {view.dialogs.map((d, index) => (
@@ -1430,6 +1431,21 @@ function AgentToolsGallerySection() {
                 />
               </div>
             ))}
+            <div
+              className="gallery-stack-tight"
+              style={{ padding: "0 16px 16px", borderRadius: 8, background: "var(--bg-panel)" }}
+            >
+              <Caption>15 · NOYAN</Caption>
+              <NoyanSettingsBody
+                page={view.noyan}
+                onEdit={(edit) => {
+                  setPicked(`noyan · ${edit.edit}`);
+                }}
+                onSetUp={(tool) => {
+                  setPicked(`set up ${tool ?? "…"}`);
+                }}
+              />
+            </div>
           </div>
         ))}
       </div>

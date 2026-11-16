@@ -84,6 +84,7 @@ pub mod new_work;
 pub mod newer_database;
 pub mod no_tray;
 pub mod noyan_button;
+pub mod noyan_settings;
 pub mod ordinary_day;
 pub mod view_prefs;
 
