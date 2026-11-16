@@ -927,14 +927,10 @@ async fn model_list(app: &App, tool: Tool) -> Option<ModelList> {
 }
 
 /// The agent tools as the rows, the panel, the agent panel and recovery read them (M23): every tool's state
-/// (`agent_tools.list`), every tool's active limit (`usage.activity`), each connected tool's cached model list, and
-/// the default model (`agents.list`, AGM-03). When the service can't list the tools, the
-/// first tool counts as the one connected, as before M23.
+/// (`agent_tools.list`), every tool's active limit (`usage.activity`) and each connected tool's cached model list. When
+/// the service can't list the tools, the first tool counts as the one connected, as before M23.
 pub(super) async fn agent_tools(app: &App) -> Tools {
     let mut tools = tool_states(app).await;
-    if let Ok(Reply::Agents(list)) = app.service.send(Request::AgentsList).await {
-        tools.default_model = list.default_model;
-    }
     // Every tool's active limit (USG-10), from Activity's per-tool data.
     if let Ok(Reply::Activity(activity)) = app.service.send(Request::UsageActivity).await {
         tools.limits = activity.tools.into_iter().filter_map(|t| t.limit).collect();
@@ -1653,11 +1649,10 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// AGM-09 through a real service, on the default flow: no stage lists options, yet the form and the sheet show a
-    /// choice for each stage an agent runs (Dev, Validate: its own agent, then the others), with the ticket's path;
-    /// the sheet's pick of another agent is taken, a skip of Dev (not skippable) is refused.
+    /// AGM-09, UX-72 through a real service, on the default flow: no stage is skippable and a ticket can't pick a
+    /// model, so the form shows no Stages section; on the sheet, another agent for Dev and a skip of Dev are refused.
     #[tokio::test]
-    async fn the_default_flow_shows_a_choice_per_agent_stage() {
+    async fn the_default_flow_shows_no_choices() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -1678,34 +1673,24 @@ mod tests {
         };
         let create = json!({ "mode": "create", "project": project });
         let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
-        let rows: Vec<(&str, &str)> = view["choices"]["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| (r["label"].as_str().unwrap(), r["value"].as_str().unwrap()))
-            .collect();
-        assert_eq!(
-            rows,
-            [
-                ("Dev", "Uses the stage\u{2019}s agent \u{b7} Developer"),
-                ("Validate", "Uses the stage\u{2019}s agent \u{b7} Checker")
-            ]
-        );
+        assert_eq!(view["choices"], Value::Null, "{view}");
 
         let saved = table(&h.app, "editor.save", json!({ "target": create, "form": form("Price table") }))
             .await
             .unwrap();
         let key = saved["key"].as_str().unwrap().to_owned();
         let edit = json!({ "mode": "edit", "key": key });
-        assert_ne!(table(&h.app, "editor.open", edit).await.unwrap()["choices"], Value::Null);
-        // The sheet's pick of another agent for Dev is taken; a skip of Dev is refused.
-        table(
-            &h.app,
-            "sheet.set_choice",
-            json!({ "key": key, "stage": "dev", "choice": "Checker" }),
-        )
-        .await
-        .unwrap();
+        assert_eq!(table(&h.app, "editor.open", edit).await.unwrap()["choices"], Value::Null);
+        // Another agent for Dev is refused, and so is a skip of Dev.
+        assert!(
+            table(
+                &h.app,
+                "sheet.set_choice",
+                json!({ "key": key, "stage": "dev", "choice": "Checker" }),
+            )
+            .await
+            .is_err()
+        );
         let refused = table(
             &h.app,
             "sheet.set_choice",

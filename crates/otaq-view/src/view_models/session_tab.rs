@@ -374,7 +374,7 @@ mod tests {
             tool_session_id: None,
             model: Some("gpt-5.5".into()),
             agent: agent.map(|name| SessionAgent {
-                id: name.to_lowercase(),
+                runs_for: name.to_lowercase(),
                 name: name.into(),
             }),
             effort: None,

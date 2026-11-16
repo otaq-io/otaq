@@ -285,12 +285,12 @@ pub mod samples {
     pub fn shop_web() -> Flow {
         let yaml = "\
 flow:
-  - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
-  - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
-  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: product-spec, name: Product spec, kind: agent, model: default, skill: product-spec}
+  - {id: dev, name: Dev, kind: agent, model: default, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, model: default, skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, model: default, skill: security-review, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
-delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
+delivery: {delivers: pr, mode: click, model: default, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
@@ -438,7 +438,7 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
             agent_names: &[],
             was_validating: &[],
             agents: None,
-            agent_list: None,
+            default_model: None,
             starts_held: None,
             paused: false,
             helpers: &[],

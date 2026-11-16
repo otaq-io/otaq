@@ -27,7 +27,7 @@ fn me() -> Actor {
     Actor::User("me".into())
 }
 
-/// SHOP-1 in Review with one commit, its agent's session live (the default flow: Developer builds it and is the
+/// SHOP-1 in Review with one commit, its agent's session live (the default flow: Dev builds it and is the
 /// delivery's agent).
 async fn setup() -> Setup {
     let w = TestService::start().await;
@@ -87,11 +87,11 @@ async fn the_delivery_agent_writes_the_message_while_the_ticket_waits_in_review(
         .unwrap()
         .unwrap();
     assert_eq!(writing.state, MessageState::Writing);
-    assert_eq!(writing.agent, "Developer");
+    assert_eq!(writing.agent, "default");
 
     // Approve's confirmation opens at once on the plain message, naming who still writes.
     let plain = w.board.merge_proposal("SHOP-1").await.unwrap();
-    assert_eq!(plain.writing.as_deref(), Some("Developer"));
+    assert_eq!(plain.writing.as_deref(), Some("default"));
     assert_eq!(plain.prepared_by, None);
     assert!(
         plain.message.starts_with("SHOP-1: Checkout timeout"),
@@ -115,7 +115,7 @@ async fn the_delivery_agent_writes_the_message_while_the_ticket_waits_in_review(
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let ready = w.board.merge_proposal("SHOP-1").await.unwrap();
-    assert_eq!(ready.prepared_by.as_deref(), Some("Developer"));
+    assert_eq!(ready.prepared_by.as_deref(), Some("default"));
     assert_eq!(ready.writing, None);
     assert_eq!(
         ready.message,
@@ -180,7 +180,7 @@ async fn a_message_whose_session_ends_unwritten_falls_back_to_the_plain_one() {
     let w = &s.w;
     w.board.delivery().arrived(&s.ticket.id).await;
     let writing = w.board.merge_proposal("SHOP-1").await.unwrap();
-    assert_eq!(writing.writing.as_deref(), Some("Developer"));
+    assert_eq!(writing.writing.as_deref(), Some("default"));
 
     w.sessions.stop(&s.agent.session).await.unwrap();
     let gone = tokio::time::timeout(std::time::Duration::from_secs(20), async {

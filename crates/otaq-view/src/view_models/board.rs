@@ -14,7 +14,7 @@
 //!
 //! One card per ticket in every column (d0133).
 
-use otaq_core::agents::{Agent, AgentList, AgentModel};
+use otaq_core::agents::{AgentModel, ModelRef};
 use otaq_core::board::order::{ColumnOrder, fold_dev};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, StatusSet, TicketKey};
@@ -234,7 +234,8 @@ pub struct BoardInput<'a> {
     pub agents: Option<&'a BoardAgents>,
     /// Every agent (`agents.list`): the headers' tooltips name each stage's tool and model (FLW-12); `None` names
     /// only the agents.
-    pub agent_list: Option<&'a AgentList>,
+    /// The account's default model, for a `default` a flow still says.
+    pub default_model: Option<&'a ModelRef>,
     /// The starts a waiting flow change holds back (FLW-06, FED-08): of the tickets waiting to begin, or at its span's
     /// edge. A card
     /// it holds that would start says [`WAITING_FOR_THE_FLOW_CHANGE`] in place of "Starting…". `None` while starts
@@ -300,13 +301,16 @@ fn count_text(visible: usize, total: usize, filtered: bool) -> String {
     }
 }
 
-/// The agent that opens a project's PRs: the one its flow's delivery names, else its first Agent stage's
-/// (`agents::resolve::delivery_agent`).
+/// The tool that opens a project's PRs, by its name: its flow's delivery's model's, else its first Agent stage's
+/// (`agents::resolve::delivery_who`).
 fn delivery_agent(flow: &Flow) -> Option<String> {
-    flow.delivery
-        .agent
-        .clone()
-        .or_else(|| flow.first_agent_stage().and_then(|s| s.agent.clone()))
+    let model = flow
+        .delivery
+        .who
+        .model
+        .as_deref()
+        .or_else(|| flow.first_agent_stage().and_then(Stage::model));
+    crate::view_models::agents::model_tool(model, None).map(|t| tool_word(t).to_owned())
 }
 
 /// A ticket's card view model as the board builds it (its queue facts, signal, named agents and the pause), for the
@@ -447,7 +451,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 icon,
                 quiet_icon: quiet,
                 count: count_text(whole.visible, whole.total, filtered),
-                tooltip: header_tooltip(column, input.agent_list),
+                tooltip: header_tooltip(column, input.default_model),
                 who_acts: who_acts(column, input.flow),
                 total: whole.total,
                 cards: Vec::new(),
@@ -504,20 +508,10 @@ pub fn who_acts(column: &FlowColumn, flow: &Flow) -> String {
 }
 
 /// The header's tooltip: the stage's description (what it is for), then its line, its tool and model, its options.
-pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option<HeaderTooltip> {
+pub fn header_tooltip(column: &FlowColumn, default: Option<&ModelRef>) -> Option<HeaderTooltip> {
     let stage = column.stage?;
-    let named = |name: &str| -> Option<&Agent> {
-        agents?
-            .agents
-            .iter()
-            .find(|a| a.name.eq_ignore_ascii_case(name))
-    };
-    let agent = |s: &Stage| -> Option<&Agent> { named(s.named_agents().next()?) };
     let mut detail: Vec<String> = stage.description.iter().cloned().collect();
-    let mut runs: Vec<String> = agent(stage)
-        .and_then(|a| runs_on(a, agents?))
-        .into_iter()
-        .collect();
+    let mut runs: Vec<String> = runs_on(stage, default).into_iter().collect();
     if stage.is_agent_check() {
         let rounds = stage.rounds.unwrap_or(DEFAULT_VALIDATION_ROUNDS);
         let unit = if rounds == 1 { "round" } else { "rounds" };
@@ -535,7 +529,9 @@ pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option
         title.push("your check".to_owned());
     }
     if !stage.is_human_check() {
-        title.extend(stage.has_agent().then(|| stage.agents_line()));
+        title.extend(
+            crate::view_models::agents::stage_tool(stage, default).map(|t| tool_word(t).to_owned()),
+        );
         title.extend(stage.skill.clone());
     }
     Some(HeaderTooltip {
@@ -544,21 +540,16 @@ pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option
     })
 }
 
-/// "Claude Code · sonnet" (with "· effort high" where the agent sets one): the agent's own model, else the default
-/// model. `None` while neither is set.
-fn runs_on(agent: &Agent, list: &AgentList) -> Option<String> {
-    let (tool, model) = match &agent.model {
-        AgentModel::Tool { tool, model } => (*tool, model.clone()),
-        AgentModel::Default => {
-            let model = list.default_model.as_ref()?;
-            (model.tool, model.model.clone())
-        }
-    };
+/// "Claude Code · sonnet" (with "· effort high" where the stage sets one): the stage's own model, else the default
+/// model for `default`. `None` while neither is known.
+fn runs_on(stage: &Stage, default: Option<&ModelRef>) -> Option<String> {
+    let parsed = AgentModel::parse(stage.model()?).ok()?;
+    let on = parsed.on(default)?;
     let mut line = vec![
-        tool_word(tool).to_owned(),
-        model_label(model.as_deref(), None),
+        tool_word(on.tool).to_owned(),
+        model_label(on.model.as_deref(), None),
     ];
-    line.extend(agent.effort.as_ref().map(|e| format!("effort {e}")));
+    line.extend(stage.who.effort.as_ref().map(|e| format!("effort {e}")));
     Some(line.join(" \u{b7} "))
 }
 
@@ -689,7 +680,7 @@ mod tests {
             agent_names: &[],
             was_validating: &[],
             agents: None,
-            agent_list: None,
+            default_model: None,
             starts_held: None,
             paused: false,
             helpers: &[],
@@ -1135,8 +1126,6 @@ mod tests {
             waiting("SHOP-36", Status::Held),
         ];
         let card = |key: &str, starts: &str| CardAgents {
-            instead_of: None,
-            own_agent: None,
             skips: Vec::new(),
             key: key.parse().unwrap(),
             running_developer: None,
@@ -1149,11 +1138,10 @@ mod tests {
                 agent: "Spec writer".into(),
                 model: None,
             }),
-            refused_agent: None,
+            refused_stage: None,
             stage_agent: None,
         };
         let agents = BoardAgents {
-            agent_count: 5,
             cards: vec![
                 card("NOTE-12", "Dev"),
                 card("SHOP-35", "Dev"),
@@ -1236,8 +1224,6 @@ mod tests {
             ),
         ];
         let card = |key: &str, starts: Option<&str>| CardAgents {
-            instead_of: None,
-            own_agent: None,
             skips: Vec::new(),
             key: key.parse().unwrap(),
             running_developer: None,
@@ -1250,11 +1236,10 @@ mod tests {
                 agent: "Developer".into(),
                 model: None,
             }),
-            refused_agent: None,
+            refused_stage: None,
             stage_agent: None,
         };
         let agents = BoardAgents {
-            agent_count: 5,
             cards: vec![card("SHOP-35", Some("Dev"))],
             connected: Vec::new(),
         };
@@ -1315,21 +1300,13 @@ mod tests {
     /// for each stage column.
     #[test]
     fn the_default_board_keeps_todays_headers() {
-        use crate::view_models::agents::fixtures::{agent, on};
         let tickets = board();
-        let list = AgentList {
-            agents: vec![
-                agent("a1", "Developer", Some("sonnet")),
-                on(
-                    otaq_core::agent_tools::Tool::Codex,
-                    agent("a2", "Checker", Some("gpt-5.5")),
-                ),
-            ],
-            noyan_agent: None,
-            default_model: None,
+        let sonnet = otaq_core::agents::ModelRef {
+            tool: otaq_core::agent_tools::Tool::Claude,
+            model: Some("sonnet".into()),
         };
         let columns = build(&BoardInput {
-            agent_list: Some(&list),
+            default_model: Some(&sonnet),
             ..input(&tickets, None)
         });
         let looks: Vec<(IconName, bool)> = columns.iter().map(|c| (c.icon, c.quiet_icon)).collect();
@@ -1349,7 +1326,7 @@ mod tests {
         assert_eq!(
             tip(1),
             Some(HeaderTooltip {
-                title: format!("Dev · Developer · {}", otaq_core::agent_tools::WORK_TICKET_SKILL),
+                title: format!("Dev · Claude Code · {}", otaq_core::agent_tools::WORK_TICKET_SKILL),
                 detail: vec![
                     "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the \
                      code needs it."
@@ -1361,12 +1338,12 @@ mod tests {
         assert_eq!(
             tip(2),
             Some(HeaderTooltip {
-                title: format!("Validate · Checker · {}", otaq_core::own_skill!("validate")),
+                title: format!("Validate · Claude Code · {}", otaq_core::own_skill!("validate")),
                 detail: vec![
                     "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught \
                      before anyone reviews it."
                         .into(),
-                    "Codex · gpt-5.5 · up to 3 rounds".into()
+                    "Claude Code · sonnet · up to 3 rounds".into()
                 ],
             })
         );
@@ -1389,7 +1366,6 @@ mod tests {
     /// with agent, tool, model and options.
     #[test]
     fn the_test_flow_headers_name_kinds_folds_and_the_delivery() {
-        use crate::view_models::agents::fixtures::agent;
         let flow = crate::view_models::flow_columns::every_kind();
         let at = |key: &str, status, place: Place| {
             let mut t = ticket(key, "Work", status);
@@ -1402,19 +1378,13 @@ mod tests {
             at("NOTE-3", Status::Checking, Place::stage_of("validate")),
             at("NOTE-4", Status::Checking, Place::stage_of("security")),
         ];
-        let list = AgentList {
-            agents: vec![
-                agent("g", "Spec writer", Some("sonnet")),
-                agent("r", "Rust developer", Some("sonnet")),
-                agent("s", "Security reviewer", Some("opus")),
-                agent("p", "Shipper", Some("haiku")),
-            ],
-            noyan_agent: None,
-            default_model: None,
+        let sonnet = otaq_core::agents::ModelRef {
+            tool: otaq_core::agent_tools::Tool::Claude,
+            model: Some("sonnet".into()),
         };
         let columns = build(&BoardInput {
             flow: &flow,
-            agent_list: Some(&list),
+            default_model: Some(&sonnet),
             ..input(&tickets, None)
         });
         let heads: Vec<(&str, IconName, bool)> = columns
@@ -1440,7 +1410,7 @@ mod tests {
             dev.tooltip,
             Some(HeaderTooltip {
                 title: format!(
-                    "Dev · Rust developer · {}",
+                    "Dev · Claude Code · {}",
                     otaq_core::agent_tools::WORK_TICKET_SKILL
                 ),
                 detail: vec!["Claude Code · sonnet".into()],
@@ -1450,15 +1420,18 @@ mod tests {
         let tip = |i: usize| columns[i].tooltip.clone().unwrap();
         assert_eq!(
             tip(1).title,
-            "Product spec · Spec writer · tuq:product-spec"
+            "Product spec · Claude Code · tuq:product-spec"
         );
         assert_eq!(tip(1).detail, ["Claude Code · sonnet", "Options: skip"]);
         assert_eq!(
             tip(4).title,
-            "Security · Security reviewer · team-security-review"
+            "Security · Claude Code · team-security-review"
         );
-        // A check's one agent and where it runs, then the stage's rounds.
-        assert_eq!(tip(4).detail, ["Claude Code · opus \u{b7} up to 2 rounds"]);
+        // A check's tool and model, then the stage's rounds.
+        assert_eq!(
+            tip(4).detail,
+            ["Claude Code · sonnet \u{b7} up to 2 rounds"]
+        );
         assert_eq!(tip(5).title, "QA · your check");
         assert_eq!(tip(5).detail, ["Options: skip"]);
 
@@ -1477,14 +1450,14 @@ mod tests {
     fn ten_stages() -> Flow {
         let yaml = "\
 flow:
-  - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec, options: [skip]}
-  - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
-  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: product-spec, name: Product spec, kind: agent, model: default, skill: product-spec, options: [skip]}
+  - {id: dev, name: Dev, kind: agent, model: default, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, model: default, skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, model: default, skill: security-review, rounds: 3}
   - {id: qa, name: QA, kind: check, by: you}
   - {id: review, name: Review, kind: check, by: you}
-  - {id: docs, name: Docs, kind: agent, agent: Doc writer, skill: docs}
-delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
+  - {id: docs, name: Docs, kind: agent, model: default, skill: docs}
+delivery: {delivers: pr, mode: automatic, model: default, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }

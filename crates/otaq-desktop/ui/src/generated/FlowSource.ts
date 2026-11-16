@@ -3,4 +3,4 @@
 /**
  * What a Flow action proposes (`flow.propose_from`, FLW-08…FLW-10).
  */
-export type FlowSource = { "from": "previous" } | { "from": "project", project: string, } | { "from": "preset", file: string, } | { "from": "default" } | { "from": "agents_file" };
+export type FlowSource = { "from": "previous" } | { "from": "project", project: string, } | { "from": "preset", file: string, } | { "from": "default" };

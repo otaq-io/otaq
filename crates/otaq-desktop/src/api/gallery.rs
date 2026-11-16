@@ -159,7 +159,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             choices["samples"][0]["choices"]["rows"][1]["value"],
-            "Uses the stage\u{2019}s agent \u{b7} Rust developer"
+            "Runs as the flow says"
         );
         assert_eq!(choices["samples"][1]["path"]["rows"][1]["detail"], "Rust developer \u{b7} working");
         let notifications = crate::api::request(&h.app, "gallery.notifications", Value::Null)

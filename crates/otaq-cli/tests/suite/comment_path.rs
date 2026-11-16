@@ -314,7 +314,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     assert!(told.contains(&claude_skill("tuq:product-spec")), "{told:?}");
     let product_spec_prime = read(state, "product-spec-prime.md");
     assert!(
-        product_spec_prime.contains("\n## Your stage\n\nProduct spec, as Spec writer"),
+        product_spec_prime.contains("\n## Your stage\n\nProduct spec, with the skill"),
         "{product_spec_prime}"
     );
     assert_eq!(
@@ -347,7 +347,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     let second = section.find(YOU_SAY).expect(YOU_SAY);
     assert!(first < second, "{section}");
     assert!(
-        section.contains("\n### Spec writer \u{b7} Product spec \u{b7} "),
+        section.contains("\n### Claude Code \u{b7} Product spec \u{b7} "),
         "{section}"
     );
     assert!(section.contains("\n### You \u{b7} "), "{section}");
@@ -372,17 +372,23 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     );
     assert_eq!(
         agent(&all[0]),
-        (Some("Spec writer"), Some("product-spec"), None)
+        (Some("Claude Code"), Some("product-spec"), None)
     );
     assert!(
         matches!(all[1].author, CommentAuthor::User { .. }),
         "{:?}",
         all[1].author
     );
-    assert_eq!(agent(&all[2]), (Some("Developer"), Some("dev"), None));
-    assert_eq!(agent(&all[3]), (Some("Checker"), Some("validate"), Some(1)));
-    assert_eq!(agent(&all[4]), (Some("Developer"), Some("dev"), None));
-    assert_eq!(agent(&all[5]), (Some("Checker"), Some("validate"), Some(2)));
+    assert_eq!(agent(&all[2]), (Some("Claude Code"), Some("dev"), None));
+    assert_eq!(
+        agent(&all[3]),
+        (Some("Claude Code"), Some("validate"), Some(1))
+    );
+    assert_eq!(agent(&all[4]), (Some("Claude Code"), Some("dev"), None));
+    assert_eq!(
+        agent(&all[5]),
+        (Some("Claude Code"), Some("validate"), Some(2))
+    );
     for c in [&all[0], &all[2], &all[3], &all[4], &all[5]] {
         assert!(
             matches!(
@@ -399,7 +405,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     assert!(
         all[3]
             .heading()
-            .starts_with("Checker \u{b7} Validate \u{b7} round 1 \u{b7} "),
+            .starts_with("Claude Code \u{b7} Validate \u{b7} round 1 \u{b7} "),
         "{}",
         all[3].heading()
     );
@@ -501,7 +507,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         "{check}"
     );
 
-    // History (newest first): Spec writer's description edit and every comment.
+    // History (newest first): Product spec's description edit and every comment.
     let mut history = w.board.history(&key).await.unwrap();
     history.reverse();
     let edit = history
@@ -509,7 +515,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         .find(|e| e.kind == EventKind::Updated)
         .expect("the description edit");
     assert_eq!(edit.payload["author"]["kind"], "agent", "{edit:?}");
-    assert_eq!(edit.payload["author"]["name"], "Spec writer", "{edit:?}");
+    assert_eq!(edit.payload["author"]["name"], "Claude Code", "{edit:?}");
     assert_eq!(edit.payload["author"]["stage"], "product-spec", "{edit:?}");
     let posted: Vec<u64> = history
         .iter()

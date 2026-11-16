@@ -6,7 +6,7 @@
 //! preset… dialog and the Copy from another project… list are here too, and the toasts of a waiting change applied
 //! or cancelled. The delivery is no stage: the project's Repository card shows it.
 
-use otaq_core::agents::{Agent, AgentList};
+use otaq_core::agents::ModelRef;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::flow::apply::WaitingChange;
 use otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS;
@@ -20,7 +20,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::agents::{AgentTools, list_model};
+use crate::view_models::agents::{AgentTools, model_text_line};
 use crate::view_models::banners::{CANCEL_CHANGE, tickets_count};
 use crate::view_models::menu::MenuItem;
 use crate::view_models::project_agent_page::ended_when;
@@ -103,14 +103,14 @@ pub struct Section {
 }
 
 /// What the section is built from: the project, its current flow version and how many it has, the waiting change,
-/// the agents and the tools (for "Claude Code · sonnet"), the other projects, and the time now.
+/// the account's default model and the tools (for "Claude Code · sonnet"), the other projects, and the time now.
 pub struct Inputs<'a> {
     pub project: &'a ProjectInfo,
     pub current: &'a FlowVersion,
     /// `flow.versions`' length: Back to the previous flow needs a version before the current one.
     pub versions: usize,
     pub waiting: Option<&'a WaitingChange>,
-    pub agents: &'a AgentList,
+    pub default_model: Option<&'a ModelRef>,
     pub tools: &'a AgentTools,
     pub other_projects: usize,
     pub now_ms: i64,
@@ -134,7 +134,7 @@ pub const NO_PREVIOUS_FLOW: &str = "This is the first flow the project had";
 pub fn section(input: &Inputs) -> Section {
     let file = input.current.file();
     let (rows, problem) = match &file {
-        Ok(file) => (rows(file, input.agents, input.tools), None),
+        Ok(file) => (rows(file, input.default_model, input.tools), None),
         Err(e) => (
             Vec::new(),
             Some(format!("The flow doesn\u{2019}t read: {e}")),
@@ -238,17 +238,23 @@ pub fn waiting_line(waiting: &WaitingChange) -> WaitingLine {
 }
 
 /// The strip's stages, in order. The delivery is a setting of the flow, not a stage: the Repository card shows it.
-pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<StageRow> {
+pub fn rows(file: &FlowFile, default: Option<&ModelRef>, tools: &AgentTools) -> Vec<StageRow> {
     let flow = &file.flow;
-    let model_of = |name: &str| {
-        find(agents, name).map(|a| list_model(a, tools, agents.default_model.as_ref()))
-    };
     flow.stages
         .iter()
         .map(|stage| {
-            let (agent, model) = match (stage.kind, stage.named_agents().next()) {
+            let (agent, model) = match (stage.kind, stage.model()) {
                 (StageKind::Check { by: CheckBy::You }, _) => ("You".to_owned(), None),
-                (_, Some(name)) => (stage.agents_line(), model_of(name)),
+                (_, Some(_)) => (
+                    crate::view_models::agents::stage_tool(stage, default)
+                        .map_or_else(|| NONE.to_owned(), |t| tool_word(t).to_owned()),
+                    Some(model_text_line(
+                        stage.model(),
+                        stage.who.effort.as_deref(),
+                        tools,
+                        default,
+                    )),
+                ),
                 (_, None) => (NONE.to_owned(), None),
             };
             StageRow {
@@ -283,12 +289,7 @@ pub fn delivery_icon(delivery: &Delivery) -> IconName {
 
 const NONE: &str = "\u{2014}";
 
-fn find<'a>(agents: &'a AgentList, name: &str) -> Option<&'a Agent> {
-    agents
-        .agents
-        .iter()
-        .find(|a| a.name.eq_ignore_ascii_case(name))
-}
+use crate::view_models::tool_problems::tool_word;
 
 /// A stage's icon, as its column's (`board.rs`'s `column_look` on a quiet board): a bot, a shield or a person.
 pub fn stage_icon(stage: &Stage) -> IconName {
@@ -468,7 +469,7 @@ pub fn count(waiting: &WaitingChange) -> String {
 #[cfg(test)]
 mod tests {
     use otaq_core::agent_tools::Tool;
-    use otaq_core::agents::{AgentModel, ModelRef};
+    use otaq_core::agents::ModelRef;
     use otaq_core::flow::yaml;
 
     use super::*;
@@ -513,29 +514,11 @@ mod tests {
         }
     }
 
-    /// The agents of `s15-60`: Rust developer on sonnet, Validator on Codex, Security reviewer on opus.
-    fn agents() -> AgentList {
-        let on = |tool: Tool, model: &str, name: &str| {
-            let mut agent = fixtures::agent(&name.to_lowercase(), name, None);
-            agent.model = AgentModel::Tool {
-                tool,
-                model: Some(model.to_owned()),
-            };
-            agent
-        };
-        AgentList {
-            agents: vec![
-                on(Tool::Claude, "sonnet", "Spec writer"),
-                on(Tool::Claude, "sonnet", "Rust developer"),
-                on(Tool::Codex, "gpt-5.5", "Validator"),
-                on(Tool::Claude, "opus", "Security reviewer"),
-                on(Tool::Claude, "haiku", "Shipper"),
-            ],
-            noyan_agent: None,
-            default_model: Some(ModelRef {
-                tool: Tool::Claude,
-                model: Some("sonnet".into()),
-            }),
+    /// The account's default model: Claude Code · sonnet.
+    fn sonnet() -> ModelRef {
+        ModelRef {
+            tool: Tool::Claude,
+            model: Some("sonnet".into()),
         }
     }
 
@@ -562,18 +545,21 @@ mod tests {
 
     const NOW: i64 = 1_792_000_000_000;
 
+    /// A stage on `default`, the default model being Claude Code · sonnet.
+    const SONNET: &str = "default \u{b7} Claude Code \u{b7} sonnet";
+
     /// `s15-60`'s table for the test flow: each stage with its kind, its agent and model, its options.
     #[test]
     fn the_table_of_the_test_flow() {
         let text = yaml::write(&test_file());
         let current = version(&text, AppliedBy::ProjectAgent, NOW - 86_400_000);
-        let (agents, tools, project) = (agents(), tools(), project());
+        let (default, tools, project) = (sonnet(), tools(), project());
         let s = section(&Inputs {
             project: &project,
             current: &current,
             versions: 2,
             waiting: None,
-            agents: &agents,
+            default_model: Some(&default),
             tools: &tools,
             other_projects: 1,
             now_ms: NOW,
@@ -608,32 +594,20 @@ mod tests {
         assert_eq!(
             table,
             [
-                (
-                    "Product spec",
-                    "Agent",
-                    "Spec writer",
-                    Some("Claude Code \u{b7} sonnet"),
-                    "skip"
-                ),
-                (
-                    "Dev",
-                    "Agent",
-                    "Rust developer",
-                    Some("Claude Code \u{b7} sonnet"),
-                    "\u{2014}"
-                ),
+                ("Product spec", "Agent", "Claude Code", Some(SONNET), "skip"),
+                ("Dev", "Agent", "Claude Code", Some(SONNET), "\u{2014}"),
                 (
                     "Validate",
                     "Check \u{b7} agent \u{b7} 3 rounds",
-                    "Validator",
-                    Some("Codex \u{b7} gpt-5.5"),
+                    "Claude Code",
+                    Some(SONNET),
                     "\u{2014}"
                 ),
                 (
                     "Security",
                     "Check \u{b7} agent \u{b7} 2 rounds",
-                    "Security reviewer",
-                    Some("Claude Code \u{b7} opus"),
+                    "Claude Code",
+                    Some(SONNET),
                     "\u{2014}"
                 ),
                 ("QA", "Check \u{b7} you", "You", None, "skip"),
@@ -683,18 +657,13 @@ mod tests {
                 NOW - 60_000,
             )
         };
-        let agents = AgentList {
-            agents: Vec::new(),
-            noyan_agent: None,
-            default_model: None,
-        };
         let (tools, project) = (tools(), project());
         let s = section(&Inputs {
             project: &project,
             current: &current,
             versions: 1,
             waiting: None,
-            agents: &agents,
+            default_model: None,
             tools: &tools,
             other_projects: 0,
             now_ms: NOW,
@@ -712,7 +681,11 @@ mod tests {
                 "Check \u{b7} you",
             ]
         );
-        assert_eq!(s.rows[0].model, None, "an agent the list doesn't have");
+        assert_eq!(
+            s.rows[0].model.as_deref(),
+            Some("default"),
+            "no default model set yet"
+        );
         let copy = s.menu.iter().find(|m| m.id == COPY).unwrap();
         assert!(copy.disabled);
         assert_eq!(copy.hint.as_deref(), Some(NO_OTHER_PROJECT));

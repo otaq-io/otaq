@@ -10,7 +10,6 @@ import type { FlowBoardSaved } from "./FlowBoardSaved";
 import type { FlowBoardStartFrom } from "./FlowBoardStartFrom";
 import type { FlowBoardSuggestion } from "./FlowBoardSuggestion";
 import type { FlowBoardWatch } from "./FlowBoardWatch";
-import type { FlowEditorChoices } from "./FlowEditorChoices";
 import type { HintId } from "./HintId";
 
 /**
@@ -24,8 +23,4 @@ proposal: number,
 /**
  * The draft's document, for Undo.
  */
-yaml: string, bar: FlowBoardBar, columns: Array<FlowBoardColumn>, details: FlowBoardDetails | null, delivery: FlowBoardDelivery | null, palette: FlowBoardPalette, start_from: FlowBoardStartFrom, more: FlowBoardMore, ask: FlowBoardAsk, suggestion: FlowBoardSuggestion | null, watch: FlowBoardWatch, saved: FlowBoardSaved, hint: HintId, 
-/**
- * The picks as Save sends them.
- */
-choices: FlowEditorChoices, };
+yaml: string, bar: FlowBoardBar, columns: Array<FlowBoardColumn>, details: FlowBoardDetails | null, delivery: FlowBoardDelivery | null, palette: FlowBoardPalette, start_from: FlowBoardStartFrom, more: FlowBoardMore, ask: FlowBoardAsk, suggestion: FlowBoardSuggestion | null, watch: FlowBoardWatch, saved: FlowBoardSaved, hint: HintId, };

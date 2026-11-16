@@ -435,7 +435,7 @@ async fn pause_answer_restart_and_resume() {
     assert!(spec_writer.is_running());
     assert_eq!(
         spec_writer.agent.as_ref().map(|a| a.name.as_str()),
-        Some("Spec writer")
+        Some("Claude Code")
     );
     settle().await;
     assert_eq!(world.w.status("SHOP-33").await, Status::Interrupted);
@@ -538,7 +538,7 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         .ask(Request::ProjectAgentOpen(ProjectAgentOpenParams {
             project: "SHOP".into(),
             message: ASK_PLAN.into(),
-            agent: None,
+            on: None,
         }))
         .await
         .unwrap();

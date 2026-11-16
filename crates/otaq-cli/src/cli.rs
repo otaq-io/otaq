@@ -37,12 +37,11 @@ pub struct PlanFlags {
 }
 
 /// The stage choices of `create` and `update` (AGM-11): a stage (by name or id) and the user's choice for it. Only the
-/// user picks a stage's agent, or Noyan passing on the user's words.
+/// user skips a stage, or Noyan passing on the user's words; a ticket never picks a model (UX-72).
 #[derive(Debug, Default, Args)]
 pub struct ChoiceFlags {
-    /// A stage choice, repeatable: "Dev=Strong" (any agent whose tool has the stage's skill), "QA=skip" where the flow
-    /// lets QA be skipped; the stage's own agent ("Dev=Developer", "QA=required" on a check of yours) sets it back
-    #[arg(long = "stage", value_name = "STAGE=AGENT|skip")]
+    /// A stage choice, repeatable: "QA=skip" where the flow lets QA be skipped; "QA=required" sets it back
+    #[arg(long = "stage", value_name = "STAGE=skip|required")]
     pub stages: Vec<String>,
     /// The user named these choices themselves (Noyan only): they show as set by you
     #[arg(long)]

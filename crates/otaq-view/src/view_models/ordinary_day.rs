@@ -3,7 +3,7 @@
 //! another to merge, one works on its own agent for Dev, and Done has a merge from today and two from yesterday. The
 //! gallery and the tests build on it.
 
-use otaq_core::agents::facts::{BoardAgents, CardAgents, OwnAgent};
+use otaq_core::agents::facts::{BoardAgents, CardAgents};
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::{AgentSignal, StartProblem, Ticket};
 use otaq_core::domain::{Place, Priority, StartStep, Status};
@@ -174,10 +174,8 @@ pub fn agents() -> BoardAgents {
         running_validator_on: None,
         holds: Vec::new(),
         starts: None,
-        refused_agent: None,
+        refused_stage: None,
         stage_agent: None,
-        instead_of: None,
-        own_agent: None,
         skips: Vec::new(),
     };
     let working = |key: &str, agent: &str| CardAgents {
@@ -186,18 +184,10 @@ pub fn agents() -> BoardAgents {
         ..card(key)
     };
     BoardAgents {
-        agent_count: 3,
         cards: vec![
             working("SHOP-22", "Strong"),
             working("SHOP-27", "Strong"),
-            CardAgents {
-                own_agent: Some(OwnAgent {
-                    stage: "Dev".into(),
-                    agent: "Light".into(),
-                    instead_of: "Strong".into(),
-                }),
-                ..working("SHOP-29", "Light")
-            },
+            working("SHOP-29", "Light"),
             CardAgents {
                 running_validator: Some("Verifier".into()),
                 stage_agent: Some("Verifier".into()),
@@ -238,7 +228,7 @@ mod tests {
                 was_validating: &[],
                 agent_filter: None,
                 agents: Some(&agents),
-                agent_list: None,
+                default_model: None,
                 starts_held: None,
                 view: &view,
                 paused: false,
@@ -312,15 +302,14 @@ mod tests {
             [
                 "SHOP-30 | Checkout summary page | Waits for SHOP-27 to merge",
                 "SHOP-24 | Cart badge count | Start failed \u{b7} setup command failed | [Retry]",
-                "SHOP-22 | Fix flaky login redirect | Asks you \u{b7} keep the old session cookie? | Strong \
-                 | 12m | [Answer]",
-                "SHOP-27 | P1 | Wishlist share link | Working | Strong | 26m",
-                "SHOP-29 | Typo sweep on the help pages | Working | Dev: Light instead of Strong | Light | 3m",
+                "SHOP-22 | Fix flaky login redirect | Asks you \u{b7} keep the old session cookie? | 12m | [Answer]",
+                "SHOP-27 | P1 | Wishlist share link | Working | 26m",
+                "SHOP-29 | Typo sweep on the help pages | Working | 3m",
             ]
         );
         assert_eq!(
             column(2),
-            ["SHOP-26 | Price table rounding | Checking | Verifier | 2m"]
+            ["SHOP-26 | Price table rounding | Checking | 2m"]
         );
         assert_eq!(
             column(3),
@@ -336,40 +325,6 @@ mod tests {
                 "SHOP-14 | Fix the 404 page | Merged into main | yesterday",
                 "SHOP-15 | Remove the old banner | Done \u{b7} not merged | yesterday",
                 "SHOP-16 | Product image zoom | Merged into main | today",
-            ]
-        );
-    }
-
-    /// A ticket's own agent shows from the moment it is set: SHOP-33 sits in Backlog with Dev set to Light, and its card
-    /// already says so, before Dev starts; the Backlog cards that chose nothing keep only their line.
-    #[test]
-    fn a_backlog_ticket_shows_its_own_agent() {
-        let mut agents = agents();
-        agents.cards.push(CardAgents {
-            key: "SHOP-33".parse().unwrap(),
-            running_developer: None,
-            running_validator: None,
-            running_developer_on: None,
-            running_validator_on: None,
-            holds: Vec::new(),
-            starts: None,
-            refused_agent: None,
-            stage_agent: None,
-            instead_of: None,
-            own_agent: Some(OwnAgent {
-                stage: "Dev".into(),
-                agent: "Light".into(),
-                instead_of: "Strong".into(),
-            }),
-            skips: Vec::new(),
-        });
-        let page = board_with(agents);
-        assert_eq!(
-            cards(&page, 0).into_iter().map(read).collect::<Vec<_>>(),
-            [
-                "SHOP-31 | P2 | Coupon field rejects lowercase codes | Not started | [Start]",
-                "SHOP-33 | Add sitemap.xml | Not started | Dev: Light instead of Strong | [Start]",
-                "SHOP-34 | Order history pagination | Not started | [Start]",
             ]
         );
     }

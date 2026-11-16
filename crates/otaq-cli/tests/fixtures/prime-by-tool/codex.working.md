@@ -9,7 +9,7 @@ Priority: P3 · Normal.
 
 ## Your stage
 
-Dev, as Developer, with the skill `$otaq:work-ticket`.
+Dev, with the skill `$otaq:work-ticket`.
 
 ## The flow
 

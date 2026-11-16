@@ -5,7 +5,7 @@
 //! the card is the one-time [`Hint::FirstTicket`]. A project added later, or after Not now, is just its columns.
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::{AgentList, AgentModel};
+use otaq_core::agents::ModelRef;
 use otaq_core::flow::Flow;
 use otaq_core::store::settings::Hint;
 use serde::Serialize;
@@ -53,18 +53,10 @@ pub fn shows(tickets: usize, seen: &[Hint]) -> bool {
     tickets == 0 && !seen.contains(&Hint::FirstTicket)
 }
 
-/// The tool of the flow's first Agent stage: its agent's own, else the default model's. `None` when neither is known.
-pub fn first_stage_tool(flow: &Flow, agents: Option<&AgentList>) -> Option<Tool> {
-    let agents = agents?;
-    let name = flow.first_agent_stage()?.named_agents().next()?;
-    let agent = agents
-        .agents
-        .iter()
-        .find(|a| a.name.eq_ignore_ascii_case(name))?;
-    match &agent.model {
-        AgentModel::Tool { tool, .. } => Some(*tool),
-        AgentModel::Default => agents.default_model.as_ref().map(|m| m.tool),
-    }
+/// The tool of the flow's first Agent stage: its model's own, else the default model's (`default`). `None` when
+/// neither is known.
+pub fn first_stage_tool(flow: &Flow, default: Option<&ModelRef>) -> Option<Tool> {
+    super::agents::stage_tool(flow.first_agent_stage()?, default)
 }
 
 /// The card, saying whose plan it uses: the first stage's `tool`.

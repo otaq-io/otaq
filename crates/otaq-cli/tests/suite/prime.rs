@@ -97,7 +97,7 @@ async fn plain_prime_in_a_validators_session_is_the_validate_prime() {
         working.stdout
     );
     assert!(
-        working.stdout.contains("## Your stage\n\nDev, as "),
+        working.stdout.contains("## Your stage\n\nDev, with "),
         "{}",
         working.stdout
     );
@@ -128,7 +128,7 @@ async fn plain_prime_in_a_validators_session_is_the_validate_prime() {
     assert!(
         plain
             .stdout
-            .contains("## Your stage\n\nValidate, as Checker, with the skill `/otaq:validate`."),
+            .contains("## Your stage\n\nValidate, with the skill `/otaq:validate`."),
         "{}",
         plain.stdout
     );

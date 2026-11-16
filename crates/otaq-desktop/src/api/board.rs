@@ -307,11 +307,6 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::StartupReport(report)) => report.was_validating,
         _ => Vec::new(),
     };
-    // Every agent: the column headers name each stage's tool and model (FLW-12).
-    let agent_list = match app.service.send(Request::AgentsList).await {
-        Ok(Reply::Agents(list)) => Some(*list),
-        _ => None,
-    };
     // No ticket enters what a waiting flow change waits for (FLW-06, FED-08): the cards it holds say why, and the
     // stages it waits for are marked "changing".
     let waiting = match app
@@ -341,7 +336,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             was_validating: &was_validating,
             agent_filter: agent_filter.as_ref(),
             agents: agents.as_ref(),
-            agent_list: agent_list.as_ref(),
+            default_model: None,
             starts_held: starts_held.as_ref(),
             view: &view,
             paused: project.paused_since.is_some(),
@@ -365,7 +360,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             first_approve: super::onboarding::first_approve(app).await,
             keys: &keys,
         },
-        empty_board::first_stage_tool(&flow, agent_list.as_ref()),
+        empty_board::first_stage_tool(&flow, None),
     );
     Ok(page)
 }
@@ -413,7 +408,7 @@ pub(crate) async fn whereabouts(
         agent_names: &[],
         was_validating: &[],
         agents: agents.as_ref(),
-        agent_list: None,
+        default_model: None,
         starts_held: starts_held.as_ref(),
         paused: board.project.paused_since.is_some(),
         helpers: &[],
@@ -669,12 +664,8 @@ pub async fn search(app: &App, params: SearchParams) -> Result<SearchView, Reque
         Ok(Reply::BoardAgents(agents)) => Some(*agents),
         _ => None,
     };
-    let agent_list = match app.service.send(Request::AgentsList).await {
-        Ok(Reply::Agents(list)) => Some(*list),
-        _ => None,
-    };
     let flow = flow(app, &params.project).await;
-    let scope = Scope::of(&flow, &tickets, agents.as_ref(), agent_list.as_ref());
+    let scope = Scope::of(&flow, &tickets, agents.as_ref());
     Ok(search_page::view(
         &params.filter,
         &tickets,

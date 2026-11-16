@@ -183,7 +183,7 @@ fn review_then_automatic_merge(file: &mut FlowFile) {
     file.flow.delivery = Delivery {
         mode: DeliveryMode::Automatic,
         delivers: Delivers::Local,
-        agent: None,
+        who: Default::default(),
         skill: None,
     };
 }

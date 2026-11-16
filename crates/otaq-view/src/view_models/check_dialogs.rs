@@ -17,11 +17,11 @@ pub fn posted_for(stage: &str) -> String {
     format!("Posted as a comment for {stage} \u{b7} every later stage reads it")
 }
 
-/// "Dev (Rust developer)".
+/// "Dev (Claude Code)": the stage, with the tool its model runs on when it names one.
 fn bracketed(stage: &Stage) -> String {
-    match stage.has_agent() {
-        true => format!("{} ({})", stage.name, stage.agents_line()),
-        false => stage.name.clone(),
+    match super::agents::stage_tool(stage, None) {
+        Some(tool) => format!("{} ({})", stage.name, super::agents::tool_word(tool)),
+        None => stage.name.clone(),
     }
 }
 
@@ -34,7 +34,7 @@ pub const WHAT_SHOULD_CHANGE: &str = "What should change? Every later stage read
 pub struct SendBackPrView {
     /// "Send SHOP-26 back with PR comments?"
     pub title: String,
-    /// "The comments on PR #481 go to Dev (Rust developer) with the ticket."
+    /// "The comments on PR #481 go to Dev with the ticket."
     pub text: String,
     /// "Comment for Dev (optional)", "If you write one, it's posted as a comment for Dev".
     pub comment: CommentBoxView,
@@ -91,7 +91,7 @@ mod tests {
         assert_eq!(view.title, "Send SHOP-26 back with PR comments?");
         assert_eq!(
             view.text,
-            "The comments on PR #481 go to Dev (Rust developer) with the ticket."
+            "The comments on PR #481 go to Dev with the ticket."
         );
         assert_eq!(
             view.comment.label.as_deref(),

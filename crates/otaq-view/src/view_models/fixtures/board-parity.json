@@ -2151,7 +2151,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -2404,7 +2404,7 @@
                 "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 3 rounds"
               ],
-              "title": "Validate · Checker · otaq:validate"
+              "title": "Validate · otaq:validate"
             },
             "who_acts": "A checker tests it"
           },
@@ -3562,7 +3562,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -3815,7 +3815,7 @@
                 "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 3 rounds"
               ],
-              "title": "Validate · Checker · otaq:validate"
+              "title": "Validate · otaq:validate"
             },
             "who_acts": "A checker tests it"
           },
@@ -4973,7 +4973,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -5226,7 +5226,7 @@
                 "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 3 rounds"
               ],
-              "title": "Validate · Checker · otaq:validate"
+              "title": "Validate · otaq:validate"
             },
             "who_acts": "A checker tests it"
           },
@@ -5976,7 +5976,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -6458,7 +6458,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -6940,7 +6940,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -7974,7 +7974,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -8082,7 +8082,7 @@
                 "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 2 rounds"
               ],
-              "title": "Validate · Checker · otaq:validate"
+              "title": "Validate · otaq:validate"
             },
             "who_acts": "A checker tests it"
           },
@@ -8793,7 +8793,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -8901,7 +8901,7 @@
                 "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 2 rounds"
               ],
-              "title": "Validate · Checker · otaq:validate"
+              "title": "Validate · otaq:validate"
             },
             "who_acts": "A checker tests it"
           },
@@ -9612,7 +9612,7 @@
               "detail": [
                 "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
               ],
-              "title": "Dev · Developer · otaq:work-ticket"
+              "title": "Dev · otaq:work-ticket"
             },
             "who_acts": "An agent does the work"
           },
@@ -9720,7 +9720,7 @@
                 "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 2 rounds"
               ],
-              "title": "Validate · Checker · otaq:validate"
+              "title": "Validate · otaq:validate"
             },
             "who_acts": "A checker tests it"
           },
