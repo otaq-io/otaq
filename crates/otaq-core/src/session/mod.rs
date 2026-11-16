@@ -219,6 +219,18 @@ pub struct SessionAgent {
 }
 
 impl SessionAgent {
+    /// As a new session's row stores it: named after its tool ("Claude Code", UX-65), also when it continues an
+    /// older session's conversation whose row named its agent ("Quick", before agents were set on the stage).
+    fn on_tool(self, tool: Option<Tool>) -> Self {
+        match tool {
+            Some(tool) => Self {
+                name: tool.display_name().to_owned(),
+                ..self
+            },
+            None => self,
+        }
+    }
+
     fn of_columns(runs_for: Option<String>, name: Option<String>) -> Option<Self> {
         Some(Self {
             runs_for: runs_for.unwrap_or_default(),
@@ -287,7 +299,8 @@ pub async fn own_stage(
 
 /// A stored conversation to continue (Resume, Park, Send back, answers; d0045, d0088): the agent tool it ran
 /// on, the tool's own id, the model and effort as launched and the agent, so Resume reopens the same tool and model
-/// (ADP-04, AGM-03) and the resumed session's row names the same agent, whatever the agent is set to now (0088).
+/// (ADP-04, AGM-03) and the resumed session's row runs for what the old one ran for, whatever it is set to now (0088);
+/// the row names the tool, as every new session's does (UX-65).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredConversation {
     pub tool: Tool,
@@ -1005,7 +1018,7 @@ impl Sessions {
             tool: spec.tool,
             tool_session_id: spec.tool_session_id.clone(),
             model: spec.model.clone(),
-            agent: spec.agent.clone(),
+            agent: spec.agent.clone().map(|a| a.on_tool(spec.tool)),
             effort: spec.effort.clone(),
             model_ran: None,
             tuq_version: None,

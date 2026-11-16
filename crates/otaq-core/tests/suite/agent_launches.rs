@@ -771,6 +771,66 @@ async fn every_resume_passes_the_sessions_own_model() {
     }
 }
 
+/// A session from before the stage said who does it (0.2.0: its row names the agent, "Quick") resumes named after its
+/// tool, as every new session is (UX-65): the new row and the comments it writes read "Claude Code", never "Quick".
+/// The old row keeps its name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resumed_session_of_a_named_agent_is_named_after_its_tool() {
+    use otaq_core::board::ticket_comments::CommentAuthor;
+
+    let world = world().await;
+    let w = &world.w;
+    let t = create(w, "Fix flaky login redirect").await;
+    w.start_worktree(&t).await;
+    record_ended_on(w, &t, Some("haiku")).await;
+    sqlx::query("UPDATE sessions SET agent_name = 'Quick' WHERE tool_session_id = ?")
+        .bind(CONVERSATION)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    w.force_status(&t, Status::WaitingForYou).await;
+    w.board
+        .add_comment(&NewComment {
+            key: "SHOP-1".into(),
+            file: "login.ts".into(),
+            line: 1,
+            side: Side::New,
+            body: "Keep the query string".into(),
+        })
+        .await
+        .unwrap();
+    w.review
+        .fail("SHOP-1", "", Vec::new(), false, &me())
+        .await
+        .unwrap();
+    let s = w
+        .sessions
+        .running_of(&t.id, SessionKind::Agent)
+        .expect("resumed");
+    assert!(
+        launched(w, &s.id)
+            .await
+            .starts_with(&format!("--resume {CONVERSATION} --model haiku"))
+    );
+    assert_eq!(stored_on(w, &s.id).await.2, on_stage("dev"));
+    match w.board.session_author(&s.id).await.unwrap() {
+        CommentAuthor::Agent { name, tool, .. } => {
+            assert_eq!(name.as_deref(), Some("Claude Code"));
+            assert_eq!(tool, Some(Tool::Claude));
+        }
+        other => panic!("not an agent: {other:?}"),
+    }
+    let old: Vec<String> =
+        sqlx::query_scalar("SELECT agent_name FROM sessions WHERE tool_session_id = ? AND id <> ?")
+            .bind(CONVERSATION)
+            .bind(&s.id)
+            .fetch_all(w.board.store().pool())
+            .await
+            .unwrap();
+    assert_eq!(old, ["Quick"]);
+    world.w.stop().await;
+}
+
 /// A session that ran on the tool default resumes with no `--model`, even after its stage got one.
 #[tokio::test(flavor = "multi_thread")]
 async fn every_resume_of_a_tool_default_session_passes_no_model() {

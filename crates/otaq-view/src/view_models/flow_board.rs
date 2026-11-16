@@ -38,6 +38,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
+use crate::machine::this_machine;
 use crate::view_models::agent_panel::{self, LABEL as NOYAN};
 use crate::view_models::agent_question::{self, AgentQuestion};
 use crate::view_models::agents::Choice;
@@ -328,7 +329,7 @@ pub struct StartFrom {
     pub others: Vec<Entry>,
     pub import: &'static str,
     pub import_line: &'static str,
-    pub foot: &'static str,
+    pub foot: String,
 }
 
 /// ⋯ in the bar. `FlowBoardMore` on the page.
@@ -832,8 +833,12 @@ pub const DELIVERY_WRITES_EITHER: &str =
     "Writes the pull request\u{2019}s title and description, or the merge message.";
 pub const DELIVERY_WRITES_MERGE: &str = "Writes the merge message.";
 /// Done's Model hint.
-pub const DELIVERY_HINT: &str = "Any model of a tool on this Mac. Every ticket\u{2019}s delivery uses it; it changes \
-     only here.";
+pub fn delivery_hint() -> String {
+    format!(
+        "Any model of a tool on {}. Every ticket\u{2019}s delivery uses it; it changes only here.",
+        this_machine()
+    )
+}
 pub const DELIVERY_INSTRUCTIONS_HINT: &str = "Added to its skill for every ticket it delivers.";
 
 /// What Done's model writes (UX-69) and, with a last agent stage, when that stage's session writes it instead (it has
@@ -865,7 +870,7 @@ fn delivery_who(f: &Facts, uses: &[model_effort::Use]) -> Who {
             uses,
             f.tools,
             model_effort::Place {
-                hint: DELIVERY_HINT,
+                hint: &delivery_hint(),
                 waits_at: None,
             },
         ),
@@ -1087,9 +1092,14 @@ fn drafting_text(agent: &str, project_name: &str) -> String {
 }
 
 /// Start from…'s last line (A-7).
-pub const START_FROM_FOOT: &str = "Replaces the stages between Backlog and Done, and how work is delivered. Shipped \
-     flows use the default model of the tools on this Mac: what your account is set to. Change any stage after. \
-     Nothing changes until you save.";
+pub fn start_from_foot() -> String {
+    format!(
+        "Replaces the stages between Backlog and Done, and how work is delivered. Shipped flows use the default \
+         model of the tools on {}: what your account is set to. Change any stage after. Nothing changes until you \
+         save.",
+        this_machine()
+    )
+}
 
 /// A shipped flow's line in Start from… (A-7): "Dev → Validate → Review, each on your tools’ default model · merge or
 /// PR on Approve".
@@ -1149,7 +1159,7 @@ fn start_from(b: &BoardFacts) -> StartFrom {
             .collect(),
         import: "Import a flow file\u{2026}",
         import_line: "A .flow.yaml someone shared",
-        foot: START_FROM_FOOT,
+        foot: start_from_foot(),
     }
 }
 
@@ -1709,8 +1719,11 @@ mod tests {
         let off = who.picker.not_set_up.as_ref().expect("marked");
         assert_eq!(
             off.text,
-            "Codex isn\u{2019}t set up on this Mac. Tickets wait at Validate until you set it up or pick another \
-             model."
+            format!(
+                "Codex isn\u{2019}t set up on {}. Tickets wait at Validate until you set it up or pick another \
+                 model.",
+                this_machine()
+            )
         );
         // Codex's pair isn't offered while Codex isn't set up (tuq 014).
         assert_eq!(who.picker.menu.pairs.len(), 1);
@@ -1853,7 +1866,7 @@ mod tests {
         assert!(
             start
                 .foot
-                .contains("default model of the tools on this Mac")
+                .contains(&format!("default model of the tools on {}", this_machine()))
         );
     }
 
