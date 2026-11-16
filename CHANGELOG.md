@@ -18,6 +18,9 @@ before Publish (`scripts/README.md`, "Making a release").
   always has; the Running popover now lists it under the working agents ("SHOP-6 · waits for you · decide"), as it
   does a start in progress, so "1/1 agents" no longer sits over "Nothing running". Settings → Limits says "Right
   now: 1 of 1 slot taken", and "Run at most" says a waiting agent keeps its slot.
+- **The box for new work steps aside while a ticket is open.** It used to shrink into a "+ Ctrl+N" pill half under
+  the project rail; now it is hidden while any ticket's sheet is open, Ctrl+N opens the full New ticket form there,
+  and the box is back at the bottom of the board once the sheet closes.
 
 ## 0.2.0
 
