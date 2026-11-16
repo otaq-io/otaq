@@ -157,6 +157,26 @@ pub fn effort_refusal(model: &AgentModel, level: &str) -> Option<String> {
     })
 }
 
+/// Every effort level any tool names, lowest first: how near two levels are ([`nearest_effort`]).
+const EFFORT_SCALE: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// The level `tool` offers nearest to `level` (UX-75: a stage given a model whose tool doesn't offer its effort takes
+/// the nearest one it does): `level` itself when offered, else the closest on [`EFFORT_SCALE`], the higher of two
+/// as close. `None` for a tool with no levels, or a level no tool names.
+pub fn nearest_effort(tool: Tool, level: &str) -> Option<&'static str> {
+    let levels = tool.effort_levels();
+    if let Some(same) = levels.iter().find(|l| **l == level) {
+        return Some(same);
+    }
+    let rank = |l: &str| EFFORT_SCALE.iter().position(|s| *s == l);
+    let at = rank(level)?;
+    levels
+        .iter()
+        .filter_map(|l| Some((rank(l)?, *l)))
+        .min_by_key(|(r, _)| (r.abs_diff(at), std::cmp::Reverse(*r)))
+        .map(|(_, l)| l)
+}
+
 /// A model text by kind, as the tool's list says (d0088). Always one picked from the tool's own list.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
@@ -461,6 +481,19 @@ pub fn effort_on(who: &Who, tool: Tool) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// UX-75: a level the new tool offers stays; else the nearest it offers, the higher of two as near; none for a tool
+    /// with no levels.
+    #[test]
+    fn an_effort_moves_to_the_nearest_level_the_tool_offers() {
+        assert_eq!(nearest_effort(Tool::Codex, "medium"), Some("medium"));
+        assert_eq!(nearest_effort(Tool::Codex, "max"), Some("xhigh"));
+        assert_eq!(nearest_effort(Tool::Claude, "minimal"), Some("low"));
+        assert_eq!(nearest_effort(Tool::Claude, "none"), Some("low"));
+        assert_eq!(nearest_effort(Tool::Copilot, "max"), Some("max"));
+        assert_eq!(nearest_effort(Tool::OpenCode, "high"), None);
+        assert_eq!(nearest_effort(Tool::Claude, "turbo"), None);
+    }
 
     #[test]
     fn session_roles_are_stored_as_named() {

@@ -25,6 +25,7 @@
       "what": "Every flow starts here",
       "avatar": null,
       "who": null,
+      "who_off": null,
       "skill": null,
       "check_line": null,
       "delivery": null,
@@ -48,6 +49,7 @@
       "what": "An agent checks it",
       "avatar": null,
       "who": "default",
+      "who_off": null,
       "skill": "otaq:validate",
       "check_line": "3 rounds · fails go to Dev",
       "delivery": null,
@@ -71,6 +73,7 @@
       "what": "An agent does the work",
       "avatar": null,
       "who": "default",
+      "who_off": null,
       "skill": "otaq:work-ticket",
       "check_line": null,
       "delivery": null,
@@ -94,6 +97,7 @@
       "what": "You check it",
       "avatar": null,
       "who": "You",
+      "who_off": null,
       "skill": null,
       "check_line": "Fails go to Dev",
       "delivery": null,
@@ -117,6 +121,7 @@
       "what": "Every flow ends here",
       "avatar": null,
       "who": null,
+      "who_off": null,
       "skill": null,
       "check_line": null,
       "delivery": "Merge or PR · on Approve",
@@ -154,13 +159,32 @@
     "description_label": "What it’s for",
     "description": "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
     "description_hint": "One or two sentences: what this stage settles, and when it matters. Agents read it to understand the flow; people see it on the column header and when skipping.",
-    "model": {
-      "label": "Model",
-      "avatar": null,
-      "value": "default",
-      "instructions": null,
+    "who": {
+      "heading": "Who does it",
+      "picker": {
+        "model_label": "Model",
+        "value": {
+          "avatar": null,
+          "text": "default",
+          "no_longer_listed": null
+        },
+        "menu": {
+          "title": "Pick a model…",
+          "pairs_heading": null,
+          "pairs": [],
+          "groups": [],
+          "missing": "Claude Code, Codex, Copilot and OpenCode aren’t set up",
+          "set_up": "Set up…",
+          "foot": "A model name without a version always means that tool’s newest."
+        },
+        "hint": "Any model of a tool on this Mac. Every ticket at this stage uses it; it changes only here.",
+        "not_set_up": null,
+        "effort": null
+      },
       "warning": null,
-      "hint": "Set in the flow file: the stage’s `model:`, `effort:` and `instructions:`."
+      "instructions_label": "Instructions · optional",
+      "instructions": "",
+      "instructions_hint": "Added to the skill for every ticket at this stage."
     },
     "skill": {
       "label": "Skill",
@@ -390,7 +414,7 @@
       }
     },
     "skill_tag": "Otaq’s own",
-    "skill_hint": "How the agent does it.",
+    "skill_hint": "How the agent does it. Empty uses the built-in skill for this kind of stage.",
     "fail_to": null,
     "rounds": {
       "label": "Rounds",
@@ -463,7 +487,7 @@
       {
         "key": "otaq-default.yaml",
         "name": "Otaq default",
-        "line": "Dev → Validate → Review · merge or PR on Approve",
+        "line": "Dev → Validate → Review, each on your tools’ default model · merge or PR on Approve",
         "pick": {
           "pick": "preset",
           "file": "otaq-default.yaml"
@@ -472,7 +496,7 @@
       {
         "key": "solo-autopilot.yaml",
         "name": "Solo autopilot",
-        "line": "Dev → Validate · merges by itself",
+        "line": "Dev → Validate, each on your tools’ default model · merges by itself",
         "pick": {
           "pick": "preset",
           "file": "solo-autopilot.yaml"
@@ -481,7 +505,7 @@
       {
         "key": "spec-first.yaml",
         "name": "Spec first",
-        "line": "Product spec → Tech spec → Milestone plan → Spec review → Dev → Validate → Code review · merge or PR on Approve",
+        "line": "Product spec → Tech spec → Milestone plan → Spec review → Dev → Validate → Code review, each on your tools’ default model · merge or PR on Approve",
         "pick": {
           "pick": "preset",
           "file": "spec-first.yaml"
@@ -490,7 +514,7 @@
       {
         "key": "team-pr.yaml",
         "name": "Team PR",
-        "line": "Dev → Validate · opens a PR by itself",
+        "line": "Dev → Validate, each on your tools’ default model · opens a PR by itself",
         "pick": {
           "pick": "preset",
           "file": "team-pr.yaml"
@@ -501,11 +525,11 @@
     "others": [],
     "import": "Import a flow file…",
     "import_line": "A .flow.yaml someone shared",
-    "foot": "Replaces the stages between Backlog and Done, and how work is delivered. Nothing changes until you save."
+    "foot": "Replaces the stages between Backlog and Done, and how work is delivered. Shipped flows use the default model of the tools on this Mac: what your account is set to. Change any stage after. Nothing changes until you save."
   },
   "more": {
     "export": "Export flow file…",
-    "export_line": "shop-web.flow.yaml · stages, agents, skills, delivery",
+    "export_line": "shop-web.flow.yaml · stages, models, skills, delivery",
     "export_file": "shop-web.flow.yaml",
     "export_title": "Export shop-web’s flow",
     "import": "Import a flow file…",
