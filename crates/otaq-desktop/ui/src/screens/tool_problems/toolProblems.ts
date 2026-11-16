@@ -36,8 +36,8 @@ export function toolProblemStep(action: ToolProblemAction, place: ToolProblemPla
   switch (action.kind) {
     case "sign_in":
       return { kind: "sign_in", tool: action.tool };
-    case "show_in_agent_tools":
-      return { kind: "settings", params: { section: "agent_tools" } };
+    case "show_in_tools":
+      return { kind: "settings", params: { section: "tools" } };
     case "resume_tool":
       // Resume after reset: the callout's own tool's waiting agents continue (USG-10).
       return { kind: "request", method: "limits.resume_tool", params: { tool: action.tool } };

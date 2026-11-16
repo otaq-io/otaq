@@ -60,14 +60,14 @@ const VIEW: SettingsView = {
     {
       label: "Demo",
       icon: "folder",
-      target: { page: "global", section: "agent_tools", sections: ["agent_tools", "data"] },
+      target: { page: "global", section: "tools", sections: ["tools", "data"] },
     },
   ],
   page: {
     page: "global",
     title: "General",
     sections: [
-      { id: "agent_tools", title: null, intro: null, rows: [], note: null },
+      { id: "tools", title: null, intro: null, rows: [], note: null },
       {
         id: "data",
         title: null,
@@ -100,7 +100,7 @@ const VIEW: SettingsView = {
 const app = registerScreens({
   settings: (a) => {
     a.overlays.register("settings", { Component: Settings });
-    a.settings.global.register("agent_tools", {
+    a.settings.global.register("tools", {
       Component: () =>
         createElement(ModelPicker, {
           label: "Model",

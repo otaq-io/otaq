@@ -7,7 +7,7 @@
 //! starts with `default`, "your <tool> account's model" (UX-68, stored as the tool alone: `codex`), then the models of
 //! the tool's own list ([`super::model_picker`]'s, stored `tool:model`: `codex:gpt-5.5`). On top, **As in your other
 //! flows**: the model-and-effort pairs the flows already use ([`Use`]), each naming where; one click sets both. Under
-//! the groups, the tools that aren't set up, with Set up… (Settings → Agent tools).
+//! the groups, the tools that aren't set up, with Set up… (Settings → Tools).
 //!
 //! **Effort** is the model's tool's levels, as the tool names them, after "Default" (no effort: the tool's own); it is
 //! hidden for a tool with none (OpenCode). A new model whose tool doesn't offer the effort takes the nearest level it
@@ -158,7 +158,7 @@ pub struct NotSetUp {
     pub tool: Tool,
     /// "Codex isn’t set up on this Mac. Tickets wait at Validate until you set it up or pick another model."
     pub text: String,
-    /// "Set up Codex": Settings → Agent tools.
+    /// "Set up Codex": Settings → Tools.
     pub set_up: String,
     /// "Pick another model": opens the menu.
     pub pick: &'static str,

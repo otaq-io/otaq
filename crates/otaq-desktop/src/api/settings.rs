@@ -339,7 +339,7 @@ mod tests {
             view["nav"].as_array().unwrap().iter().map(|n| n["label"].as_str().unwrap()).collect();
         assert_eq!(
             labels,
-            ["Agents", "Git & pull requests", "Limits & usage", "Notifications", "Appearance", "Keyboard", "Data", "About"]
+            ["Tools", "Git & pull requests", "Limits & usage", "Notifications", "Appearance", "Keyboard", "Data", "About"]
         );
         let data = &view["page"]["sections"][7];
         assert_eq!(data["id"], "data");

@@ -319,6 +319,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::agent_tools_page::Page::export_all(&cfg)?;
     otaq_view::view_models::agent_tools_page::DisconnectDialog::export_all(&cfg)?;
     otaq_view::view_models::agent_tools_page::Gallery::export_all(&cfg)?;
+    otaq_view::view_models::agent_tools_page::NoyanEdit::export_all(&cfg)?;
     crate::api::AgentToolsViewParams::export_all(&cfg)?;
     crate::api::AgentToolsRecheckParams::export_all(&cfg)?;
     crate::api::AgentToolParams::export_all(&cfg)?;

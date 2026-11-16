@@ -24,7 +24,7 @@ use crate::icons::IconName;
 use crate::view_models::banners::BannerTone;
 use crate::view_models::clock::{WEEKDAYS, clock_12h, in_label, reset_label};
 use crate::view_models::tool_avatar::ToolAvatarView;
-use crate::view_models::tool_problems::{Action, SHOW_IN_AGENT_TOOLS, SIGN_IN, tool_word};
+use crate::view_models::tool_problems::{Action, SHOW_IN_TOOLS, SIGN_IN, tool_word};
 
 /// The error toast when a limit's Resume failed.
 pub const RESUME_FAILED: &str = "Resume failed";
@@ -75,8 +75,8 @@ pub struct LimitBanner {
 pub struct LineButton {
     pub label: String,
     pub icon: IconName,
-    /// `resume_tool` → `limits.resume_tool { tool }`; `sign_in` → `agent_tools.sign_in`; `show_in_agent_tools` →
-    /// Settings → Agent tools.
+    /// `resume_tool` → `limits.resume_tool { tool }`; `sign_in` → `agent_tools.sign_in`; `show_in_tools` →
+    /// Settings → Tools.
     pub action: Action,
     pub enabled: bool,
     pub primary: bool,
@@ -97,7 +97,7 @@ pub struct LineView {
     pub text: String,
     /// "0% left · resets 3:45 pm" on the right; `None` for a tool that isn't available.
     pub aside: Option<String>,
-    /// Resume, Sign in… or Show in Agent tools.
+    /// Resume, Sign in… or Show in Tools.
     pub buttons: Vec<LineButton>,
 }
 
@@ -353,7 +353,7 @@ fn view(l: &ToolLine, banner: &LimitBanner, several: bool) -> LineView {
         sign_in, hidden, ..
     } = &l.situation
     {
-        // Sign in… where it applies; a hidden tool offers Show in Agent tools instead (Q111).
+        // Sign in… where it applies; a hidden tool offers Show in Tools instead (Q111).
         if *sign_in {
             buttons.push(LineButton {
                 label: SIGN_IN.to_owned(),
@@ -364,9 +364,9 @@ fn view(l: &ToolLine, banner: &LimitBanner, several: bool) -> LineView {
             });
         } else if *hidden {
             buttons.push(LineButton {
-                label: SHOW_IN_AGENT_TOOLS.to_owned(),
+                label: SHOW_IN_TOOLS.to_owned(),
                 icon: IconName::Eye,
-                action: Action::ShowInAgentTools,
+                action: Action::ShowInTools,
                 enabled: true,
                 primary: false,
             });
@@ -758,7 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn the_unavailable_line_offers_sign_in_or_show_in_agent_tools() {
+    fn the_unavailable_line_offers_sign_in_or_show_in_tools() {
         let l = one_line(&several(vec![unavailable(
             Tool::Codex,
             "signed out",
@@ -787,8 +787,8 @@ mod tests {
             false,
             true,
         )]));
-        assert_eq!(hidden.view.buttons[0].label, "Show in Agent tools");
-        assert_eq!(hidden.view.buttons[0].action, Action::ShowInAgentTools);
+        assert_eq!(hidden.view.buttons[0].label, "Show in Tools");
+        assert_eq!(hidden.view.buttons[0].action, Action::ShowInTools);
         // One tool connected: the line still names the tool.
         let only = one_line(&one(unavailable(Tool::Claude, "signed out", true, false)));
         assert_eq!(only.view.title, "Claude Code isn\u{2019}t available");
@@ -828,9 +828,8 @@ mod tests {
             for line in cell.lines {
                 for b in &line.buttons {
                     match &b.action {
-                        Action::ResumeTool { .. }
-                        | Action::SignIn { .. }
-                        | Action::ShowInAgentTools => {}
+                        Action::ResumeTool { .. } | Action::SignIn { .. } | Action::ShowInTools => {
+                        }
                         other => panic!("{other:?} on the banner"),
                     }
                 }

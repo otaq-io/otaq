@@ -167,8 +167,8 @@ pub fn limit_text(tool: Tool, resets_at: Option<i64>, now: i64) -> String {
 pub enum Action {
     /// `agent_tools.sign_in { tool }`: the tool's own login in a terminal (`tool` as stored, `codex`).
     SignIn { tool: String },
-    /// Settings → Agent tools, for a tool hidden there (Q-E).
-    ShowInAgentTools,
+    /// Settings → Tools, for a tool hidden there (Q-E).
+    ShowInTools,
     /// `limits.resume_tool { tool }`.
     ResumeTool { tool: String },
     /// Edit flow…: the project's flow editor, on the stage whose model can't run (`stage`, its id; Done when it is
@@ -220,7 +220,7 @@ pub struct Callout {
 pub const EDIT_FLOW: &str = "Edit flow\u{2026}";
 pub const CHECK_AGAIN: &str = "Check again";
 pub const SIGN_IN: &str = "Sign in\u{2026}";
-pub const SHOW_IN_AGENT_TOOLS: &str = "Show in Agent tools";
+pub const SHOW_IN_TOOLS: &str = "Show in Tools";
 pub const MODEL_UNAVAILABLE: &str = "Model unavailable";
 pub const RESUME_AFTER_RESET: &str = "Resume after reset";
 
@@ -245,13 +245,13 @@ fn sign_in(tool: Tool) -> Button {
     }
 }
 
-/// The buttons of a tool that isn't available: Sign in… where it applies, Show in Agent tools for a hidden one.
+/// The buttons of a tool that isn't available: Sign in… where it applies, Show in Tools for a hidden one.
 fn unavailable_buttons(tool: Tool, problem: Option<&Problem>) -> Vec<Button> {
     match problem {
         Some(Problem::Unavailable { sign_in: true, .. }) => vec![self::sign_in(tool)],
         Some(Problem::Unavailable { hidden: true, .. }) => vec![Button {
-            label: SHOW_IN_AGENT_TOOLS.to_owned(),
-            action: Action::ShowInAgentTools,
+            label: SHOW_IN_TOOLS.to_owned(),
+            action: Action::ShowInTools,
             primary: false,
         }],
         _ => Vec::new(),
@@ -851,7 +851,7 @@ mod tests {
                 "Nothing started and nothing is locked. The stage starts once Codex is available again."
             )
         );
-        // Hidden in Settings (Q-E): Show in Agent tools, no Sign in….
+        // Hidden in Settings (Q-E): Show in Tools, no Sign in….
         let mut hidden = several();
         hidden.statuses[1] = status(CODEX, AgentToolState::Hidden { version: None });
         let c = hold_callout(&hold, DEV, &hidden);
@@ -859,7 +859,7 @@ mod tests {
             c.heading,
             "Codex isn\u{2019}t available \u{b7} hidden in Settings"
         );
-        assert_eq!(labels(&c), [EDIT_FLOW, "Show in Agent tools"]);
+        assert_eq!(labels(&c), [EDIT_FLOW, "Show in Tools"]);
     }
 
     /// A limit is neutral with its reset; it waits for its own tool, with Open agent….

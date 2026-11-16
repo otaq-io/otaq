@@ -20,7 +20,7 @@ export interface ModelEffortProps {
   onPick: (pick: ModelEffortPick) => void;
   /** An Effort level; `null` for Default (the tool's own). */
   onEffort: (effort: string | null) => void;
-  /** Set up… / Set up <Tool>: Settings → Agent tools (`tool` is the one to set up, `null` from the menu). */
+  /** Set up… / Set up <Tool>: Settings → Tools (`tool` is the one to set up, `null` from the menu). */
   onSetUp: (tool: string | null) => void;
 }
 

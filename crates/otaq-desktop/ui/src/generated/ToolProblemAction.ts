@@ -3,4 +3,4 @@
 /**
  * What a button of a callout or a notice does. `ToolProblemAction` on the page.
  */
-export type ToolProblemAction = { "kind": "sign_in", tool: string, } | { "kind": "show_in_agent_tools" } | { "kind": "resume_tool", tool: string, } | { "kind": "edit_flow", stage: string | null, } | { "kind": "check_again" };
+export type ToolProblemAction = { "kind": "sign_in", tool: string, } | { "kind": "show_in_tools" } | { "kind": "resume_tool", tool: string, } | { "kind": "edit_flow", stage: string | null, } | { "kind": "check_again" };

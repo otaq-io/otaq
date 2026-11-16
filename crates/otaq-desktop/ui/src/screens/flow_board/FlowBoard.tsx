@@ -1045,7 +1045,7 @@ function StagePanel({
               onEdit(effort === null ? { edit: "effort", stage } : { edit: "effort", stage, effort });
             }}
             onSetUp={() => {
-              openOverlay("settings", { section: "agent_tools" });
+              openOverlay("settings", { section: "tools" });
             }}
           />
           {who.warning !== null && (

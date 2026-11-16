@@ -25,7 +25,7 @@ detail: string,
 problem: string | null, 
 /**
  * "Sign in…", beside a problem that is its tool being signed out: `agent_tools.sign_in { tool }`, the same
- * sign-in as Settings → Agents. Once it succeeds the row is ticked.
+ * sign-in as Settings → Tools. Once it succeeds the row is ticked.
  */
 sign_in: string | null, 
 /**

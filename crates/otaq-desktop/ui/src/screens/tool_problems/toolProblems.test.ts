@@ -1,5 +1,5 @@
 // Where a tool problem's buttons go (T-0367, T-0411, UX-65): Edit flow… opens the project's flow at the waiting stage,
-// Sign in… opens the tool's login in its terminal's dialog, Show in Agent tools opens Settings. Nothing starts
+// Sign in… opens the tool's login in its terminal's dialog, Show in Tools opens Settings. Nothing starts
 // by itself, and no other agent is offered in a waiting one's place (d0018, d0087).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -28,7 +28,7 @@ const HIDDEN: CalloutView = {
   model: null,
   buttons: [
     { label: "Edit flow…", action: { kind: "edit_flow", stage: "dev" }, primary: true },
-    { label: "Show in Agent tools", action: { kind: "show_in_agent_tools" }, primary: false },
+    { label: "Show in Tools", action: { kind: "show_in_tools" }, primary: false },
   ],
 };
 
@@ -67,10 +67,10 @@ describe("the notice's other buttons", () => {
     });
   });
 
-  it("Show in Agent tools opens Settings → Agent tools; Resume after reset asks the service", () => {
+  it("Show in Tools opens Settings → Tools; Resume after reset asks the service", () => {
     const run = runner();
-    runToolProblemAction({ kind: "show_in_agent_tools" }, {}, run);
-    expect(run.openSettings).toHaveBeenCalledWith({ section: "agent_tools" });
+    runToolProblemAction({ kind: "show_in_tools" }, {}, run);
+    expect(run.openSettings).toHaveBeenCalledWith({ section: "tools" });
     runToolProblemAction({ kind: "resume_tool", tool: "codex" }, { project: "SHOP" }, run);
     expect(run.request).toHaveBeenCalledWith("limits.resume_tool", { tool: "codex" });
   });
@@ -82,7 +82,7 @@ describe("the callout", () => {
       createElement(ToolProblemCallout, { callout: HIDDEN, look: "edge", onAction: () => undefined }),
     );
     expect(html).toContain('data-tone="amber"');
-    for (const text of ["hidden in Settings", "Edit flow…", "Show in Agent tools"]) {
+    for (const text of ["hidden in Settings", "Edit flow…", "Show in Tools"]) {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("attn");

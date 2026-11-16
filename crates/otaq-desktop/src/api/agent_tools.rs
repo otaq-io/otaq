@@ -1,14 +1,19 @@
-//! `agent_tools.*`: Settings → Agent tools and the agent tools of onboarding's Tools step (§20 Agent tools, SET-02,
-//! ADP-10; d0086, d0085, d0011; *15* `bGHVl`, *14* `y2FCwP`). The page opens with `agent_tools.view {recheck: true}`
-//! (opening the section rechecks every tool, d0086), Re-check asks it again, and the service's `agent_tools_changed`
-//! event (a recheck, a setup, a Sign in… terminal that ended) asks `agent_tools.view {}`. Hide / Show, Re-check this
+//! `agent_tools.*`: Settings → Tools and the agent tools of onboarding's Tools step (§20 Agent tools, SET-02,
+//! ADP-10; d0086, d0085, d0011; UX-65, UX-70; *15* `bGHVl`, *14* `y2FCwP`, canvas A-8). Every page answer carries,
+//! under the tools, Noyan starts on (the `noyan.starts_on` setting) and Where they're used (every project's flow in
+//! use); `agent_tools.noyan` changes Noyan starts on and answers the fresh page. The page opens with
+//! `agent_tools.view {recheck: true}` (opening the section rechecks every tool, d0086), Re-check asks it again, and
+//! the service's `agent_tools_changed` event (a recheck, a setup, a Sign in… terminal that ended), `agents_changed`
+//! (Noyan starts on) and `flow_changed` ask `agent_tools.view {}`. Hide / Show, Re-check this
 //! tool and Disconnect… (after its dialog) answer with the fresh page; Sign in… answers the terminal to show. The
 //! words are `otaq_view::view_models::agent_tools_page`'s.
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::connected::{AgentToolsList, ToolStatus};
-use otaq_core::protocol::{RecheckParams, Reply, Request, SetHiddenParams, ToolParams};
-use otaq_view::view_models::agent_tools_page::{self as page, DisconnectDialog, Page};
+use otaq_core::agents::ModelRef;
+use otaq_core::protocol::{ProjectParams, RecheckParams, Reply, Request, SetHiddenParams, ToolParams};
+use otaq_view::view_models::agent_tools_page::{self as page, DisconnectDialog, NoyanEdit, Page};
+use otaq_view::view_models::model_effort;
 use otaq_view::view_models::project_terminal::terminal_tab_id;
 use otaq_view::view_models::tool_avatar;
 use serde::{Deserialize, Serialize};
@@ -28,16 +33,15 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                 Request::AgentToolsList
             };
             reply(&match list(app, request).await {
-                Ok(list) => page_of(&list),
+                Ok(list) => page_of(app, &list).await,
                 Err(e) => page::failed(e.message),
             })
         }
         "agent_tools.recheck" => {
             let p: MaybeToolParams = parse(params)?;
             let tool = p.tool.as_deref().map(tool).transpose()?;
-            reply(&page_of(
-                &list(app, Request::AgentToolsRecheck(RecheckParams { tool })).await?,
-            ))
+            let list = list(app, Request::AgentToolsRecheck(RecheckParams { tool })).await?;
+            reply(&page_of(app, &list).await)
         }
         "agent_tools.set_hidden" => {
             let p: HiddenParams = parse(params)?;
@@ -45,7 +49,21 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                 tool: tool(&p.tool)?,
                 hidden: p.hidden,
             });
-            reply(&page_of(&list(app, request).await?))
+            let list = list(app, request).await?;
+            reply(&page_of(app, &list).await)
+        }
+        // Noyan starts on (UX-70): one edit of the field, stored as `noyan.set_starts_on`; the next new conversation
+        // starts on it. Answers the fresh page.
+        "agent_tools.noyan" => {
+            let edit: NoyanEdit = parse(params)?;
+            let on = super::settings::noyan_starts_on(app).await;
+            let next = page::noyan_edit(&on, &edit).map_err(RequestError::plain)?;
+            match app.service.send(Request::NoyanSetStartsOn(next)).await? {
+                Reply::NoyanStartsOn(_) => {}
+                other => return Err(unexpected("noyan.set_starts_on", &other)),
+            }
+            let list = list(app, Request::AgentToolsList).await?;
+            reply(&page_of(app, &list).await)
         }
         "agent_tools.sign_in" => {
             let p: OneTool = parse(params)?;
@@ -177,8 +195,56 @@ pub async fn list(app: &App, request: Request) -> Result<AgentToolsList, Request
     }
 }
 
-fn page_of(list: &AgentToolsList) -> Page {
-    page::page(&list.tools, otaq_core::store::now_ms())
+/// The page: the tools' rows, then Noyan starts on and Where they're used, from the Noyan setting and every
+/// project's flow in use (a flow that doesn't read is left out).
+async fn page_of(app: &App, list: &AgentToolsList) -> Page {
+    let rows = page::page(&list.tools, otaq_core::store::now_ms());
+    let mut tools = super::editor::agent_tools(app).await;
+    // `default` is the account's default model, which the service keeps; it is set to the first tool connected,
+    // so that is the tool `default` reads as here.
+    if tools.default_model.is_none() {
+        tools.default_model = Some(ModelRef {
+            tool: tools
+                .connected
+                .first()
+                .copied()
+                .unwrap_or(otaq_view::view_models::agents::new_entry_tool()),
+            model: None,
+        });
+    }
+    let noyan = super::settings::noyan_starts_on(app).await;
+    let uses = uses(app).await;
+    page::with_flows(
+        rows,
+        &page::Flows {
+            noyan: &noyan,
+            uses: &uses,
+            tools: &tools,
+        },
+    )
+}
+
+/// Every project's stages and Done with a model ([`model_effort::uses_in`]), the projects in the list's order.
+async fn uses(app: &App) -> Vec<model_effort::Use> {
+    let projects = match app.service.send(Request::ProjectList).await {
+        Ok(Reply::Projects(list)) => list,
+        _ => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for p in projects {
+        let current = app
+            .service
+            .send(Request::FlowCurrent(ProjectParams {
+                project: p.key.clone(),
+            }))
+            .await;
+        if let Ok(Reply::FlowVersion(v)) = current
+            && let Ok(file) = v.file()
+        {
+            out.extend(model_effort::uses_in(&p.name, &file.flow));
+        }
+    }
+    out
 }
 
 async fn status(app: &App, tool: Tool) -> Result<ToolStatus, RequestError> {
@@ -197,7 +263,7 @@ async fn disconnect(app: &App, tool: Tool) -> Result<DisconnectOutcome, RequestE
         .await
     {
         Ok(Reply::AgentTools(list)) => Ok(DisconnectOutcome::Done {
-            page: Box::new(page_of(&list)),
+            page: Box::new(page_of(app, &list).await),
         }),
         Ok(other) => Err(unexpected("agent_tools.disconnect", &other)),
         Err(e) if e.refusal.is_none() => Err(e),
@@ -275,6 +341,93 @@ mod tests {
                 .is_err()
         );
         assert!(trust_tools(&h.app).await.is_empty());
+        h.service.stop_all().await;
+    }
+
+    /// Settings → Tools (UX-70, A-8): Noyan starts on and where each tool is used, from the projects' flows; changing
+    /// Noyan starts on changes what the next Noyan conversation starts on.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn noyan_starts_on_and_where_they_are_used() {
+        use otaq_core::board::projects::AddProject;
+        use otaq_core::git::testing::TempRepos;
+
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let path = repos.repo("pocket-notes", 1);
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::ProjectAdded { project: p, .. } => p.key,
+            other => panic!("{other:?}"),
+        };
+
+        let view = request(&h.app, "agent_tools.view", json!({})).await.unwrap();
+        assert_eq!(view["rows_heading"], "TOOLS");
+        assert_eq!(view["noyan"]["label"], "Noyan starts on");
+        assert_eq!(
+            view["noyan"]["picker"]["hint"],
+            "For new conversations. Switch for one conversation in the Noyan panel."
+        );
+        // No tool is set up in the test service: the project's stages and Noyan are on `default`, marked.
+        let used = view["used"]["rows"].as_array().unwrap();
+        assert_eq!(used.len(), 1, "{used:?}");
+        let places = used[0]["places"].as_str().unwrap();
+        assert!(places.starts_with("pocket-notes: "), "{places}");
+        assert!(places.ends_with(" · Noyan"), "{places}");
+        assert!(used[0]["off"].is_string());
+        assert_eq!(
+            view["used"]["note"],
+            "To change one, open its project\u{2019}s flow. Signing out of a tool makes its stages wait until you \
+             pick another model."
+        );
+
+        // Noyan starts on Codex · medium now: the page and the setting say so.
+        let view = request(
+            &h.app,
+            "agent_tools.noyan",
+            json!({ "edit": "pair", "model": "codex", "effort": "medium" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view["noyan"]["picker"]["value"]["text"], "Codex \u{b7} default");
+        let rows = view["used"]["rows"].as_array().unwrap();
+        let codex = rows.iter().find(|r| r["tool"] == "codex").unwrap();
+        assert_eq!(codex["places"], "Noyan");
+        match h.app.service.send(Request::NoyanStartsOn).await.unwrap() {
+            Reply::NoyanStartsOn(on) => {
+                assert_eq!(on.model.as_deref(), Some("codex"));
+                assert_eq!(on.effort.as_deref(), Some("medium"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // The next Noyan conversation starts on it.
+        let panel = request(&h.app, "agent_panel.view", json!({ "project": project }))
+            .await
+            .unwrap();
+        assert_eq!(panel["empty"]["line"]["agent"], "Codex");
+        // An effort alone keeps the model; an effort the tool doesn't have is refused by the service.
+        let view = request(&h.app, "agent_tools.noyan", json!({ "edit": "effort" }))
+            .await
+            .unwrap();
+        assert_eq!(view["noyan"]["picker"]["value"]["text"], "Codex \u{b7} default");
+        assert!(
+            request(
+                &h.app,
+                "agent_tools.noyan",
+                json!({ "edit": "effort", "effort": "turbo" })
+            )
+            .await
+            .is_err()
+        );
         h.service.stop_all().await;
     }
 }

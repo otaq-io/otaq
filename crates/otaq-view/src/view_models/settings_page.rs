@@ -70,9 +70,10 @@ use crate::view_models::warm_build;
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "GlobalSectionId")]
 pub enum GlobalSection {
-    /// M23, T-0360: the agent tools, drawn from `agent_tools.view` ([`super::agent_tools_page`]): the Agents topic
-    /// (there are no named agents to list under it, UX-65).
-    AgentTools,
+    /// M23, T-0360, UX-65, UX-70 (canvas A-8): the Tools topic, drawn from `agent_tools.view`
+    /// ([`super::agent_tools_page`]): the tools on this Mac, Noyan starts on and where each tool is used. Other
+    /// screens open Settings at this topic by its id, `tools`.
+    Tools,
     /// Git and the pull request providers on this machine, drawn from `settings.git` ([`super::git_settings`]).
     /// Other screens open Settings at this topic by its id, `git`.
     Git,
@@ -582,7 +583,7 @@ pub struct WarmInputs<'a> {
 
 /// The global sections, in nav order.
 const DRAWN: [GlobalSection; 9] = [
-    GlobalSection::AgentTools,
+    GlobalSection::Tools,
     GlobalSection::Git,
     GlobalSection::AgentLimits,
     GlobalSection::Usage,
@@ -629,7 +630,7 @@ pub fn nav(sections: &[GlobalSection]) -> Vec<NavRow> {
 /// A topic's nav label and icon; the sections inside a topic have none of their own.
 fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
     match id {
-        GlobalSection::AgentTools => ("Agents", IconName::Bot),
+        GlobalSection::Tools => ("Tools", IconName::Wrench),
         GlobalSection::Git => ("Git & pull requests", IconName::GitPullRequest),
         GlobalSection::AgentLimits | GlobalSection::Usage => ("Limits & usage", IconName::Gauge),
         GlobalSection::Notifications => ("Notifications", IconName::Bell),
@@ -997,8 +998,8 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     Page::Global {
         title: "General".into(),
         sections: vec![
-            // Its own view: the four tools' rows ([`super::agent_tools_page`]).
-            section(GlobalSection::AgentTools, Some("Tools"), Vec::new()),
+            // Its own view: the tools, Noyan starts on and where they're used ([`super::agent_tools_page`]).
+            section(GlobalSection::Tools, Some("Tools"), Vec::new()),
             // Its own view: git and the PR providers ([`super::git_settings`]).
             section(GlobalSection::Git, None, Vec::new()),
             agent_limits,
@@ -2397,7 +2398,7 @@ mod tests {
         assert_eq!(
             labels,
             [
-                "Agents",
+                "Tools",
                 "Git & pull requests",
                 "Limits & usage",
                 "Notifications",
@@ -2416,12 +2417,12 @@ mod tests {
             v.footnote,
             "Project settings live in each project\u{2019}s Settings tab."
         );
-        // The agent tools are the Agents topic; usage sits with the agent limit.
+        // The tools are the Tools topic; usage sits with the agent limit.
         let sections_of = |i: usize| {
             let Target::Global { sections, .. } = &v.nav[i].target;
             sections.clone()
         };
-        assert_eq!(sections_of(0), [GlobalSection::AgentTools]);
+        assert_eq!(sections_of(0), [GlobalSection::Tools]);
         assert_eq!(sections_of(1), [GlobalSection::Git]);
         assert_eq!(
             sections_of(2),
@@ -3151,7 +3152,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(json["page"]["page"], "global");
-        assert_eq!(json["page"]["sections"][0]["id"], "agent_tools");
+        assert_eq!(json["page"]["sections"][0]["id"], "tools");
         assert_eq!(json["page"]["sections"][1]["id"], "git");
         assert_eq!(json["page"]["sections"][2]["id"], "agent_limits");
         assert_eq!(
@@ -3160,7 +3161,7 @@ mod tests {
         );
         assert_eq!(
             json["nav"][0]["target"],
-            serde_json::json!({ "page": "global", "section": "agent_tools", "sections": ["agent_tools"] })
+            serde_json::json!({ "page": "global", "section": "tools", "sections": ["tools"] })
         );
         let v: Value = serde_json::from_value(serde_json::json!(true)).unwrap();
         assert_eq!(v, Value::Flag(true));

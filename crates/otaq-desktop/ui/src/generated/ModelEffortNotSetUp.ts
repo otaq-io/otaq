@@ -9,7 +9,7 @@ export type ModelEffortNotSetUp = { tool: string,
  */
 text: string, 
 /**
- * "Set up Codex": Settings → Agent tools.
+ * "Set up Codex": Settings → Tools.
  */
 set_up: string, 
 /**

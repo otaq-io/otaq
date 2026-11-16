@@ -168,7 +168,7 @@ fn tool_row(t: &ToolStatus) -> ToolRow {
         other => other.command(),
     };
     if !t.found {
-        // The agent tools aren't checklist rows since M23 (Settings → Agent tools); git is the only required one.
+        // The agent tools aren't checklist rows since M23 (Settings → Tools); git is the only required one.
         let (status, explanation) = match t.tool {
             Tool::Gh => ("not found — needed for GitHub PRs".to_owned(), None),
             Tool::Az => ("not found — needed for Azure DevOps PRs".to_owned(), None),

@@ -25,7 +25,9 @@ import {
   agentToolMenu,
   AgentToolsPageBody,
   DisconnectDialogView,
+  effortEdit,
   markOf,
+  noyanEdit,
   RecheckButton,
   stepOf,
 } from "./AgentTools";
@@ -79,10 +81,10 @@ describe("the Settings screen", () => {
   it("registers the overlay, its sections and ⌘,", () => {
     const app = registerScreens({ settings });
     expect(app.overlays.get("settings")).toBeDefined();
-    // Eight topics: Agents (its tools), Git & pull requests, Limits & usage (the limit, then usage),
+    // Eight topics: Tools, Git & pull requests, Limits & usage (the limit, then usage),
     // Notifications, Appearance, Keyboard, Data, About.
     expect(app.settings.global.ids()).toEqual([
-      "agent_tools",
+      "tools",
       "git",
       "agent_limits",
       "usage",
@@ -254,10 +256,10 @@ describe("the Settings screen", () => {
       icon: "bot",
       target: { page: "global", section: sections[0] ?? "about", sections },
     });
-    const rows = [row("Agent tools", ["agent_tools"]), row("Limits", ["usage", "agent_limits"])];
+    const rows = [row("Tools", ["tools"]), row("Limits", ["usage", "agent_limits"])];
     expect(topicRow(rows, "agent_limits")?.label).toBe("Limits");
     expect(topicRow(rows, "usage")?.label).toBe("Limits");
-    expect(topicRow(rows, null)?.label).toBe("Agent tools");
+    expect(topicRow(rows, null)?.label).toBe("Tools");
     expect(topicRow([], null)).toBeUndefined();
   });
 });
@@ -357,8 +359,11 @@ const ROWS = {
 };
 
 const toolsPage = (rows: AgentToolRow[]): AgentToolsPage => ({
-  title: "Agent tools",
-  intro: "The AI tools already on your machine.",
+  title: "Tools",
+  intro: "The AI tools on this Mac.",
+  rows_heading: "TOOLS",
+  noyan: null,
+  used: null,
   rows,
   recheck: "Re-check",
   checked: "Checked 2 minutes ago",
@@ -385,7 +390,108 @@ const drawRow = (row: AgentToolRow) =>
     }),
   );
 
-describe("Settings → Agent tools", () => {
+const AVATAR = {
+  tool: "claude_code",
+  letters: "CC",
+  background: "#000",
+  foreground: "#fff",
+  hover: "#111",
+} as const;
+
+// Noyan starts on and Where they're used, as `agent_tools_page.rs`'s `with_flows` sends them (canvas A-8).
+const withFlows = (page: AgentToolsPage): AgentToolsPage => ({
+  ...page,
+  noyan: {
+    heading: "NOYAN",
+    label: "Noyan starts on",
+    picker: {
+      model_label: "Model",
+      value: { avatar: AVATAR, text: "Claude Code · opus", no_longer_listed: null },
+      menu: {
+        title: "Pick a model…",
+        pairs_heading: null,
+        pairs: [],
+        groups: [],
+        missing: null,
+        set_up: "Set up…",
+        foot: "",
+      },
+      hint: "For new conversations. Switch for one conversation in the Noyan panel.",
+      not_set_up: null,
+      effort: {
+        label: "Effort",
+        levels: [
+          { id: "", label: "Default", selected: false },
+          { id: "medium", label: "Medium", selected: false },
+          { id: "high", label: "High", selected: true },
+        ],
+        hint: "How hard the model thinks.",
+      },
+    },
+  },
+  used: {
+    heading: "WHERE THEY’RE USED",
+    rows: [
+      {
+        tool: "claude",
+        avatar: AVATAR,
+        name: "Claude Code",
+        places: "shop-web: Dev · billing-api: Dev, Security review · Noyan",
+        off: null,
+      },
+      {
+        tool: "codex",
+        avatar: { ...AVATAR, tool: "codex", letters: "CX" },
+        name: "Codex",
+        places: "shop-web: Validate",
+        off: "Codex isn’t set up on this Mac: these wait until you set it up or pick another model.",
+      },
+    ],
+    note: "To change one, open its project’s flow. Signing out of a tool makes its stages wait until you pick another model.",
+  },
+});
+
+describe("Settings → Tools: Noyan starts on and where they're used", () => {
+  it("draws Noyan's model and effort under the tools, then each tool's stages, read-only", () => {
+    const drawn = html(
+      createElement(AgentToolsPageBody, {
+        page: withFlows(toolsPage([ROWS.connected])),
+        onAction: () => undefined,
+        onRecheck: () => undefined,
+      }),
+    );
+    const at = (text: string) => drawn.indexOf(text);
+    expect(at("TOOLS")).toBeGreaterThan(-1);
+    expect(at("NOYAN")).toBeGreaterThan(at("TOOLS"));
+    expect(drawn).toContain("Noyan starts on");
+    expect(drawn).toContain("Claude Code · opus");
+    expect(drawn).toContain("For new conversations. Switch for one conversation in the Noyan panel.");
+    expect(at("WHERE THEY’RE USED")).toBeGreaterThan(at("NOYAN"));
+    expect(drawn).toContain("shop-web: Dev · billing-api: Dev, Security review · Noyan");
+    expect(drawn).toContain("Codex isn’t set up on this Mac");
+    expect(drawn).toContain("To change one, open its project’s flow.");
+    // Read-only: no button in Where they're used.
+    const used = drawn.slice(at("WHERE THEY’RE USED"), at("Not shown here"));
+    expect(used).not.toContain("<button");
+  });
+
+  it("a pick or an Effort level becomes agent_tools.noyan's edit", () => {
+    expect(noyanEdit({ kind: "model", model: "codex" })).toEqual({ edit: "model", model: "codex" });
+    expect(noyanEdit({ kind: "pair", model: "claude:opus", effort: "high" })).toEqual({
+      edit: "pair",
+      model: "claude:opus",
+      effort: "high",
+    });
+    expect(noyanEdit({ kind: "pair", model: "opencode", effort: null })).toEqual({
+      edit: "pair",
+      model: "opencode",
+    });
+    expect(effortEdit(null)).toEqual({ edit: "effort" });
+    expect(effortEdit("low")).toEqual({ edit: "effort", effort: "low" });
+  });
+});
+
+describe("Settings → Tools", () => {
   it("each state shows its pill and its own actions", () => {
     const connected = drawRow(ROWS.connected);
     expect(connected).toContain('data-look="connected"');
