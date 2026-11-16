@@ -35,9 +35,21 @@ fn agent(key: &str) -> Actor {
 
 /// SHOP-1 merged and cleaned up (its conversation on disk), SHOP-2 depending on it and working.
 async fn world(limit: bool) -> World {
+    world_on(limit, None).await
+}
+
+/// [`world`], with `bin` first on the tools' `PATH` (stand-ins for the tools Otaq runs).
+async fn world_on(limit: bool, bin: Option<&Path>) -> World {
     let claude = TempDir::new().unwrap();
     let claude_dir = claude.path().to_path_buf();
+    let bin = bin.map(Path::to_path_buf);
     let w = TestService::start_with(move |mut c| {
+        if let Some(bin) = bin {
+            let mut path = std::ffi::OsString::from(bin);
+            path.push(":");
+            path.push(&c.tools.path);
+            c.tools.path = path;
+        }
         c.launch = Some(LaunchContext {
             bin_dir: PathBuf::from("/nonexistent"),
             plugin_dir: PathBuf::from("/nonexistent/plugin"),
@@ -332,5 +344,149 @@ async fn with_the_setting_off_the_question_goes_to_needs_you() {
     let resumed = w.messages.resume_target(&again.id).await.unwrap();
     assert_eq!(resumed.route, Some(Route::Resumed));
     assert!(answer_session(&w, &parent).is_some());
+    w.stop().await;
+}
+
+/// Gives `tool` an active usage limit, its reset seen or not.
+async fn limit_on(w: &TestService, tool: &str, reset_seen: bool) {
+    sqlx::query(
+        "INSERT INTO active_limits (tool, kind, text, hit_at, reset_seen_at) VALUES (?, 'other', '', 1, ?)",
+    )
+    .bind(tool)
+    .bind(reset_seen.then_some(2_i64))
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+}
+
+/// F-F-1 (USG-10): a limit holds only the answer sessions of its own tool. SHOP-1's conversation ran on Claude Code,
+/// so OpenCode's and Codex's limits don't hold its answer.
+#[tokio::test(flavor = "multi_thread")]
+async fn another_tools_limit_doesnt_hold_the_answer_session() {
+    let World {
+        w, _claude, parent, ..
+    } = world(false).await;
+    limit_on(&w, "opencode", false).await;
+    limit_on(&w, "codex", false).await;
+    let asked = w
+        .messages
+        .ask("SHOP-2", "SHOP-1", "Which status code?", &agent("SHOP-2"))
+        .await
+        .unwrap();
+    assert_eq!(asked.route, Some(Route::Resumed));
+    assert!(answer_session(&w, &parent).is_some());
+    w.stop().await;
+}
+
+/// d0020: the target's own tool's limit holds its answer until that tool's Resume, not at the reset alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_own_tools_limit_holds_after_its_reset_was_seen() {
+    let World {
+        w, _claude, parent, ..
+    } = world(false).await;
+    limit_on(&w, "claude", true).await;
+    let asked = w
+        .messages
+        .ask("SHOP-2", "SHOP-1", "Which status code?", &agent("SHOP-2"))
+        .await
+        .unwrap();
+    assert_eq!(asked.route, None, "waits for Claude Code's Resume");
+    w.messages.route_waiting().await.unwrap();
+    assert!(answer_session(&w, &parent).is_none());
+    w.stop().await;
+}
+
+/// MSG-05's **Resume SHOP-1** is refused only by the limit of the tool SHOP-1's conversation ran on, named.
+#[tokio::test(flavor = "multi_thread")]
+async fn resume_target_is_refused_only_by_the_conversations_tool() {
+    let World {
+        w, _claude, parent, ..
+    } = world(false).await;
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    settings.let_finished_tickets_answer = false;
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    let asked = w
+        .messages
+        .ask("SHOP-2", "SHOP-1", "Which status code?", &agent("SHOP-2"))
+        .await
+        .unwrap();
+    assert_eq!(asked.route, Some(Route::NeedsYou));
+
+    limit_on(&w, "claude", false).await;
+    let refused = w.messages.resume_target(&asked.id).await.unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "Claude Code's usage limit is active: SHOP-1 answers once it resets"
+    );
+    assert!(answer_session(&w, &parent).is_none());
+
+    sqlx::query("DELETE FROM active_limits")
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    limit_on(&w, "opencode", false).await;
+    let resumed = w.messages.resume_target(&asked.id).await.unwrap();
+    assert_eq!(resumed.route, Some(Route::Resumed));
+    assert!(answer_session(&w, &parent).is_some());
+    w.stop().await;
+}
+
+/// An OpenCode target held by OpenCode's limit: the route's tick reads the conversation's tool from history and
+/// never runs `opencode` to ask whether the conversation is still there.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_opencode_target_doesnt_run_opencode_on_the_tick() {
+    let bin = TempDir::new().unwrap();
+    let calls = bin.path().join("calls");
+    let opencode = bin.path().join("opencode");
+    std::fs::write(
+        &opencode,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{}'\nprintf '{{\"data\":{{\"id\":\"ses_answer\"}}}}'\n",
+            calls.display()
+        ),
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&opencode).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+    std::fs::set_permissions(&opencode, permissions).unwrap();
+    let World {
+        w, _claude, parent, ..
+    } = world_on(false, Some(bin.path())).await;
+    // SHOP-1's newest conversation ran on OpenCode.
+    sqlx::query(
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, state, started_at, ended_at)
+         SELECT 'opencode-run', project_id, ticket_id, 'agent', 'opencode', 'ses_answer', 'ended', started_at + 1,
+                ended_at + 1
+         FROM sessions WHERE ticket_id = ? AND kind = 'agent'",
+    )
+    .bind(&parent.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    limit_on(&w, "opencode", false).await;
+    // The conversation checks only (`opencode api … /api/session/<id>`), not the service's other looks at OpenCode.
+    let read_calls = || {
+        std::fs::read_to_string(&calls)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.contains("/api/session/ses_answer"))
+            .count()
+    };
+
+    let asked = w
+        .messages
+        .ask("SHOP-2", "SHOP-1", "Which status code?", &agent("SHOP-2"))
+        .await
+        .unwrap();
+    assert_eq!(asked.route, None, "waits for OpenCode's Resume");
+    let at_ask = read_calls();
+    assert_eq!(at_ask, 1, "the ask checks the conversation once (MSG-04)");
+    w.messages.route_waiting().await.unwrap();
+    w.messages.route_waiting().await.unwrap();
+    assert_eq!(read_calls(), at_ask, "the tick doesn't run opencode");
+    assert!(answer_session(&w, &parent).is_none());
     w.stop().await;
 }
