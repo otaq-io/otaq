@@ -234,6 +234,10 @@ impl AgentTool for Copilot {
         launch::resume_hint(tool_id)
     }
 
+    fn drop_retired_models(&self, list: &mut ModelList) {
+        models::drop_retired(list);
+    }
+
     fn list_models(&self) -> BoxFuture<'_, Result<ModelList, ModelListError>> {
         Box::pin(models::read_list(&self.context))
     }

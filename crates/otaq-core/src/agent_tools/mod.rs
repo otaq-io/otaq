@@ -910,6 +910,11 @@ pub trait AgentTool: Send + Sync {
     /// "codex resume …", "copilot --resume …", "opencode --session …". `tool_id` may be shortened.
     fn resume_hint(&self, tool_id: &str) -> String;
 
+    /// Takes out of a model list stored by an earlier Otaq the entries the tool no longer runs, so the check before a
+    /// launch holds them before the next read (offline too). Copilot: Auto · efficiency (decision 117). The others:
+    /// nothing.
+    fn drop_retired_models(&self, _list: &mut ModelList) {}
+
     /// The models the tool says it can run, read from the tool itself (AGT-02, d0086): the picker offers only
     /// these. Started only by the service ([`models::ModelLists`]), never by a test; makes no model call.
     /// - Claude Code: the SDK `initialize` control request (`claude -p --input-format stream-json

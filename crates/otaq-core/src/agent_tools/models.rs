@@ -269,11 +269,9 @@ impl ModelLists {
         for &tool in Tool::ALL {
             match stored(&store, tool).await {
                 Ok(Some(mut copy)) => {
-                    // A copy stored by an earlier Otaq may hold an Auto tier Copilot no longer runs (decision 117):
-                    // it goes now, so the check before a launch holds it before the next read (offline too).
-                    if tool == Tool::Copilot {
-                        super::copilot::models::drop_retired(&mut copy.list);
-                    }
+                    // A copy stored by an earlier Otaq may hold a model its tool no longer runs (Copilot's Auto
+                    // · efficiency, decision 117): it goes now, so the check before a launch holds it before the next read (offline too).
+                    adapters.get(tool).drop_retired_models(&mut copy.list);
                     copies.insert(tool, copy);
                 }
                 Ok(None) => {}
