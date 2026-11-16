@@ -1,14 +1,13 @@
 // The flow editor's parts Edit flow on the board (`flow_board/`) draws a stage's details with (T-0471, T-0472; FED-04…
 // FED-06; d0115): the Skill field (Pick a skill…, Ask the agent to write it, which only asks for the user's words,
-// Q441; being written with Stop; written with Open and Undo) and who does the delivery, read-only until Done's panel
-// picks it (a stage's Who does it is `settings/ModelEffort.tsx`'s field). What they say is Rust's (`flow_board.view`, `otaq-view`'s `flow_editor.rs`).
+// Q441; being written with Stop; written with Open and Undo). A stage's and Done's Who does it is
+// `settings/ModelEffort.tsx`'s field. What they say is Rust's (`flow_board.view`, `otaq-view`'s `flow_editor.rs`).
 import { useEffect, useRef, useState } from "react";
 
 import "./flow_editor.css";
 
-import { AnchoredMenu, Button, Tooltip, ToolAvatar } from "../../components";
+import { AnchoredMenu, Button, Tooltip } from "../../components";
 import { CodeText } from "../../components/CodeText";
-import type { FlowEditorModelLine } from "../../generated/FlowEditorModelLine";
 import type { FlowEditorSkillField } from "../../generated/FlowEditorSkillField";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
 import { Icon } from "../../theme/Icon";
@@ -223,34 +222,6 @@ export function SkillField({
           }}
         />
       )}
-    </div>
-  );
-}
-
-/**
- * Who does the delivery, read-only (UX-69): its tool's avatar and model · effort, its instructions, an
- * amber warning when its tool lacks the stage's skill, and where to change it.
- */
-export function ModelLineField({ line }: { line: FlowEditorModelLine }) {
-  return (
-    <div className="fe-field">
-      <span className="fe-label">{line.label}</span>
-      <div className="fe-agent-row">
-        {line.avatar !== null && <ToolAvatar avatar={line.avatar} />}
-        <span className="fe-model-value">{line.value}</span>
-      </div>
-      {line.instructions !== null && <p className="fe-model-instructions">{line.instructions}</p>}
-      {line.warning !== null && (
-        <div className="fe-fix" data-tone="amber">
-          <Icon name="triangle-alert" size={14} />
-          <span className="fe-fix-text">
-            <span>
-              <CodeText text={line.warning} />
-            </span>
-          </span>
-        </div>
-      )}
-      <span className="fe-hint">{line.hint}</span>
     </div>
   );
 }

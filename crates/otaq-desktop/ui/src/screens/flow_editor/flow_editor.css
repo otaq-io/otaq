@@ -152,24 +152,6 @@
   text-decoration: underline;
 }
 
-.fe-agent-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Who does the stage, read-only (UX-65): "Claude Code · opus · high", then its instructions as written. */
-.fe-model-value {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.fe-model-instructions {
-  margin: 0;
-  color: var(--text-muted);
-  white-space: pre-wrap;
-}
-
 .fe-hint {
   display: flex;
   align-items: flex-start;

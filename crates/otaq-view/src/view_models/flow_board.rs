@@ -7,7 +7,9 @@
 //! for (the stage's description, which every agent reads; there is no separate instructions field), Agent, Skill
 //! (Pick a skill… or Ask the agent to write it), Fails go to, Rounds (−/+, 1–5) and whether tickets may skip it.
 //! Clicking Done opens How work leaves the flow: the flow's delivery, edited with the same rules as the project's
-//! Repository card.
+//! Repository card, then Who does it: the model, effort and instructions that write the pull request (UX-69, A-5),
+//! with a stage's model menu and effort rules; the Done tile shows that model. A conflict or a failed merge check is
+//! never its work: it goes back to the last agent stage (UX-24).
 //!
 //! The bar on top says what is being edited and how many changes the draft holds, with Watch a ticket (a pretend
 //! ticket walks the draft step by step, passing or failing a check, running nothing), Start from… (the shipped flows,
@@ -41,8 +43,7 @@ use crate::view_models::agent_question::{self, AgentQuestion};
 use crate::view_models::agents::Choice;
 use crate::view_models::flow_columns::{BACKLOG, DONE};
 use crate::view_models::flow_editor::{
-    self as editor, CHECK_ROUNDS, EditorKind, Facts, FailToField, MarkView, ModelLine, Pick,
-    SkillField, Who,
+    self as editor, CHECK_ROUNDS, EditorKind, Facts, FailToField, MarkView, Pick, SkillField, Who,
 };
 use crate::view_models::hint::HintId;
 use crate::view_models::model_effort;
@@ -204,9 +205,14 @@ pub struct DeliveryPanel {
     /// Either is chosen at your click: the modes stay on On Approve, switched off ([`EITHER_NOTE`] says why).
     pub modes_off: bool,
     pub mode_note: Option<&'static str>,
-    /// Who writes the message and opens the PR (UX-69), read-only for now; `None` for a local merge that names no
-    /// model (its message is Otaq's plain one).
-    pub model: Option<ModelLine>,
+    /// Who does it (UX-69, A-5): the model, effort and instructions that write the pull request (and a merge's
+    /// message), with the same model menu and effort rules as a stage's. It never fixes a conflict: that goes back to
+    /// the last agent stage (UX-24). `None` for a local merge that names no model (its message is Otaq's plain one).
+    pub who: Option<Who>,
+    /// Under Who does it's heading: what Done's model writes, and when the last agent stage's session writes it
+    /// instead ("Writes the pull request: its title and description. With Dev's model and effort …"). `None` with
+    /// [`Self::who`].
+    pub writes: Option<String>,
     /// The skill it opens a PR with; `None` for a local merge, which opens none.
     pub skill: Option<DeliverySkill>,
     pub note: &'static str,
@@ -659,15 +665,24 @@ fn columns(f: &Facts) -> Vec<Column> {
             }),
         });
     }
+    // Done's tile shows the model that writes the pull request (A-5).
+    let (avatar, who, who_off) = match model_effort::tile(
+        flow.delivery.who.model.as_deref(),
+        flow.delivery.who.effort.as_deref(),
+        f.tools,
+    ) {
+        Some((avatar, line, off)) => (avatar, Some(line), off),
+        None => (None, None, None),
+    };
     out.push(Column {
         id: DONE.to_owned(),
         kind: ColumnKind::Done,
         name: "Done".to_owned(),
         icon: IconName::CircleCheck,
         what: ENDS_HERE.to_owned(),
-        avatar: None,
-        who: None,
-        who_off: None,
+        avatar,
+        who,
+        who_off,
         skill: None,
         check_line: None,
         delivery: Some(done_line(flow)),
@@ -762,7 +777,8 @@ fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
     }
 }
 
-fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
+fn delivery_panel(f: &Facts, b: &BoardFacts) -> DeliveryPanel {
+    let base = b.base_branch;
     let d = &f.file.flow.delivery;
     let choice = |id: &str, label: String, selected: bool| Choice {
         id: id.to_owned(),
@@ -770,6 +786,7 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
         selected,
     };
     let either = d.delivers == Delivers::Either;
+    let names_model = d.can_open_pr() || d.who.model.is_some();
     DeliveryPanel {
         title: "How work leaves the flow",
         delivers_label: "Deliver as",
@@ -797,7 +814,8 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
             ),
         ],
         modes_off: either,
-        model: delivery_model(f),
+        who: names_model.then(|| delivery_who(f, &uses(f, b))),
+        writes: names_model.then(|| delivery_writes(&f.file.flow)),
         skill: d.can_open_pr().then(|| delivery_skill(f)),
         mode_note: (!either && d.mode == DeliveryMode::Automatic).then_some(
             "Automatically: delivered as soon as the last stage passes, without Approve. Solo autopilot merges this \
@@ -807,29 +825,55 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
     }
 }
 
-/// Done panel's model: who writes the merge message (and the PR's) and opens the PR (UX-69), read-only for now.
-fn delivery_model(f: &Facts) -> Option<ModelLine> {
-    let who = &f.file.flow.delivery.who;
-    who.model.as_ref()?;
-    let lists = crate::view_models::agents::AgentTools {
-        connected: f.tools.connected.clone(),
-        lists: f.tools.lists.clone(),
-        failed: Vec::new(),
+/// What Done's model writes, by how work leaves the flow (UX-69). Not conflicts: they go back to the last agent stage
+/// (UX-24).
+pub const DELIVERY_WRITES_PR: &str = "Writes the pull request: its title and description.";
+pub const DELIVERY_WRITES_EITHER: &str =
+    "Writes the pull request\u{2019}s title and description, or the merge message.";
+pub const DELIVERY_WRITES_MERGE: &str = "Writes the merge message.";
+/// Done's Model hint.
+pub const DELIVERY_HINT: &str = "Any model of a tool on this Mac. Every ticket\u{2019}s delivery uses it; it changes \
+     only here.";
+pub const DELIVERY_INSTRUCTIONS_HINT: &str = "Added to its skill for every ticket it delivers.";
+
+/// What Done's model writes (UX-69) and, with a last agent stage, when that stage's session writes it instead (it has
+/// the context).
+fn delivery_writes(flow: &Flow) -> String {
+    let writes = match flow.delivery.delivers {
+        Delivers::Pr => DELIVERY_WRITES_PR,
+        Delivers::Either => DELIVERY_WRITES_EITHER,
+        Delivers::Local => DELIVERY_WRITES_MERGE,
     };
-    Some(ModelLine {
-        label: "Model",
-        avatar: editor::who_on(who, f).map(|on| ToolAvatarView::of(on.tool, on.model.as_deref())),
-        value: crate::view_models::agents::model_text_line(
+    match otaq_core::flow::engine::back_from_delivery(flow, &[]) {
+        Some(last) => format!(
+            "{writes} With {name}\u{2019}s model and effort and no instructions, {name}\u{2019}s session writes it: \
+             it has the ticket\u{2019}s context.",
+            name = last.name
+        ),
+        None => writes.to_owned(),
+    }
+}
+
+/// Done panel's Who does it (UX-69, A-5): Model, Effort and Instructions · optional, the stage's field.
+fn delivery_who(f: &Facts, uses: &[model_effort::Use]) -> Who {
+    let who = &f.file.flow.delivery.who;
+    Who {
+        heading: editor::WHO_HEADING,
+        picker: model_effort::view(
             who.model.as_deref(),
             who.effort.as_deref(),
-            &lists,
-            f.tools.default_model.as_ref(),
+            uses,
+            f.tools,
+            model_effort::Place {
+                hint: DELIVERY_HINT,
+                waits_at: None,
+            },
         ),
-        instructions: who.instructions.clone(),
         warning: None,
-        hint: "Writes the merge message when a ticket reaches Review, and opens the PR. Set in the flow file\u{2019}s \
-               `delivery:`.",
-    })
+        instructions_label: editor::INSTRUCTIONS_LABEL,
+        instructions: who.instructions.clone().unwrap_or_default(),
+        instructions_hint: DELIVERY_INSTRUCTIONS_HINT,
+    }
 }
 
 /// Done panel's PR skill: where the user's own Open PR skill goes.
@@ -1464,7 +1508,7 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         bar: bar(f),
         columns: columns(f),
         details: selected.map(|s| details(f, b, s)),
-        delivery: done_selected(f).then(|| delivery_panel(f, b.base_branch)),
+        delivery: done_selected(f).then(|| delivery_panel(f, b)),
         palette: palette(f),
         start_from: start_from(b),
         more: more(f, b),
@@ -1670,6 +1714,125 @@ mod tests {
         );
         // Codex's pair isn't offered while Codex isn't set up (tuq 014).
         assert_eq!(who.picker.menu.pairs.len(), 1);
+    }
+
+    /// A-5, UX-69: clicking Done shows, under Deliver as and When, the model, effort and instructions that write the
+    /// pull request, with a stage's menu (the pairs the flows use on top) and Effort; the Done tile shows the model.
+    /// Its text says it writes the pull request and when Dev's session writes it instead; never that it fixes
+    /// conflicts (UX-24).
+    #[test]
+    fn dones_panel_picks_the_model_that_writes_the_pull_request() {
+        use crate::view_models::agents::fixtures::all_lists;
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
+        use crate::view_models::flow_editor::{StageEdit, edited};
+        use otaq_core::agent_tools::Tool;
+
+        let s = |t: &str| t.to_owned();
+        let apply = |file: &FlowFile, edit: StageEdit| edited(file, &edit).unwrap().0;
+        let file = apply(
+            &shop_web(),
+            StageEdit::Pair {
+                stage: s("dev"),
+                model: s("claude:opus"),
+                effort: Some(s("high")),
+            },
+        );
+        let file = apply(
+            &file,
+            StageEdit::DeliveryPair {
+                model: s("codex:gpt-5.5"),
+                effort: Some(s("medium")),
+            },
+        );
+        let file = apply(
+            &file,
+            StageEdit::DeliveryInstructions {
+                instructions: s("Keep the title under 70 characters."),
+            },
+        );
+        let draft = proposal(&file, true);
+        let tools = crate::view_models::tool_problems::Tools {
+            connected: vec![Tool::Claude, Tool::Codex],
+            lists: all_lists(),
+            ..Default::default()
+        };
+        let f = Facts {
+            project: "SHOP",
+            project_name: "shop-web",
+            proposal: &draft,
+            marks: &[],
+            swap: false,
+            applies: &DraftApplies::Nothing,
+            file: &file,
+            in_use: &file,
+            tools: &tools,
+            skills: &[],
+            writing: &[],
+            written: &[],
+            selected: Some(DONE),
+            agent: None,
+            new_agent: None,
+        };
+        let v = view(&f, &board(&[]));
+        let done = v.columns.iter().find(|c| c.id == DONE).unwrap();
+        assert_eq!(
+            (
+                done.avatar.as_ref().map(|a| a.letters.as_str()),
+                done.who.as_deref()
+            ),
+            (Some("CX"), Some("gpt-5.5 \u{b7} medium"))
+        );
+        let panel = v.delivery.expect("Done's panel");
+        let who = panel.who.as_ref().expect("a PR names its model");
+        assert_eq!(who.heading, "Who does it");
+        assert_eq!(who.picker.value.text, "Codex \u{b7} gpt-5.5");
+        assert_eq!(who.instructions, "Keep the title under 70 characters.");
+        let effort = who.picker.effort.as_ref().expect("Codex has levels");
+        let picked: Vec<&str> = effort
+            .levels
+            .iter()
+            .filter(|l| l.selected)
+            .map(|l| l.id.as_str())
+            .collect();
+        assert_eq!(picked, ["medium"]);
+        let pairs: Vec<&str> = who
+            .picker
+            .menu
+            .pairs
+            .iter()
+            .map(|p| p.places.as_str())
+            .collect();
+        assert!(pairs.contains(&"Done in shop-web"), "{pairs:?}");
+        assert_eq!(
+            panel.writes.as_deref(),
+            Some(
+                "Writes the pull request: its title and description. With Dev\u{2019}s model and effort and no \
+                 instructions, Dev\u{2019}s session writes it: it has the ticket\u{2019}s context."
+            )
+        );
+        let text = format!(
+            "{:?} {} {}",
+            panel.writes, who.picker.hint, who.instructions_hint
+        )
+        .to_lowercase();
+        assert!(
+            !text.contains("conflict") && !text.contains("merge check"),
+            "{text}"
+        );
+
+        // A local merge's model writes its message.
+        let local = apply(
+            &file,
+            StageEdit::Delivery {
+                field: s(DELIVERS_FIELD),
+                value: s("local"),
+            },
+        );
+        let writes = delivery_writes(&local.flow);
+        assert!(
+            writes.starts_with("Writes the merge message. With Dev"),
+            "{writes}"
+        );
     }
 
     /// A-7: shipped flows say each stage is on the tools' default model; Same as <project> copies each stage's.

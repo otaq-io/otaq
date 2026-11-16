@@ -946,6 +946,90 @@ async fn another_agent_delivers_in_a_fresh_session() {
     w.stop().await;
 }
 
+/// UX-69 (Edit flow's Done panel): Done set to another model than Dev's writes the PR in a delivery session on Done's
+/// model and effort; set back to Dev's model and effort with no instructions of its own, Dev's session writes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn dones_model_decides_whose_session_writes_the_pr() {
+    use otaq_core::board::settings::WorkflowStep;
+    use otaq_core::flow::WhoDoesIt;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    let set_dev = WhoDoesIt {
+        model: Some("claude:opus".into()),
+        effort: Some("high".into()),
+        instructions: Some("Mind the tests.".into()),
+    };
+    let done = WhoDoesIt {
+        model: Some("claude:sonnet".into()),
+        effort: Some("low".into()),
+        instructions: None,
+    };
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            automatic_pr_delivery(file);
+            let dev = file.flow.stages.iter_mut().find(|s| s.id == DEV).unwrap();
+            dev.who = set_dev.clone();
+            file.flow.delivery.who = done.clone();
+        })
+        .await;
+
+    // Another model than Dev's: a delivery session on Done's model and effort; Dev's session gets nothing.
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let dev = w.agent_shell(&t).await;
+    assert_eq!(pass(&w, &t).await.status, Status::ToDeliver);
+    let delivery = w
+        .sessions
+        .running_of(&t.id, SessionKind::Delivery)
+        .expect("a session on Done's model");
+    assert_eq!(
+        (delivery.model.as_deref(), delivery.effort.as_deref()),
+        (Some("sonnet"), Some("low"))
+    );
+    assert!(
+        w.deliveries.pending(&dev.session).await.unwrap().is_empty(),
+        "Dev's session gets nothing"
+    );
+
+    // Back to Dev's model and effort, no instructions of its own (Dev's stay Dev's): Dev's session writes it.
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            file.flow.delivery.who = WhoDoesIt {
+                instructions: None,
+                ..set_dev.clone()
+            };
+        })
+        .await;
+    let t2 = working(&w, "Signup form", "signup.ts").await;
+    let dev2 = w.agent_shell(&t2).await;
+    assert_eq!(pass(&w, &t2).await.status, Status::ToDeliver);
+    assert!(
+        w.sessions
+            .running_of(&t2.id, SessionKind::Delivery)
+            .is_none(),
+        "no delivery session"
+    );
+    let pending = w.deliveries.pending(&dev2.session).await.unwrap();
+    let skill = &pending
+        .last()
+        .expect("Dev's session gets the PR skill")
+        .text;
+    assert!(
+        skill.starts_with(&format!("{} automatic:", claude_skill("my-pr"))),
+        "{skill}"
+    );
+    w.stop().await;
+}
+
 /// d0108 second gap review rule 6 (T-0419 fix): when the Delivery's agent isn't Dev's, every PR step reaches the
 /// Delivery's own session. Retry after that session ended starts it again (never types into Dev's running session),
 /// and the user's click Open PR runs there too, with its dialog.
