@@ -23,4 +23,9 @@ rows: Array<SheetAnswerRow>,
  * The user may tick several rows (checkboxes, number keys tick and untick); otherwise one is picked (radios).
  * Optional on the page: a question that takes one answer may leave it out.
  */
-multiple?: boolean, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };
+multiple?: boolean, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, 
+/**
+ * A restart stopped the ticket while it asked (d0045): the send resumes its conversation, and the sheet's own
+ * actions (Resume, a held tool's callout) stay under the box. Optional on the page: left out, it's live.
+ */
+resumes?: boolean, };

@@ -411,7 +411,7 @@ export function AnswerBox({
         />
         <Button
           label={answer.send}
-          icon="send"
+          icon={answer.resumes === true ? "play" : "send"}
           disabled={!ready}
           loading={sending}
           onClick={() => {
@@ -703,7 +703,8 @@ export function NeedsYou({
             fromCard={cardAnswer}
           />
         )}
-        {(!view.answer || inReview) && (
+        {/* A question a restart stopped keeps the Interrupted bar (Resume, a held tool's callout) under its box. */}
+        {(!view.answer || inReview || view.answer.resumes === true) && (
           <>
             {view.permission_prompt && <PermissionPrompt prompt={view.permission_prompt} />}
             {view.refusal && <Refusal refusal={view.refusal} />}

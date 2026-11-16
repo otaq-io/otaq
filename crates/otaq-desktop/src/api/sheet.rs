@@ -530,6 +530,8 @@ pub struct Facts<'a> {
     pub files_count: Option<u32>,
     /// The ticket's helpers (d0133): the header "Dev · 2 helpers working" and Session's list.
     pub helpers: &'a [otaq_core::helpers::Helper],
+    /// Its project is paused (PAU-03): a question a restart stopped isn't answered from the sheet then.
+    pub paused: bool,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -586,14 +588,30 @@ fn permission_prompt_of(f: &Facts) -> Option<PermissionPrompt> {
 }
 
 /// The box of the ticket's open question: an Asks you's, and one asked while the ticket waits in a check of the
-/// user's, which reads Asks you there and shows its box above the review's actions.
-fn answer_of(ticket: &Ticket) -> Option<Answer> {
-    let asks =
-        ticket.status == otaq_core::domain::Status::AsksYou || ticket.question_in_place().is_some();
+/// user's, which reads Asks you there and shows its box above the review's actions. A restart that stopped an Asks
+/// you keeps its question (d0045, as its card's "answering resumes it"): the box reads Answer & resume and the
+/// sheet's actions stay under it; not in a paused project, where an answer doesn't resume it (PAU-03).
+fn answer_of(ticket: &Ticket, paused: bool) -> Option<Answer> {
+    use otaq_core::domain::Status;
+    let resumes = kept_question(ticket, paused);
+    let asks = ticket.status == Status::AsksYou || ticket.question_in_place().is_some() || resumes;
     if !asks || ticket.flags.your_turn {
         return None;
     }
-    question_bar(ticket.question.as_ref()?)
+    let mut bar = question_bar(ticket.question.as_ref()?)?;
+    if resumes {
+        bar.send = answer::AnswerKind::Resume.send_label();
+        bar.resumes = true;
+    }
+    Some(bar)
+}
+
+/// An Asks you a restart stopped, outside a paused project: answering resumes it (`needs_you.answer`).
+fn kept_question(ticket: &Ticket, paused: bool) -> bool {
+    use otaq_core::domain::Status;
+    !paused
+        && ticket.status == Status::Interrupted
+        && ticket.interrupted_from == Some(Status::AsksYou)
 }
 
 fn notice_of(ticket: &Ticket, tickets: &[Ticket]) -> Option<Notice> {
@@ -792,7 +810,7 @@ pub fn view_of(f: &Facts) -> View {
         parent: ticket.depends_on.first().map(ToString::to_string),
         menu: actions::menu(ticket, has_branch, f.skippable_check),
         ask_noyan: actions::ask_noyan_draft(&ticket.key),
-        answer: answer_of(ticket),
+        answer: answer_of(ticket, f.paused),
         permission_prompt: permission_prompt_of(f),
         notice: notice_of(ticket, f.tickets),
         conflict: conflict_strip(ticket, f.conflict),
@@ -1160,6 +1178,16 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     } else {
         Vec::new()
     };
+    // Asked only for an Asks you a restart stopped: the one place the pause changes the sheet.
+    let paused = if kept_question(&ticket, false) {
+        super::pause::counts(app).await.is_ok_and(|c| {
+            c.projects
+                .iter()
+                .any(|p| p.project == ticket.key.project.as_str() && p.paused_since.is_some())
+        })
+    } else {
+        false
+    };
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -1181,6 +1209,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
         project_name: &project_name,
         files_count,
         helpers: &helpers,
+        paused,
     });
     Ok(Load {
         view: Some(view),
@@ -2087,6 +2116,7 @@ pub fn notes_gallery() -> NotesGallery {
                     files_count: None,
                     send_back_to: None,
                     helpers: &[],
+                    paused: false,
                 })
             })
             .collect(),
@@ -2185,6 +2215,7 @@ pub fn sheet_gallery() -> Vec<View> {
                 // `s25-03`: "Files 3" once it started.
                 files_count: ticket.started_at.map(|_| 3),
                 helpers: &[],
+                paused: false,
             })
         })
         .collect()
@@ -2292,6 +2323,7 @@ mod tests {
             files_count: None,
             send_back_to: None,
             helpers: &[],
+            paused: false,
         }
     }
 
@@ -2359,6 +2391,55 @@ mod tests {
         let view = view_of(&facts(&idle, std::slice::from_ref(&idle), &sessions));
         assert!(view.holds.is_empty());
         assert_eq!(labels(&view), ["Answer in terminal"]);
+    }
+
+    /// F-U2-1: an Asks you a restart stopped keeps its question on Overview (d0045, as its card's "answering resumes
+    /// it"): the box reads Answer & resume and the Interrupted actions stay. A stopped working agent has no box, and
+    /// neither has a question in a paused project (PAU-03); a live Asks you still reads Send answer.
+    #[test]
+    fn an_asks_you_a_restart_stopped_shows_its_question_with_answer_and_resume() {
+        let question = HumanQuestion {
+            id: "q1".into(),
+            text: "Which licence?".into(),
+            options: vec!["MIT".into(), "Apache-2.0".into()],
+            recommended: vec![1],
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        };
+        let mut stopped = fixture("NOTE-1", "Add a licence", Status::Interrupted);
+        stopped.interrupted_from = Some(Status::AsksYou);
+        stopped.question = Some(question.clone());
+        let view = view_of(&facts(&stopped, std::slice::from_ref(&stopped), &[]));
+        let answer = view.answer.as_ref().expect("the kept question's box");
+        assert_eq!(answer.line, "Which licence?");
+        assert_eq!(answer.send, "Answer & resume");
+        assert!(answer.resumes);
+        let interrupted_buttons: Vec<String> = labels(&view).into_iter().map(str::to_owned).collect();
+        assert!(interrupted_buttons.iter().any(|l| l == "Resume"), "{interrupted_buttons:?}");
+
+        // A working agent the restart stopped has nothing to answer, even with an old question left on it.
+        let mut working = stopped.clone();
+        working.interrupted_from = Some(Status::Working);
+        let view = view_of(&facts(&working, std::slice::from_ref(&working), &[]));
+        assert!(view.answer.is_none());
+
+        // A paused project: the answer wouldn't resume it, so no box; the Interrupted actions as before.
+        let view = view_of(&Facts {
+            paused: true,
+            ..facts(&stopped, std::slice::from_ref(&stopped), &[])
+        });
+        assert!(view.answer.is_none());
+        assert_eq!(labels(&view), interrupted_buttons);
+
+        // A live Asks you is unchanged.
+        let mut live = fixture("NOTE-1", "Add a licence", Status::AsksYou);
+        live.question = Some(question);
+        let view = view_of(&facts(&live, std::slice::from_ref(&live), &[]));
+        let answer = view.answer.unwrap();
+        assert_eq!(answer.send, "Send answer");
+        assert!(!answer.resumes);
     }
 
     /// A ticket at a permission prompt shows the command on Overview, named by its agent, with Answer in terminal
