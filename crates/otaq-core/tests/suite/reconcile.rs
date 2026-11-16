@@ -4,11 +4,13 @@
 //! too. `claude` is stood in for by ordinary commands; the crash test kills a real service process.
 
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::agent_tools::claude::transcript::transcript_path;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::projects::AddProject;
@@ -250,6 +252,14 @@ async fn an_agent_that_exits_on_its_own_interrupts_its_ticket() {
     let t = w.create("SHOP", "Coupon codes").await;
     start_agent(&w, "SHOP-1").await;
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
+    // Claude Code saved the conversation: there is one to resume.
+    let transcript = transcript_path(
+        &w.claude_dir(),
+        Path::new("/elsewhere"),
+        session.tool_session_id.as_deref().unwrap(),
+    );
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    std::fs::write(&transcript, "").unwrap();
     // `cat` ends at end of input, as `claude` ends on /exit.
     w.sessions.write(&session.id, b"\x04").unwrap();
     until_status(&w, "SHOP-1", Status::Interrupted).await;
@@ -268,8 +278,9 @@ async fn an_agent_that_exits_on_its_own_interrupts_its_ticket() {
     w.stop().await;
 }
 
+/// An agent that exits before its start is recorded is still caught; with no conversation saved, the start failed.
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agent_that_exits_before_its_start_is_recorded_still_interrupts() {
+async fn an_agent_that_exits_before_its_start_is_recorded_still_stops_the_start() {
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(stand_in("exit 3")),
         ..config
@@ -285,7 +296,7 @@ async fn an_agent_that_exits_before_its_start_is_recorded_still_interrupts() {
         .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
         .await
         .unwrap();
-    until_status(&w, "SHOP-1", Status::Interrupted).await;
+    until_status(&w, "SHOP-1", Status::StartInterrupted).await;
     w.stop().await;
 }
 

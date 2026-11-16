@@ -217,6 +217,11 @@ impl AgentTool for Copilot {
         launch::can_resume(&self.context, tool_id, cwd)
     }
 
+    /// Copilot refuses a bad argument before it makes `session-state/<id>/` (F-E2-1).
+    fn checks_new_conversation(&self) -> bool {
+        true
+    }
+
     fn conversation_not_found(&self, output: &[u8]) -> bool {
         launch::conversation_not_found(output)
     }

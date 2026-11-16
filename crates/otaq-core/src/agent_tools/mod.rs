@@ -882,6 +882,14 @@ pub trait AgentTool: Send + Sync {
     /// `session-state/<id>/`. OpenCode: the session in its database (`opencode session list`). May read files.
     fn can_resume(&self, tool_id: &str, cwd: &Path) -> bool;
 
+    /// Whether a new conversation whose tool exited on its own is asked [`Self::can_resume`] for having come to
+    /// exist at all, so an exit before it did is Start failed (F-E2-1): only where the id is chosen up front and the
+    /// answer is a quick file check (Claude Code, Copilot). Codex reports its id after start (an end before it is
+    /// Start failed already); OpenCode makes its conversation before launch, and its check runs `opencode`.
+    fn checks_new_conversation(&self) -> bool {
+        false
+    }
+
     /// Whether a resumed session's terminal output says the tool couldn't find the conversation (REC-03: Resume
     /// failed, never a fallback). Claude Code: `claude --resume <id>` prints "No conversation found with session
     /// ID: …".
