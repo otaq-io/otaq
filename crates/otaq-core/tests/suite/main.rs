@@ -58,6 +58,7 @@ mod drags;
 mod edited_message;
 mod events;
 mod every_request;
+mod exit_before_conversation;
 mod fails_go_to;
 mod files;
 mod flow_changes;

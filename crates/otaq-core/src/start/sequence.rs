@@ -458,17 +458,7 @@ impl Starter {
         let now = now_ms();
         let actor = Actor::Agent(ticket.key.clone());
         // Not started: waiting again before the Agent stage it was starting (waiting to begin, before the first).
-        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-        let skips = board.ticket_skips(&ticket, &flow).await?;
-        let waits_before = ticket
-            .place
-            .stage()
-            .filter(|id| {
-                first_stage(&flow, &skips)
-                    .1
-                    .is_none_or(|first| first.id != *id)
-            })
-            .map(str::to_owned);
+        let waits_before = waits_before(board, &ticket).await?;
         let mut tx = board.store().begin_write().await?;
         end_open(&mut tx, &ticket.id, RunResult::Cancelled, None).await?;
         sqlx::query(concat!(
@@ -1597,6 +1587,22 @@ impl Returning {
             parked: row.parked,
         }))
     }
+}
+
+/// Where a ticket whose Agent stage didn't start waits again (Start failed): before the stage it was starting, or
+/// waiting to begin (no stage) when that is the flow's first stage, as [`Starter::model_refused`] places it.
+pub async fn waits_before(board: &Board, ticket: &Ticket) -> Result<Option<String>, BoardError> {
+    let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+    let skips = board.ticket_skips(ticket, &flow).await?;
+    Ok(ticket
+        .place
+        .stage()
+        .filter(|id| {
+            first_stage(&flow, &skips)
+                .1
+                .is_none_or(|first| first.id != *id)
+        })
+        .map(str::to_owned))
 }
 
 /// The ticket's live agent session when it is the Agent stage `stage`'s own ([`crate::session::own_stage`]; one that

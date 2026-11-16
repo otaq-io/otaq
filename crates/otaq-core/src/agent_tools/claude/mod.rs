@@ -400,6 +400,11 @@ impl AgentTool for ClaudeCode {
             .is_none_or(|dir| find_transcript(dir, cwd, tool_id).is_some())
     }
 
+    /// A Claude Code that exits before its first message (a bad flag, a crash at start) saved no transcript.
+    fn checks_new_conversation(&self) -> bool {
+        true
+    }
+
     fn conversation_not_found(&self, output: &[u8]) -> bool {
         String::from_utf8_lossy(output)
             .to_lowercase()
