@@ -80,7 +80,17 @@ pub fn stage_next_text(
     let next = after.place.stage().and_then(|id| flow.stage(id));
     let next_name = name(&after.place).unwrap_or_default();
     let now = match next {
-        _ if after.place.is_waiting() => format!("{next_name} starts next; end your turn."),
+        // Waiting before the next Agent stage: its id is the place's `stage_id` (`stage()` is only a stage it is in).
+        _ if after.place.is_waiting() => {
+            let waiting = after
+                .place
+                .stage_id()
+                .map(|id| flow.stage(id).map_or(id, |s| s.name.as_str()));
+            format!(
+                "{} starts next; end your turn.",
+                waiting.unwrap_or("The next stage")
+            )
+        }
         Some(stage) if stage.is_agent_check() => match held {
             Some(agent) => format!(
                 "{next_name} waits for {agent}; the result will come back to you here once it runs. End your turn."
@@ -351,6 +361,33 @@ mod tests {
             stage_next_text(&flow, &before, &after, Some("Codex checker")),
             "Finished Dev. Validate waits for Codex checker; the result will come back to you here once it runs. \
              End your turn."
+        );
+    }
+
+    /// `stage next` into a wait before the next Agent stage names that stage (F-E1-2: the name was left out), and
+    /// with no stage to name says "The next stage".
+    #[test]
+    fn stage_next_names_the_agent_stage_it_waits_for() {
+        let mut flow = crate::flow::default_flow();
+        for (place, id) in [(0, "product-spec"), (1, "tech-spec")] {
+            let stage = crate::flow::templates::template(id)
+                .unwrap()
+                .stage()
+                .clone();
+            flow.stages.insert(place, stage);
+        }
+        let before = ticket(Status::Working, "product-spec");
+        let after = ticket(Status::Queued, "tech-spec");
+        assert_eq!(after.place, Place::Waiting(Some("tech-spec".into())));
+        assert_eq!(
+            stage_next_text(&flow, &before, &after, None),
+            "Finished Product spec. Tech spec starts next; end your turn."
+        );
+        let mut first = after.clone();
+        first.place = Place::Waiting(None);
+        assert_eq!(
+            stage_next_text(&flow, &before, &first, None),
+            "Finished Product spec. The next stage starts next; end your turn."
         );
     }
 
