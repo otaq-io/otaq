@@ -8,9 +8,9 @@ Running one coding agent is easy. Running eight at once is not: they edit the sa
 which one is waiting on a question, and reviewing the result means digging through branches. Otaq turns that into a
 board.
 
-- **The right agent for each ticket.** Use Claude Code, Codex, GitHub Copilot and OpenCode on the same board, at the
-  same time. A tricky bug can go to Opus in Claude Code while a docs fix goes to a small, cheap model, and the work can
-  be checked by a model from another company. See [Agents: any tool, any model](#agents-any-tool-any-model).
+- **The right model for each stage.** Use Claude Code, Codex, GitHub Copilot and OpenCode on the same board, at the
+  same time. Dev can run on Opus in Claude Code while a docs check runs on a small, cheap model, and the work can be
+  checked by a model from another company. See [Any tool, any model](#any-tool-any-model).
 - **One ticket, one agent, one worktree.** Every ticket gets its own git worktree and branch, so parallel agents never
   step on each other or on your own checkout.
 - **Dependencies, so work happens in order.** Ticket B can wait for ticket A. B starts only once A is merged, so it
@@ -31,7 +31,7 @@ board.
   everything is where you left it.
 - **Your setup, untouched.** Otaq uses each tool's own settings, sign-in and permission mode, your `git`, `gh` and
   `az` logins, and never adds files to your repository. What it does record in a tool's own config is listed under
-  each tool in Settings → Agents: mainly that you trust the folders you add as projects, so agents don't stop on a trust
+  each tool in Settings → Tools: mainly that you trust the folders you add as projects, so agents don't stop on a trust
   screen.
 
 ## How it works
@@ -48,13 +48,13 @@ Backlog ──► Dev ───────────────────�
 1. **Write tickets.** Type in the box at the bottom of the board ("New ticket, or ask Noyan…", ⌘N): the first line is
    the title and the rest the description, and ↵ creates the ticket in Backlog. **More options…** opens the full
    form: Title, a Markdown Description (acceptance criteria are just text in it), Priority (P1 Urgent, P2 High, P3
-   Normal, P4 Low), **Waits for** (the tickets that must merge first), Attachments, the agent for each stage and the
-   base branch.
+   Normal, P4 Low), **Waits for** (the tickets that must merge first), Attachments, the stages to skip (where the
+   flow lets a ticket skip one) and the base branch.
 2. **Start a ticket**: its **Start** button, ⌘D or a drag into Dev; ⌘↵ in the box and **Create & start** in the form
    create and start it in one step. It goes into Dev, waiting at the top of the column while it says why ("Waits for
    SHOP-12 to merge", "Waits for a free agent · 2nd in line"); nothing is spent until then. Then Otaq creates a
-   worktree from your base branch, runs your setup command (for example `pnpm install`), and starts the Dev stage's
-   agent: the one the flow names, or the one you picked for this ticket.
+   worktree from your base branch, runs your setup command (for example `pnpm install`), and starts an agent on the
+   Dev stage's model, effort and instructions.
 3. **The agent works.** It reads its ticket through the `otaq` command, plans, implements and commits. If it hits a
    question it can't answer from the code or docs, it asks you (the card turns turquoise, with answer options). Smaller
    product choices it makes on its own and records on the ticket, so you can see them in review. It proves each
@@ -71,47 +71,50 @@ Backlog ──► Dev ───────────────────�
    description first; the ticket then waits in Review as "PR open" until you **Mark merged** (Otaq doesn't watch the
    PR). Once it's merged, tickets that were waiting for it start on their own.
 
-### Agents: any tool, any model
+### Any tool, any model
 
 Otaq runs four agent tools: **Claude Code**, **OpenAI Codex CLI**, **GitHub Copilot CLI** and **OpenCode**. Copilot
-and OpenCode can run models from several companies, so they bring Gemini and others too. Connect any of them under
-Tools in Settings → Agents (the gear at the foot of the rail; Otaq finds what's installed and signed in; it never handles your passwords or API keys).
+and OpenCode can run models from several companies, so they bring Gemini and others too. Connect any of them in
+Settings → Tools (the gear at the foot of the rail; Otaq finds what's installed and signed in; it never handles your
+passwords or API keys).
 
-In Settings → Agents you keep a short list of **named agents**. Each one is a tool, a model and a note on what it's
-for:
+There are no named agents to set up: **each stage of your flow says who does it**. Click a stage in **Edit flow** and
+its panel's **Who does it** has the stage's **Model** (a tool and one of its models), **Effort**, **Skill** and
+**Instructions · optional**:
 
-| Named agent | Tool · model | Use for |
+| Stage | Model · effort | Instructions |
 |---|---|---|
-| Strong | Claude Code · `opus` | complex features and tricky bugs |
-| Standard | Codex · a GPT model | normal tickets |
-| Light | Claude Code · `haiku` | typos, docs, small config |
-| Verifier | Copilot · a Gemini model | checking |
+| Dev | Claude Code · `opus` · high | "Keep the public API stable." |
+| Validate | Codex · a GPT model · medium | — |
+| Docs check | Claude Code · `haiku` | "Only README and docs/." |
 
-(These are examples you'd make yourself. A fresh install starts with one entry per connected tool, using that tool's
-default model.) The model picker reads each tool's own model list, with "always the newest" choices such as `opus`, so
-a new model needs no Otaq update.
+Each tool's model menu starts with `default`, whatever your account for that tool is set to, and Otaq's ready-made
+flows use it, so a new project needs no picking. The menu reads each tool's own model list, with "always the newest"
+choices such as `opus`, so a new model needs no Otaq update; on top it offers the model-and-effort pairs your other
+flows use. Effort offers the levels the tool has (OpenCode has none). A stage's instructions are added to its skill
+for every ticket at that stage; what holds for the whole repository goes in the project's Notes for agents. All of it
+is in the flow file, so Same as <project> and an imported flow file bring it along.
 
-- **One agent per stage.** Each stage of your flow names the agent that runs it: Dev on Strong, Validate on
-  Verifier. A check has one agent too. Two checks are two stages, one after the other, each with its own agent,
-  skill and rounds. A ticket's helpers run on the same agent as the one in charge. Agents have no roles: Noyan uses
-  the one agent set in Settings → Agents ("Noyan uses"), and a new conversation can pick another before you send.
-- **Stage choices are yours.** For any stage of a ticket that hasn't started you can pick any agent whose tool has
-  the stage's skill (a stage running an `otaq:` or `tuq:` skill takes every agent): `SHOP-18` can be written by Opus in
-  Claude Code and checked by a GPT model in Codex, while `SHOP-19` goes to Light. You can also skip the stages the
-  flow marks skippable; a skippable check of yours offers "required" (it happens) and "skip". Noyan passes on only
-  the choices you name ("2: Dev: Light"); otherwise every ticket runs every stage of its flow with that stage's own
-  agent. A ticket's own agent never picks or skips: only you do. A card waiting for its tool offers **Change
-  agent…**, the same choice for the waiting stage.
+- **One model per stage.** Every ticket at a stage runs on the stage's model, effort and instructions; a ticket can't
+  pick its own. A check has one model too: two checks are two stages, one after the other, each with its own model,
+  skill and rounds. A ticket's helpers run on the same model and effort as the stage whose agent is in charge. Noyan
+  starts on the model set in Settings → Tools ("Noyan starts on"), and a new conversation can switch it before you
+  send its first message. Settings → Tools also lists, per tool, the stages and projects that run on it.
+- **Skipping is yours.** For any stage of a ticket that hasn't started you can skip the stages the flow marks
+  skippable ("Tickets may skip this stage · chosen per ticket"); a skippable check of yours offers "required" (it
+  happens) and "skip". Noyan passes on only the skips you name ("2: Tech spec: skip"); otherwise every ticket runs
+  every stage of its flow. A ticket's own agent never skips: only you do.
 - **Nothing is skipped on its own.** A stage runs unless you skip it for that ticket, even when every stage before
   it was skipped. **Skip this check** shows only on checks the flow marks skippable; on other checks you wait, pick
-  another agent, or send the ticket back. A check that fails all its rounds can always be sent on to the next stage
-  (**Send it on**), with the checker's last report, so you judge it at Review. A skipped or moved-past check doesn't change the
-  Delivery: it does what the flow says, so an automatic one still delivers on its own, and its card says
-  "Delivered without all checks".
+  another model for the stage in Edit flow, or send the ticket back. A check that fails all its rounds can always be
+  sent on to the next stage (**Send it on**), with the checker's last report, so you judge it at Review. A skipped or
+  moved-past check doesn't change the Delivery: it does what the flow says, so an automatic one still delivers on its
+  own, and its card says "Delivered without all checks".
 - **Limits per tool.** When one tool hits its usage limit, is logged out, not installed, hidden or needs an update,
-  only its agents wait; the rest keep going, and the banner says so. An agent whose model its tool no longer lists
-  waits the same way. The card says why and offers **Open agent…** and **Change agent…**. Otaq never moves their
-  work to another tool. A running conversation never changes tools.
+  only the stages on it wait; the rest keep going, and the banner says so. A stage whose model its tool no longer
+  lists waits the same way, and so does a stage on a tool that isn't set up on this Mac (Edit flow marks it). The card
+  says why and offers **Edit flow…**, open on that stage, to pick another model. Otaq never moves their work to
+  another tool on its own. A running conversation never changes tools.
 - **Tokens per tool.** Tickets show the tokens each tool reports. The header's **Running** button (⇧⌘U, shown while
   agents run) opens what each tool has used today and what's left in each of its limit windows ("48% left"), and the
   usage chip beside it warns when little is left. Otaq shows no dollar estimates.
@@ -164,8 +167,8 @@ session ran. Disconnecting Codex removes Otaq's plugin and leaves tuq.
 skill says what to do; `otaq:work-ticket` keeps the ticket's way of doing it: questions come to the card, the work is
 committed at the stage's end, and the stage ends by moving the ticket on.
 
-**A flow stage names the skill it runs.** Agents have no skill list; the stage's Skill field is the one place a skill
-is picked. **Pick a skill…** lists your skills first, the ones Otaq finds in your tools' folders and in the project,
+**A flow stage names the skill it runs.** The stage's Skill field, under Who does it, is the one place a skill is
+picked. **Pick a skill…** lists your skills first, the ones Otaq finds in your tools' folders and in the project,
 then a group headed "Otaq" with its `otaq:` and `tuq:` skills, each badged "Otaq"; you can also type a name. A stage
 that names no skill runs Otaq's own skill for it (`otaq:work-ticket` on an Agent stage, `otaq:validate` on Validate,
 `otaq:open-pr` for the flow's delivery, which names its own with `skill:` under `delivery:`). A stage that names a skill you don't have still applies, with the warning
@@ -176,8 +179,8 @@ when you update, and the flow's History says "Otaq renamed its skills to otaq: a
 
 **A stage runs only on a tool that has its skill.** A stage due to start on a tool that doesn't have the skill it
 names doesn't start: its card waits in Needs you with "Codex doesn't have the skill `$team-validate`", **Check
-again** (Otaq looks for the skill again and starts the stage if it is found) and **Change agent…** (only agents
-whose tool has the skill). A tool has a skill when it finds it in the ticket's worktree: in its own personal
+again** (Otaq looks for the skill again and starts the stage if it is found) and **Edit flow…** (to put the stage on
+a tool that has the skill). A tool has a skill when it finds it in the ticket's worktree: in its own personal
 folder, in the project's folders when the skill is committed, or, for Claude Code, in the checkout's
 `.claude/skills`. To give another tool a skill, link it into that tool's folder or commit it to the project. The
 same goes for a skill typed into a session that is already running: opening a PR from the Dev session, with a delivery
@@ -192,7 +195,7 @@ matter's `name:`, else the folder's name. Links are followed, so a skill kept in
 into `~/.claude/skills` is found, and a skill linked into several folders is listed once.
 
 **"Ask the agent to write it" saves into the project.** Noyan writes the new skill into the project's checkout:
-`.agents/skills/<name>/` when the stage's agent runs on Codex, `.claude/skills/<name>/` otherwise. Otaq doesn't
+`.agents/skills/<name>/` when the stage's model is Codex's, `.claude/skills/<name>/` otherwise. Otaq doesn't
 commit it, and the field says "Saved in `<folder>` in this project. Commit it so agents get it in their worktrees."
 A ticket's worktree is made from a commit, so commit the skill before tickets need it. Undo deletes the folder
 while it's still uncommitted and holds only what Noyan wrote; otherwise it just clears the field.
@@ -228,8 +231,9 @@ split, which the agent in charge adds to the Plan. Helpers never start helpers o
 ### Noyan and terminals
 
 **Noyan** starts from the box for new work at the bottom of the board: type what you want and press ⇧↵ (Ask Noyan to
-shape it), and it opens as a panel on the left, where a conversation starts on its named agent, investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker with
-your own skills. It reads code but never edits it. Noyan's button sits at the foot of the rail (⌘L), with
+shape it), and it opens as a panel on the left, where a conversation starts on the model set in Settings → Tools
+("Noyan starts on"; its header switches it for one conversation before you send), investigates the codebase and
+writes Backlog tickets for you, including importing them from your team's tracker with your own skills. It reads code but never edits it. Noyan's button sits at the foot of the rail (⌘L), with
 **Terminal** (⌃`), which opens plain terminals in the project, and the gear for the app's Settings.
 
 ## A tour of the app

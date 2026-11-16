@@ -24,7 +24,7 @@ otaq                         # open the app
 otaq list -P SHOP            # the project's tickets
 otaq list --status review    # only one stage of the flow (or a state: working, checking, pr_open)
 otaq create "Fix login" -p 2 --deps SHOP-12
-otaq create "Fix README typo" --stage Dev=Light  # another agent for one stage
+otaq create "Fix README typo" --stage "Product spec=skip"  # skip a stage the flow lets tickets skip
 otaq create -f plan.md       # many tickets from one Markdown file
 otaq create "Wishlist" --plan-file wishlist-plan.md   # one ticket with a Plan of pieces
 otaq update SHOP-40 --plan-file wishlist-plan.md      # replace its Plan (or --plan, --plan-stdin)

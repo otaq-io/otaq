@@ -1169,9 +1169,9 @@ fn work_ticket_runs_helpers_as_the_agent_in_charge() {
         "apart from those you\n   dropped".to_owned(),
         format!("{cmd} stage next"),
         format!("{cmd} helper start 5 --title \"Fixing the Validate failure\""),
-        "**You never set a stage choice: only the user picks a stage's agent or skips a stage.**".to_owned(),
-        "\"Only the user picks a stage's agent: leave the stage's own agent, or ask the user to change it\""
-            .to_owned(),
+        "**You never set a stage choice: only the user skips a stage.**".to_owned(),
+        "A stage's model and effort are set in the flow,\n  only in Edit flow".to_owned(),
+        "\"Only the user chooses for a stage: leave it as the flow says".to_owned(),
         "## As a helper".to_owned(),
         "**Build only your piece**".to_owned(),
         "Otaq's `commit` skill".to_owned(),
@@ -1224,17 +1224,20 @@ fn project_agent_proposes_with_a_table_and_passes_on_the_users_choices() {
         "**Two or more tickets:** propose first, then wait for the user's go-ahead",
         "One ticket the user asked for explicitly**",
         &format!(
-            "{cmd} create \"Fix README typo\" --stage \"Dev=Quick developer\" --by-user --stdin"
+            "{cmd} create \"Fix README typo\" --stage \"Product spec=skip\" --by-user --stdin"
         ),
-        "\"Created SHOP-41 · Dev: Quick developer\"",
+        "\"Created SHOP-41 · Product spec: skip\"",
         "\"I'm proposing 2 tickets\"",
         "**# · Title · Description · Choices**",
         "1 Orders API paging cursor paging, 20 per page —",
-        "2 Order detail page items, totals, reorder Dev: Quick developer",
+        "2 Order detail page items, totals, reorder Product spec: skip",
         "change any row by its number",
         "(\"2 needs a review\", \"drop 2\")",
         "The **Choices** cell shows only the choices **the user named**",
-        "joined with \" · \" (\"Dev: Quick developer · Review: skip\"). It reads \"—\" otherwise",
+        "joined with \" · \" (\"Product spec: skip · Tech spec: skip\"). It reads \"—\" otherwise",
+        // UX-65, UX-72: skipping is a ticket's only choice; a stage's model is set in Edit flow.
+        "Skipping is the only choice a ticket has",
+        "a stage's model is set for every ticket in **Edit flow**",
         "**Above about 10 tickets**",
         "**without the Description column** (**# · Title · Choices**)",
         "**first 10 rows**",
@@ -1242,11 +1245,14 @@ fn project_agent_proposes_with_a_table_and_passes_on_the_users_choices() {
         "When the user says \"show all\", list every row",
         "Every choice comes from the user, so pass it with `--by-user`",
         &format!(
-            "{cmd} create \"Order detail page\" --deps SHOP-42 --stage \"Dev=Quick developer\" --by-user --stdin"
+            "{cmd} create \"Order detail page\" --deps SHOP-42 --stage \"Tech spec=skip\" --by-user --stdin"
         ),
         &format!("`{cmd} create -f tickets.md --by-user`"),
-        "- **Stage:** Dev=Quick developer The returns page",
-        "If the CLI refuses a choice with \"Noyan sets only the stage choices the user names: add --by-user, or leave the stage's own agent\", the choice wasn't the user's: leave it out",
+        "- **Stage:** Product spec=skip The returns page",
+        &format!(
+            "If the CLI refuses a choice with \"{}\", the choice wasn't the user's: leave it out",
+            otaq_core::board::stage_choices::NOYAN_USER_CHOICES_ONLY
+        ),
         "a choice the user set is never changed back by an agent",
         "**Never set a stage choice the user didn't name.**",
         "When the user named no stage choice for any of the tickets, there is nothing to pass on: **leave the Choices column out** (**# · Title · Description**), and pass no `--stage` flags",
@@ -1269,6 +1275,8 @@ fn project_agent_proposes_with_a_table_and_passes_on_the_users_choices() {
         "skips planning",
         "runs planning",
         "cheaper agent",
+        "Quick developer",
+        "stage's own agent",
         "Setting stage choices",
         "Planning stages",
         "A plain approval of your own suggestion",

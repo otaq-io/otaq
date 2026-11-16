@@ -5,8 +5,20 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **Each stage says who does it; named agents are gone.** A stage an agent works or checks now has its own **Model**
+  (a tool and one of its models), **Effort** and optional **Instructions**, set in Edit flow's stage panel under
+  **Who does it**; Done has them too, for the session that writes the pull request. Each tool's model menu starts
+  with `default`, your account's model for that tool, which Otaq's ready-made flows use. The flow file holds them
+  (`model:`, `effort:`, `instructions:` on each stage and under `delivery:`; no `agents:` list), so Same as
+  <project> and imported flows bring them along. Settings' Agents page is now **Tools**: your tools, the model
+  **Noyan starts on** (its panel switches it for one conversation), and which stages run on each tool. A ticket
+  no longer picks its own agent: every ticket runs a stage on the stage's model, and skipping is the only choice
+  left per ticket. Cards name the tool, and the Session tab shows tool, model and effort. On update nothing changes
+  in how tickets run: each stage takes its agent's model, effort and instructions, a ticket's own agent choice is
+  dropped, the agent Noyan used becomes "Noyan starts on", and an older flow file with `agents:` still imports.
+  Noyan's flow suggestions write the new shape.
 - **GitHub Copilot removed its "Auto · efficiency" profile** (Copilot CLI 1.0.112 refuses it), so Otaq no longer
-  offers it: Copilot's Auto is balance or intelligence. An agent saved on efficiency shows "no longer listed" and
+  offers it: Copilot's Auto is balance or intelligence. A stage saved on efficiency shows "no longer listed" and
   its new starts, Start from scratch included, wait "Model unavailable" until you pick another model for it. A
   ticket whose conversation ran on efficiency resumes on Auto · balance, keeping its conversation, and its History
   says so.
