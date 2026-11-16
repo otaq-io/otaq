@@ -456,7 +456,7 @@ function HeaderModel({ model, project }: { model: AgentPanelModel; project: stri
         pickStartOn(project, on(model.model, effort));
       }}
       onSetUp={() => {
-        openOverlay("settings", { section: "agent_tools" });
+        openOverlay("settings", { section: "tools" });
       }}
     />
   );
