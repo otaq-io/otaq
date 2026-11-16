@@ -8825,6 +8825,7 @@
         "service.status": {},
         "service.stop": {},
         "service.stop_agents": {},
+        "service.summary_shown": {},
         "session.attach": {
           "newtype": "AttachParams"
         },
@@ -9766,6 +9767,10 @@
         },
         "stopped_to_quit": {
           "ty": "Option<StopRecord>",
+          "omittable": true
+        },
+        "summary_shown": {
+          "ty": "Option<bool>",
           "omittable": true
         },
         "unclean_start": {
