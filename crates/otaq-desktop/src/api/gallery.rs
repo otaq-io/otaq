@@ -61,7 +61,7 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         // 05/08 · Stage choices and the path: the ⌘N form, mid-flow, after a Fail, finished, a choice you set, the
         // default flow (T-0411).
         "gallery.stage_choices" => reply(&stage_choices::gallery()),
-        // 15 · Settings → Agent tools: every state per tool, the notes, Disconnect's dialog (T-0360; T-0365 draws it).
+        // 15 · Settings → Tools: every state per tool, the notes, Disconnect's dialog (T-0360; T-0365 draws it).
         "gallery.agent_tools" => reply(&agent_tools_page::gallery()),
         // 14 · The Tools step with agent tools: the sample, none connected, one connected, hidden and warned (T-0365).
         "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),

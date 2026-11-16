@@ -1,10 +1,15 @@
-//! Settings → Agent tools and the agent tools of onboarding's Tools step (§20 Agent tools, SET-02, ADP-10, ADP-11,
-//! UI-08, UI-10; d0086, d0085, d0011; *15* `bGHVl`/`ehz4J`, *14* `y2FCwP`/`vnBdi`, `z8OVF`/`rZRuR`). One row per
+//! Settings → Tools and the agent tools of onboarding's Tools step (§20 Agent tools, SET-02, ADP-10, ADP-11,
+//! UI-08, UI-10; d0086, d0085, d0011; *15* `bGHVl`/`ehz4J`, *14* `y2FCwP`/`vnBdi`, `z8OVF`/`rZRuR`; UX-65, UX-70,
+//! canvas A-8). One row per
 //! tool in d0086's order, from the service's `agent_tools.list` rows ([`ToolStatus`]): the avatar (always shown on
 //! this page, even with one tool connected: it is how the user connects more), the name, the state pill and its
 //! line (version, account), the actions (Sign in…, How to install, Show, the update command), what Otaq can see,
 //! what its setup added, a setup that failed (amber), the permission warning, and the … menu (Hide / Show,
 //! Re-check this tool, Disconnect…). Disconnect… asks first ([`disconnect_dialog`]).
+//!
+//! Under the rows, Settings → Tools has **Noyan starts on** ([`Noyan`]: the model and effort every new Noyan
+//! conversation starts on, the shared model field of [`super::model_effort`], UX-70) and **Where they're used**
+//! ([`Used`], read-only: per tool, the projects' stages and Noyan on it). [`with_flows`] adds both to the page.
 //!
 //! Nothing here branches on which tool a row is: every difference comes from the row's own fields, filled by each
 //! tool's adapter (ADP-01). The one exception is the permission docs link, which only Claude Code's docs have.
@@ -13,12 +18,15 @@ use otaq_core::agent_tools::connected::{
     AgentToolState, SetupAction, SetupLine, SetupRun, ToolStatus,
 };
 use otaq_core::agent_tools::{Tool, WindowsSource};
+use otaq_core::agents::{AgentModel, NoyanStartsOn};
 use otaq_core::naming::PRODUCT_NAME;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::banners::PERMISSION_DOCS_URL;
+use super::model_effort::{self, Use};
 use super::tool_avatar::ToolAvatarView;
+use super::tool_problems::{Tools, tool_word};
 use super::warm_build::ago;
 
 /// Where a row is drawn: the onboarding rows are shorter (no Disconnect…, no "Otaq added", no notes).
@@ -175,12 +183,14 @@ pub struct Row {
     pub menu: Vec<MenuItem>,
 }
 
-/// Settings → Agent tools.
+/// Settings → Tools.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentToolsPage")]
 pub struct Page {
     pub title: String,
     pub intro: String,
+    /// "TOOLS", over the rows.
+    pub rows_heading: String,
     pub rows: Vec<Row>,
     /// Re-check for the page (`agent_tools.recheck {}`).
     pub recheck: String,
@@ -194,6 +204,230 @@ pub struct Page {
     pub error: Option<String>,
     /// The words of Sign in… and Install's terminal under a row.
     pub terminal: super::onboarding_page::ToolTerminalTexts,
+    /// Noyan starts on; `None` until [`with_flows`] adds it (the gallery, a failed list).
+    pub noyan: Option<Noyan>,
+    /// Where they're used; `None` until [`with_flows`] adds it.
+    pub used: Option<Used>,
+}
+
+/// "Noyan starts on" (UX-70, A-8): the model and effort every new Noyan conversation starts on. `ToolsNoyan` on the
+/// page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ToolsNoyan")]
+pub struct Noyan {
+    /// "NOYAN".
+    pub heading: String,
+    /// "Noyan starts on".
+    pub label: String,
+    /// The shared Model and Effort field; its hint is [`NOYAN_HINT`].
+    pub picker: model_effort::View,
+}
+
+/// One tool of Where they're used. `ToolsUsedRow` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ToolsUsedRow")]
+pub struct UsedRow {
+    /// The tool as requests name it (`codex`).
+    pub tool: String,
+    pub avatar: ToolAvatarView,
+    /// "Claude Code".
+    pub name: String,
+    /// "shop-web: Dev · billing-api: Dev, Security review · Noyan".
+    pub places: String,
+    /// Amber, for a tool that isn't set up on this Mac: what waits for it.
+    pub off: Option<String>,
+}
+
+/// Where they're used (A-8), read-only: per tool, the projects' stages (and Done) and Noyan on it. `ToolsUsed` on
+/// the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ToolsUsed")]
+pub struct Used {
+    /// "WHERE THEY’RE USED".
+    pub heading: String,
+    pub rows: Vec<UsedRow>,
+    /// [`USED_NOTE`].
+    pub note: String,
+}
+
+/// What Noyan starts on's field says under it (UX-70).
+pub const NOYAN_HINT: &str =
+    "For new conversations. Switch for one conversation in the Noyan panel.";
+/// Under Where they're used (A-8).
+pub const USED_NOTE: &str = "To change one, open its project\u{2019}s flow. Signing out of a tool makes its stages \
+     wait until you pick another model.";
+/// Where they're used names Noyan so.
+pub const NOYAN: &str = super::agent_panel::LABEL;
+
+/// What the page adds from the flows and the Noyan setting: Noyan starts on as stored, every project's [`Use`]s
+/// ([`model_effort::uses_in`] over each project's flow in use) and the tools with their model lists.
+pub struct Flows<'a> {
+    pub noyan: &'a NoyanStartsOn,
+    pub uses: &'a [Use],
+    pub tools: &'a Tools,
+}
+
+/// The page with Noyan starts on and Where they're used.
+pub fn with_flows(page: Page, f: &Flows) -> Page {
+    Page {
+        noyan: Some(noyan(f)),
+        used: Some(used(f)),
+        ..page
+    }
+}
+
+/// Noyan starts on: the shared field, with the flows' model-and-effort pairs on top of its menu. No model stored yet
+/// reads as `default` (the account's default model's tool), as the conversation starts on it.
+pub fn noyan(f: &Flows) -> Noyan {
+    let model = f.noyan.model.as_deref().unwrap_or(model_effort::DEFAULT);
+    Noyan {
+        heading: NOYAN.to_uppercase(),
+        label: format!("{NOYAN} starts on"),
+        picker: model_effort::view(
+            Some(model),
+            f.noyan.effort.as_deref(),
+            f.uses,
+            f.tools,
+            model_effort::Place {
+                hint: NOYAN_HINT,
+                waits_at: None,
+            },
+        ),
+    }
+}
+
+/// Where they're used: one row per tool something runs on, in [`Tool::ALL`]'s order; a row lists each project's
+/// stages ("shop-web: Dev, Security review"), the projects in the order their uses come, then Noyan. `default` counts
+/// as the default model's tool; a model that doesn't read is left out.
+pub fn used(f: &Flows) -> Used {
+    let noyan = Use {
+        model: f
+            .noyan
+            .model
+            .clone()
+            .unwrap_or_else(|| model_effort::DEFAULT.to_owned()),
+        effort: f.noyan.effort.clone(),
+        what: NOYAN.to_owned(),
+        project: None,
+    };
+    let all: Vec<&Use> = f.uses.iter().chain(std::iter::once(&noyan)).collect();
+    let rows = Tool::ALL
+        .iter()
+        .copied()
+        .filter_map(|tool| {
+            let on: Vec<&Use> = all
+                .iter()
+                .copied()
+                .filter(|u| model_effort::runs_on(&u.model, f.tools).is_some_and(|r| r.tool == tool))
+                .collect();
+            if on.is_empty() {
+                return None;
+            }
+            let word = tool_word(tool);
+            Some(UsedRow {
+                tool: tool.as_str().to_owned(),
+                avatar: ToolAvatarView::of(tool, None),
+                name: tool.display_name().to_owned(),
+                places: used_places(&on),
+                off: (!f.tools.connected.contains(&tool)).then(|| {
+                    format!(
+                        "{word} isn\u{2019}t set up on this Mac: these wait until you set it up or pick another model."
+                    )
+                }),
+            })
+        })
+        .collect();
+    Used {
+        heading: "WHERE THEY\u{2019}RE USED".to_owned(),
+        rows,
+        note: USED_NOTE.to_owned(),
+    }
+}
+
+/// "shop-web: Dev · billing-api: Dev, Security review · Noyan": each project once with its stages, then the uses
+/// with no project.
+fn used_places(uses: &[&Use]) -> String {
+    let mut by: Vec<(Option<&str>, Vec<&str>)> = Vec::new();
+    for u in uses {
+        let project = u.project.as_deref();
+        match by.iter_mut().find(|(p, _)| *p == project) {
+            Some((_, what)) => {
+                if !what.contains(&u.what.as_str()) {
+                    what.push(&u.what);
+                }
+            }
+            None => by.push((project, vec![&u.what])),
+        }
+    }
+    // Noyan (no project) last.
+    by.sort_by_key(|(p, _)| p.is_none());
+    by.into_iter()
+        .map(|(project, what)| match project {
+            Some(p) => format!("{p}: {}", what.join(", ")),
+            None => what.join(", "),
+        })
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ")
+}
+
+/// One change to Noyan starts on, as the field sends it: a model (its effort stays, or moves to the nearest level the
+/// new tool offers, UX-75), a pair of "As in your other flows" (both), or an effort (`None`: the tool's own).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, TS)]
+#[serde(tag = "edit", rename_all = "snake_case")]
+#[ts(rename = "ToolsNoyanEdit")]
+pub enum NoyanEdit {
+    Model {
+        model: String,
+    },
+    Pair {
+        model: String,
+        #[serde(default)]
+        #[ts(optional)]
+        effort: Option<String>,
+    },
+    Effort {
+        #[serde(default)]
+        #[ts(optional)]
+        effort: Option<String>,
+    },
+}
+
+/// Noyan starts on after `edit`, to store (`noyan.set_starts_on`; the service checks it again). A model that doesn't
+/// read, or a pair's effort its tool doesn't have, is refused with why.
+pub fn noyan_edit(on: &NoyanStartsOn, edit: &NoyanEdit) -> Result<NoyanStartsOn, String> {
+    match edit {
+        NoyanEdit::Model { model } => {
+            let parsed = AgentModel::parse(model)?;
+            // `default`'s tool is known only from the account, so its effort stays (as a stage's does).
+            let effort = match (parsed.tool(), on.effort.as_deref()) {
+                (Some(tool), Some(effort)) => {
+                    otaq_core::agents::nearest_effort(tool, effort).map(str::to_owned)
+                }
+                (_, effort) => effort.map(str::to_owned),
+            };
+            Ok(NoyanStartsOn {
+                model: Some(parsed.text()),
+                effort,
+            })
+        }
+        NoyanEdit::Pair { model, effort } => {
+            let parsed = AgentModel::parse(model)?;
+            if let Some(why) = effort
+                .as_deref()
+                .and_then(|e| otaq_core::agents::effort_refusal(&parsed, e))
+            {
+                return Err(why);
+            }
+            Ok(NoyanStartsOn {
+                model: Some(parsed.text()),
+                effort: effort.clone(),
+            })
+        }
+        NoyanEdit::Effort { effort } => Ok(NoyanStartsOn {
+            model: on.model.clone(),
+            effort: effort.clone(),
+        }),
+    }
 }
 
 /// The rows of `agent_tools.list` as the page draws them; `now` (Unix ms) dates "Checked …".
@@ -202,7 +436,7 @@ pub fn page(statuses: &[ToolStatus], now: i64) -> Page {
     Page {
         title: "Tools".to_owned(),
         intro: format!(
-            "The AI tools on your machine. {PRODUCT_NAME} never asks for passwords or keys and never changes their permission settings. Install and Sign in\u{2026} run the tool\u{2019}s own command in a terminal here, on your click."
+            "The AI tools on this Mac. Which model and effort each stage uses is set in the flow, on the stage. {PRODUCT_NAME} never asks for passwords or keys and never changes their permission settings. Install and Sign in\u{2026} run the tool\u{2019}s own command in a terminal here, on your click."
         ),
         rows: statuses
             .iter()
@@ -216,6 +450,9 @@ pub fn page(statuses: &[ToolStatus], now: i64) -> Page {
             .to_owned(),
         error: None,
         terminal: super::onboarding_page::tool_terminal_texts(),
+        rows_heading: "TOOLS".to_owned(),
+        noyan: None,
+        used: None,
     }
 }
 
@@ -759,11 +996,45 @@ pub mod fixtures {
     }
 }
 
+/// The stages of two projects' flows, as A-8 draws them: shop-web's Dev and Validate, billing-api's Dev, Security
+/// review and Validate.
+fn sample_uses() -> Vec<Use> {
+    let at = |what: &str, project: &str, model: &str, effort: &str| Use {
+        model: model.to_owned(),
+        effort: Some(effort.to_owned()),
+        what: what.to_owned(),
+        project: Some(project.to_owned()),
+    };
+    vec![
+        at("Dev", "shop-web", "claude:opus", "high"),
+        at("Validate", "shop-web", "codex:gpt-5.5", "medium"),
+        at("Dev", "billing-api", "claude:opus", "high"),
+        at("Security review", "billing-api", "claude", "medium"),
+        at("Validate", "billing-api", "codex:gpt-5.5", "medium"),
+    ]
+}
+
 pub fn gallery() -> Gallery {
     use fixtures::*;
+    let set_up = Tools {
+        connected: vec![Tool::Claude, Tool::Codex],
+        lists: super::agents::fixtures::all_lists(),
+        ..Tools::default()
+    };
+    let uses = sample_uses();
     let mut pages = vec![GalleryCell {
-        name: "15 · Agent tools · sample".to_owned(),
-        page: page(&sample(), NOW),
+        name: "15 · Tools · sample".to_owned(),
+        page: with_flows(
+            page(&sample(), NOW),
+            &Flows {
+                noyan: &NoyanStartsOn {
+                    model: Some("claude:opus".into()),
+                    effort: Some("high".into()),
+                },
+                uses: &uses,
+                tools: &set_up,
+            },
+        ),
     }];
     for tool in Tool::ALL.iter().copied() {
         pages.push(GalleryCell {
@@ -1199,6 +1470,211 @@ mod tests {
         assert_eq!(and_list(&["a", "b", "c"]), "a, b and c");
         assert_eq!(version_label("Claude Code 2.1.4"), "v2.1.4");
         assert_eq!(version_label("0.157.1"), "v0.157.1");
+    }
+
+    fn two_tools() -> Tools {
+        Tools {
+            connected: vec![Tool::Claude, Tool::Codex],
+            lists: crate::view_models::agents::fixtures::all_lists(),
+            ..Tools::default()
+        }
+    }
+
+    /// A-8: under the tools, Noyan starts on (the shared field, UX-70) and Where they're used, read-only, per tool.
+    #[test]
+    fn the_tools_page_has_noyan_starts_on_and_where_each_tool_is_used() {
+        let tools = two_tools();
+        let uses = sample_uses();
+        let on = NoyanStartsOn {
+            model: Some("claude:opus".into()),
+            effort: Some("high".into()),
+        };
+        let p = with_flows(
+            page(&sample(), NOW),
+            &Flows {
+                noyan: &on,
+                uses: &uses,
+                tools: &tools,
+            },
+        );
+        assert_eq!(p.rows_heading, "TOOLS");
+        assert!(p.intro.starts_with(
+            "The AI tools on this Mac. Which model and effort each stage uses is set in the flow, on the stage."
+        ));
+        let noyan = p.noyan.expect("Noyan starts on");
+        assert_eq!(noyan.heading, "NOYAN");
+        assert_eq!(noyan.label, "Noyan starts on");
+        assert_eq!(noyan.picker.value.text, "Claude Code · opus");
+        assert_eq!(
+            noyan.picker.hint,
+            "For new conversations. Switch for one conversation in the Noyan panel."
+        );
+        let effort = noyan.picker.effort.expect("Claude Code has effort levels");
+        assert!(effort.levels.iter().any(|l| l.id == "high" && l.selected));
+        // The menu's pairs are the flows' (Noyan isn't one of its own pairs).
+        assert!(!noyan.picker.menu.pairs.is_empty());
+        assert!(
+            noyan
+                .picker
+                .menu
+                .pairs
+                .iter()
+                .all(|p| !p.places.contains("Noyan"))
+        );
+        let used = p.used.expect("where they're used");
+        assert_eq!(used.heading, "WHERE THEY’RE USED");
+        let rows: Vec<(&str, &str)> = used
+            .rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.places.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "Claude Code",
+                    "shop-web: Dev · billing-api: Dev, Security review · Noyan"
+                ),
+                ("Codex", "shop-web: Validate · billing-api: Validate"),
+            ]
+        );
+        assert!(used.rows.iter().all(|r| r.off.is_none()));
+        assert_eq!(
+            used.note,
+            "To change one, open its project’s flow. Signing out of a tool makes its stages wait until you pick another \
+             model."
+        );
+        // Without the flows (the gallery's other cells, a failed list) there is neither.
+        assert!(page(&sample(), NOW).noyan.is_none());
+        assert!(failed("down".into()).used.is_none());
+    }
+
+    /// A stage on a tool that isn't set up is still listed, marked: its tickets wait. `default` is the default model's
+    /// tool; Noyan with nothing stored starts on `default`.
+    #[test]
+    fn where_theyre_used_marks_a_tool_that_isnt_set_up_and_reads_default() {
+        let tools = Tools {
+            connected: vec![Tool::Claude],
+            lists: crate::view_models::agents::fixtures::all_lists(),
+            default_model: Some(otaq_core::agents::ModelRef {
+                tool: Tool::Claude,
+                model: None,
+            }),
+            ..Tools::default()
+        };
+        let uses = vec![
+            Use {
+                model: "default".into(),
+                effort: None,
+                what: "Dev".into(),
+                project: Some("shop-web".into()),
+            },
+            Use {
+                model: "codex:gpt-5.5".into(),
+                effort: None,
+                what: "Validate".into(),
+                project: Some("shop-web".into()),
+            },
+            Use {
+                model: "codex".into(),
+                effort: None,
+                what: "Done".into(),
+                project: Some("shop-web".into()),
+            },
+        ];
+        let on = NoyanStartsOn::default();
+        let f = Flows {
+            noyan: &on,
+            uses: &uses,
+            tools: &tools,
+        };
+        let used = used(&f);
+        assert_eq!(used.rows[0].places, "shop-web: Dev · Noyan");
+        assert_eq!(used.rows[1].places, "shop-web: Validate, Done");
+        assert_eq!(
+            used.rows[1].off.as_deref(),
+            Some(
+                "Codex isn’t set up on this Mac: these wait until you set it up or pick another model."
+            )
+        );
+        assert_eq!(noyan(&f).picker.value.text, "Claude Code · default");
+    }
+
+    /// Noyan starts on's edits: a model keeps the effort or moves it to the nearest level its tool has (UX-75), a pair
+    /// sets both, an effort only the effort; a model that doesn't read is refused.
+    #[test]
+    fn noyan_starts_on_edits() {
+        let on = NoyanStartsOn {
+            model: Some("codex:gpt-5.5".into()),
+            effort: Some("xhigh".into()),
+        };
+        let model = |m: &str| NoyanEdit::Model { model: m.into() };
+        assert_eq!(
+            noyan_edit(&on, &model("claude:opus")).unwrap(),
+            NoyanStartsOn {
+                model: Some("claude:opus".into()),
+                effort: Some(
+                    otaq_core::agents::nearest_effort(Tool::Claude, "xhigh")
+                        .unwrap()
+                        .to_owned()
+                ),
+            }
+        );
+        assert_eq!(
+            noyan_edit(&on, &model("opencode")).unwrap().effort,
+            None,
+            "OpenCode has no effort"
+        );
+        assert_eq!(
+            noyan_edit(&on, &model("default"))
+                .unwrap()
+                .effort
+                .as_deref(),
+            Some("xhigh"),
+            "default's tool isn't known here: the effort stays"
+        );
+        assert_eq!(
+            noyan_edit(
+                &on,
+                &NoyanEdit::Pair {
+                    model: "claude:sonnet".into(),
+                    effort: Some("medium".into()),
+                }
+            )
+            .unwrap(),
+            NoyanStartsOn {
+                model: Some("claude:sonnet".into()),
+                effort: Some("medium".into()),
+            }
+        );
+        assert_eq!(
+            noyan_edit(&on, &NoyanEdit::Effort { effort: None }).unwrap(),
+            NoyanStartsOn {
+                model: Some("codex:gpt-5.5".into()),
+                effort: None,
+            }
+        );
+        assert!(noyan_edit(&on, &model("nope:x")).is_err());
+        assert!(
+            noyan_edit(
+                &on,
+                &NoyanEdit::Pair {
+                    model: "opencode".into(),
+                    effort: Some("high".into()),
+                }
+            )
+            .is_err()
+        );
+        // As the page sends them.
+        let edit: NoyanEdit =
+            serde_json::from_value(serde_json::json!({ "edit": "effort", "effort": "low" }))
+                .unwrap();
+        assert_eq!(
+            edit,
+            NoyanEdit::Effort {
+                effort: Some("low".into())
+            }
+        );
     }
 
     #[test]

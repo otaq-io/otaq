@@ -2,7 +2,7 @@
 import type { AgentToolRow } from "./AgentToolRow";
 
 /**
- * The agent tools on the Tools step (SET-02 `[M23]`, d0086): the same rows as Settings → Agent tools without
+ * The agent tools on the Tools step (SET-02 `[M23]`, d0086): the same rows as Settings → Tools without
  * Disconnect…, and the rule "one tool is enough".
  */
 export type OnboardingAgentTools = { 

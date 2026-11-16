@@ -1393,7 +1393,7 @@ function AgentToolsGallerySection() {
   if (!view) return null;
   const shown = dialog === null ? undefined : view.dialogs[dialog];
   return (
-    <Section title="15 · Settings → Agent tools: every state per tool, the notes, Disconnect (T-0365)">
+    <Section title="15 · Settings → Tools: every state per tool, Noyan starts on, where they are used, the notes, Disconnect (T-0365)">
       <Caption>Last call: {picked ?? "—"}</Caption>
       <div className="gallery-wrap">
         {view.dialogs.map((d, index) => (

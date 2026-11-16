@@ -44,7 +44,7 @@ const topic = (label: string, sections: GlobalSectionId[]): SettingsNavRow => ({
 
 // The nav `settings_page.rs` sends.
 const NAV: SettingsNavRow[] = [
-  topic("Agents", ["agent_tools"]),
+  topic("Tools", ["tools"]),
   topic("Git & pull requests", ["git"]),
   topic("Limits & usage", ["agent_limits", "usage"]),
   topic("Notifications", ["notifications"]),
@@ -123,7 +123,7 @@ describe("app settings", () => {
   it("lists the eight topics and no projects, with a line saying where project settings are", async () => {
     await open();
     expect(texts(".settings-nav-item")).toEqual([
-      "Agents",
+      "Tools",
       "Git & pull requests",
       "Limits & usage",
       "Notifications",
@@ -135,8 +135,8 @@ describe("app settings", () => {
     expect(texts(".settings-nav-footnote")).toEqual([
       "Project settings live in each project’s Settings tab.",
     ]);
-    // The first topic, Agents: its tools (UX-65: no named agents under them).
-    expect(texts(".marker")).toEqual(["agent_tools"]);
+    // The first topic, Tools (UX-65, UX-70).
+    expect(texts(".marker")).toEqual(["tools"]);
   });
 
   it("opens at a topic's id: `git` shows Git & pull requests", async () => {
@@ -158,7 +158,7 @@ describe("app settings", () => {
       shown.push(texts(".marker"));
     }
     expect(shown).toEqual([
-      ["agent_tools"],
+      ["tools"],
       ["git"],
       ["agent_limits", "usage"],
       ["notifications"],

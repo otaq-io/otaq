@@ -894,7 +894,7 @@ describe("a tool problem's notice (M23)", () => {
           heading: "Model unavailable",
           text: "Codex no longer lists gpt-5.4, the model Noyan starts on.",
           model: "gpt-5.4",
-          buttons: [{ label: "Show in Agent tools", action: { kind: "show_in_agent_tools" }, primary: true }],
+          buttons: [{ label: "Show in Tools", action: { kind: "show_in_tools" }, primary: true }],
         },
       },
     });
