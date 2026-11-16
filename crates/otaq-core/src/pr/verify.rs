@@ -96,7 +96,10 @@ impl Board {
         let Some(expected) = git.resolve(&repo, &reference).await? else {
             return Ok(None);
         };
-        let listed = match git.run(&repo, &["ls-remote", "origin", &reference]).await {
+        let listed = match git
+            .run_without_prompts(&repo, &["ls-remote", "origin", &reference])
+            .await
+        {
             Ok(listed) => listed,
             Err(e) => {
                 tracing::warn!(key = %ticket.key, error = %e, "can't read the remote to check the delivery's push");
@@ -134,7 +137,7 @@ impl Board {
         let tracking = format!("refs/remotes/origin/{branch}");
         let refspec = format!("+refs/heads/{branch}:{tracking}");
         if let Err(e) = git
-            .run(&repo, &["fetch", "--quiet", "origin", &refspec])
+            .run_without_prompts(&repo, &["fetch", "--quiet", "origin", &refspec])
             .await
         {
             tracing::warn!(key = %ticket.key, error = %e, "can't fetch the pushed branch to compare it");

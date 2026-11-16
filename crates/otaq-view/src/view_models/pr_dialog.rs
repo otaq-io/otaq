@@ -35,6 +35,8 @@ pub enum NameCheck {
     Pending,
     Ok,
     Problem(String),
+    /// The remote couldn't be asked: the line to show; confirm stays allowed (the push will tell).
+    Unchecked(String),
 }
 
 /// The debounce for the live check: each edit gets a number; only the newest one is checked.
@@ -374,6 +376,7 @@ impl PrDialog {
         self.check = match answer {
             BranchCheck::Ok => NameCheck::Ok,
             BranchCheck::Problem { message } => NameCheck::Problem(message.clone()),
+            BranchCheck::Unchecked { message } => NameCheck::Unchecked(message.clone()),
         };
     }
 
@@ -415,6 +418,7 @@ impl PrDialog {
         match &self.check {
             NameCheck::Pending => ("Checking…".to_owned(), false),
             NameCheck::Problem(message) => (message.clone(), true),
+            NameCheck::Unchecked(message) => (message.clone(), false),
             NameCheck::Ok if self.branch == self.branch_was => {
                 ("Valid name \u{b7} not taken on origin".to_owned(), false)
             }
@@ -436,11 +440,12 @@ impl PrDialog {
         )
     }
 
-    /// Push & open PR is enabled only for a complete proposal with a valid, free name, once the provider is set up.
+    /// Push & open PR is enabled only for a complete proposal with a valid name that isn't taken (or that origin couldn't
+    /// be asked about), once the provider is set up.
     pub fn can_confirm(&self) -> bool {
         self.stage == Stage::Proposed
             && self.not_set_up.is_none()
-            && (self.branch_locked || self.check == NameCheck::Ok)
+            && (self.branch_locked || matches!(self.check, NameCheck::Ok | NameCheck::Unchecked(_)))
             && !self.commits.is_empty()
             && self.commits.iter().all(|c| !c.message.trim().is_empty())
             && (self.kind == FlowKind::Push || !self.title.trim().is_empty())
@@ -807,6 +812,43 @@ mod tests {
             None,
             "the user's own skill decides"
         );
+    }
+
+    /// F-C-2: origin couldn't be asked (a sign-in needed, offline): the short line, not in red, and the push stays
+    /// on, since the push will tell; a taken name still keeps it off.
+    #[test]
+    fn an_unchecked_name_still_allows_the_push() {
+        let mut d = PrDialog::opening(
+            &shop18(),
+            otaq_core::own_skill!("open-pr"),
+            Some(&github(true)),
+        );
+        d.update(&view(FlowState::Proposed, false));
+        let n = d.edit_branch("feature/SHOP-18-checkout-api");
+        d.checked(
+            n,
+            &BranchCheck::Unchecked {
+                message: otaq_core::pr::flow::UNCHECKED.into(),
+            },
+        );
+        assert_eq!(
+            d.branch_hint(),
+            (
+                "Couldn\u{2019}t check origin (sign-in needed or offline) \u{b7} the push will tell"
+                    .to_owned(),
+                false
+            )
+        );
+        assert!(d.can_confirm());
+        let n = d.edit_branch("taken");
+        d.checked(
+            n,
+            &BranchCheck::Problem {
+                message: "A branch with this name already exists on origin. Choose another name."
+                    .into(),
+            },
+        );
+        assert!(!d.can_confirm());
     }
 
     #[test]

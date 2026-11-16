@@ -34,6 +34,15 @@ use tokio::io::AsyncReadExt;
 use crate::tools::find_on_path;
 use hooks::HookTrace;
 
+/// What [`Git::run_without_prompts`] sets: no terminal prompt, no Git Credential Manager window, and an empty
+/// `GIT_ASKPASS`, which git reads before the other two and which makes it skip `core.askPass` and `SSH_ASKPASS`.
+/// A credential already stored (a keychain, a signed-in GCM) is still used.
+pub const NO_PROMPTS: &[(&str, &str)] = &[
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GCM_INTERACTIVE", "never"),
+    ("GIT_ASKPASS", ""),
+];
+
 /// The user's `git` program.
 #[derive(Debug, Clone)]
 pub struct Git {
@@ -98,6 +107,13 @@ impl Git {
     /// Runs `git <args>` in `cwd` and returns its standard output.
     pub async fn run(&self, cwd: &Path, args: &[&str]) -> Result<String, GitError> {
         self.run_with_env(cwd, args, &[]).await
+    }
+
+    /// Like [`run`](Self::run), for a call to the remote the user didn't ask for (a check in the background): it never
+    /// asks for credentials, so it fails at once instead of opening a sign-in (F-C-2). Only for such calls: a push
+    /// or a fetch the user caused keeps git's prompts.
+    pub async fn run_without_prompts(&self, cwd: &Path, args: &[&str]) -> Result<String, GitError> {
+        self.run_with_env(cwd, args, NO_PROMPTS).await
     }
 
     /// Like [`run`](Self::run), with extra environment variables.
