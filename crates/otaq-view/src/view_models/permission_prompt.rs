@@ -11,6 +11,10 @@ use ts_rs::TS;
 /// The tools' prefix for a shell command ("Run command: npm install").
 const RUN_COMMAND: &str = "Run command: ";
 
+/// What the Overview says under "Codex needs you to sign in".
+pub const SIGN_IN_THERE: &str =
+    "Its sign-in ran out. Sign in in its terminal; the agent then goes on with the ticket.";
+
 /// "Developer wants to run a command" with `$ npm install` under it, or "Developer wants your permission" with the
 /// tool's words ("Claude needs your permission to use Bash").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -36,6 +40,15 @@ pub fn of(ticket: &Ticket, agent: Option<&str>) -> Option<PermissionPrompt> {
     };
     if prompt.is_empty() {
         return None;
+    }
+    // Its tool stopped at its own sign-in screen (decision 118): no permission is asked; the sign-in is done in the
+    // terminal, and the agent goes on after it.
+    if !helper && otaq_core::signals::sign_in_screen::is_prompt(prompt) {
+        return Some(PermissionPrompt {
+            heading: prompt.to_owned(),
+            text: SIGN_IN_THERE.to_owned(),
+            command: false,
+        });
     }
     let (text, command) = match prompt.strip_prefix(RUN_COMMAND).map(str::trim) {
         Some(c) if !c.is_empty() => (c, true),
@@ -84,6 +97,20 @@ mod tests {
                 heading: "Developer wants to run a command".into(),
                 text: "npm install".into(),
                 command: true,
+            })
+        );
+    }
+
+    /// Decision 118: Codex at its own sign-in screen asks for no permission; the Overview says to sign in there.
+    #[test]
+    fn a_sign_in_screen_says_to_sign_in_in_the_terminal() {
+        let t = at_prompt(Status::NeedsYou, Some("Codex needs you to sign in"));
+        assert_eq!(
+            of(&t, Some("Developer")),
+            Some(PermissionPrompt {
+                heading: "Codex needs you to sign in".into(),
+                text: SIGN_IN_THERE.into(),
+                command: false,
             })
         );
     }

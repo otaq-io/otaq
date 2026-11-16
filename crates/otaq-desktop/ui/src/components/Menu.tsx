@@ -7,6 +7,7 @@
 // "Use `<typed text>`"), its `…` parts drawn as code. A `last` row comes after everything, whatever was typed.
 // A row's `badge` is a small label after its name saying whose it is, and a header's `mark` draws Otaq's mark before
 // its label (Pick a skill…'s "Otaq" group and its rows, decision 108); the search keeps a header over the rows it shows.
+// With `hintLines` (Pick a skill… only) each hint is cut to that many lines, the whole of it on hover.
 import { type CSSProperties, type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { MenuItem } from "../generated/MenuItem";
@@ -43,6 +44,11 @@ export interface MenuProps {
   /** A dropdown's list: rows are options, the checked one is the current value. */
   list?: boolean;
   width?: number;
+  /**
+   * Cuts each row's hint to this many lines, the whole hint on hover: Pick a skill…'s descriptions (decision 108).
+   * Other menus show their hints whole.
+   */
+  hintLines?: number;
   style?: CSSProperties;
   /** A search field on top that filters the rows. */
   search?: MenuSearch;
@@ -62,6 +68,7 @@ export function Menu({
   onClose,
   list = false,
   width = 260,
+  hintLines,
   style,
   search,
   typed,
@@ -241,7 +248,17 @@ export function Menu({
                 {item.shortcut !== null && <span className="menu-item-keys">{item.shortcut}</span>}
               </span>
               {item.hint !== null && (
-                <span className="menu-item-hint" data-indented={item.icon !== null || undefined}>
+                <span
+                  className="menu-item-hint"
+                  data-indented={item.icon !== null || undefined}
+                  data-cut={hintLines !== undefined || undefined}
+                  style={
+                    hintLines === undefined
+                      ? undefined
+                      : ({ "--menu-hint-lines": hintLines } as CSSProperties)
+                  }
+                  title={hintLines === undefined ? undefined : item.hint}
+                >
                   {item.hint}
                 </span>
               )}

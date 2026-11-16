@@ -415,6 +415,11 @@ async fn respond(
             Reply::StartupReport(Box::new(shared.recovery.startup_report())),
             Then::Continue,
         ),
+        // The app opened the after-restart dialog for this start: no later app opens it again (REC-06).
+        Request::ServiceSummaryShown => {
+            shared.summary_shown.store(true, Ordering::Relaxed);
+            (Reply::Ok, Then::Continue)
+        }
         Request::ServiceStop => (Reply::Ok, Then::Stop),
         // The pause is stored before the answer (TRY-07): nothing starts on its own from here on, and the app knows
         // the hold is safe before the service goes away.

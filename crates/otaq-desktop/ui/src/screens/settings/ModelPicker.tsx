@@ -4,7 +4,8 @@
 // on the field (`OCna6`); and the Agents page's dropdown of a tool and a model (the default model: every connected
 // tool under its name, then its models). Every row comes from the Rust views
 // (`model_picker.rs`, `agents.rs`); this keeps only whether the list is open and which row is highlighted. The keys are
-// the menus' (`menuKey`): ↑/↓ move, Home/End, ↵ or Space picks, Esc or Tab closes.
+// the menus' (`menuKey`): ↑/↓ move, Home/End, ↵ or Space picks, Esc or Tab closes. Esc closes the
+// open list first wherever the focus is (it is the topmost Esc layer), and only then what it sits in.
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -16,6 +17,7 @@ import {
 } from "react";
 
 import { FloatingPortal, useFloatingStyle } from "../../components";
+import { useEscapeLayer } from "../../components/escape";
 import { menuKey } from "../../components/logic";
 import type { AgentsModelChoice } from "../../generated/AgentsModelChoice";
 import type { AgentsModelDropdown } from "../../generated/AgentsModelDropdown";
@@ -130,8 +132,27 @@ export function ChoiceList({
     return at < 0 ? null : at;
   });
   useEffect(() => {
-    root.current?.focus();
+    const list = root.current;
+    list?.focus();
+    if (list === null || list.ownerDocument.activeElement === list) return;
+    // The floating list is hidden until it is placed, and a hidden element takes no focus: it takes it once shown, so
+    // its keys (↑/↓, Esc) are its own and not the page's (Esc closed Settings under the model picker), as `Menu` does.
+    const frame = requestAnimationFrame(() => {
+      list.focus();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
   }, []);
+  // Esc closes it with the focus elsewhere too, as the topmost layer (never Settings or the details it sits in); with
+  // the focus in it, its own keys do.
+  useEscapeLayer(
+    () => {
+      onClose("key");
+    },
+    root,
+    true,
+  );
   const onKeyDown = (e: KeyboardEvent) => {
     const result = menuKey(items, highlighted, e.key);
     switch (result.kind) {

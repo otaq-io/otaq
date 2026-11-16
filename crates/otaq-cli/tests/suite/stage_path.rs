@@ -167,6 +167,21 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
         .start(&key, &me(), otaq_core::session::Start::Auto)
         .await
         .unwrap();
+    // Claude Code saved the conversation once it worked: its exit is an interruption, not a failed start (F-E2-1).
+    let agent = w
+        .sessions
+        .running_of(&t.id, otaq_core::session::SessionKind::Agent)
+        .expect("the agent runs");
+    let transcript = otaq_core::agent_tools::claude::transcript::transcript_path(
+        &w.claude_dir(),
+        Path::new("/elsewhere"),
+        agent
+            .tool_session_id
+            .as_deref()
+            .expect("a new conversation's id"),
+    );
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    std::fs::write(&transcript, "").unwrap();
     until(&w, &key, "was interrupted", async |w| {
         w.status(&key).await == Status::Interrupted
     })

@@ -177,19 +177,51 @@ pub fn stock_limit<'a>(
 /// session their status doesn't show: their start is running, or a PR Delivery session works on them
 /// ([`Scheduler::busy`]). One slot per ticket.
 pub fn running_count(tickets: &[Ticket], busy: &HashSet<String>) -> usize {
+    slot_holders(tickets, busy).count()
+}
+
+/// The tickets that hold a slot, those [`running_count`] counts: one per ticket, in `tickets`' order.
+pub fn slot_holders<'a>(
+    tickets: &'a [Ticket],
+    busy: &'a HashSet<String>,
+) -> impl Iterator<Item = &'a Ticket> + 'a {
     tickets
         .iter()
         .filter(|t| HOLDS_A_SLOT.contains(&t.status) || busy.contains(&t.id))
-        .count()
 }
 
-/// The scheduler's view of the limits now: what the header's "3 / 5 agents" and Settings' "Right now: 3 running ·
-/// 2 queued tickets waiting for a slot · needs you 7 (no new starts)" show.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// Why a ticket holds a slot its status doesn't show ([`Scheduler::busy`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Busy {
+    /// Its start is running.
+    Starting,
+    /// A PR Delivery session works on it.
+    Delivering,
+}
+
+/// One ticket holding a slot of the agent limit (decision 114): Running lists, with the limit on, those that aren't
+/// among its working agents, so the count and the list agree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotHolder {
+    pub key: TicketKey,
+    pub title: String,
+    pub status: Status,
+    /// Set when it holds the slot for a start or a PR Delivery session rather than (only) for its status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub busy: Option<Busy>,
+}
+
+/// The scheduler's view of the limits now: what the header's "3 / 5 agents" and Settings' "Right now: 3 of 5 slots
+/// taken · 2 tickets waiting for a slot · needs you 7 (no new starts)" show.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SchedulerStatus {
     pub limits: AgentLimits,
     /// Agents holding a slot ([`HOLDS_A_SLOT`] and starts that are running), across all projects.
     pub holding: u32,
+    /// The tickets [`Self::holding`] counts ([`slot_holders`]), across all projects.
+    #[serde(default)]
+    pub holders: Vec<SlotHolder>,
     /// Queued tickets waiting for a slot.
     pub waiting_for_slot: u32,
     /// Needs-you items across all projects (what back-pressure counts).
@@ -509,9 +541,27 @@ impl Scheduler {
         let (tickets, needs_you) = self.load(true).await?;
         let limits = board.global_settings().await?.agent_limits;
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        let starting = self.inner.starts.starting();
+        let delivering = self.delivering().await?;
+        let busy: HashSet<String> = starting.union(&delivering).cloned().collect();
+        let holders: Vec<SlotHolder> = slot_holders(&tickets, &busy)
+            .map(|t| SlotHolder {
+                key: t.key.clone(),
+                title: t.title.clone(),
+                status: t.status,
+                busy: if starting.contains(&t.id) {
+                    Some(Busy::Starting)
+                } else if delivering.contains(&t.id) {
+                    Some(Busy::Delivering)
+                } else {
+                    None
+                },
+            })
+            .collect();
         Ok(SchedulerStatus {
             limits,
-            holding: count(running_count(&tickets, &self.busy().await?)),
+            holding: count(holders.len()),
+            holders,
             waiting_for_slot: count(
                 tickets
                     .iter()
@@ -528,11 +578,16 @@ impl Scheduler {
     /// flow cancelled (`pr_flows`; the card waits in Review meanwhile).
     pub async fn busy(&self) -> Result<HashSet<String>, BoardError> {
         let mut busy = self.inner.starts.starting();
+        busy.extend(self.delivering().await?);
+        Ok(busy)
+    }
+
+    /// The tickets a PR Delivery session works on (`pr_flows`).
+    async fn delivering(&self) -> Result<HashSet<String>, BoardError> {
         let delivering: Vec<(String,)> = sqlx::query_as("SELECT ticket_id FROM pr_flows")
             .fetch_all(self.inner.board.store().pool())
             .await?;
-        busy.extend(delivering.into_iter().map(|(id,)| id));
-        Ok(busy)
+        Ok(delivering.into_iter().map(|(id,)| id).collect())
     }
 
     /// Every project's tickets, and the number of needs-you items when `count_needs_you`.

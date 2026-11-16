@@ -155,7 +155,16 @@ pub enum BranchCheck {
     Problem {
         message: String,
     },
+    /// The remote couldn't be asked (a sign-in needed, offline): the short line for the dialog, which still lets the
+    /// user confirm; the push will tell (F-C-2).
+    Unchecked {
+        message: String,
+    },
 }
+
+/// The dialog's line when the remote couldn't be asked; git's own error goes to the log only.
+pub const UNCHECKED: &str =
+    "Couldn\u{2019}t check origin (sign-in needed or offline) \u{b7} the push will tell";
 
 /// The ticket's PR commits, and how many of the first ones are already on the remote branch.
 pub(crate) struct PrCommits {
@@ -215,7 +224,7 @@ impl Board {
             let tracking = format!("refs/remotes/origin/{branch}");
             let refspec = format!("+refs/heads/{branch}:{tracking}");
             if let Err(e) = git
-                .run(&repo, &["fetch", "--quiet", "origin", &refspec])
+                .run_without_prompts(&repo, &["fetch", "--quiet", "origin", &refspec])
                 .await
             {
                 tracing::warn!(key = %ticket.key, error = %e, "can't fetch the PR's branch");
@@ -313,7 +322,7 @@ impl Board {
         }
         let heads = format!("refs/heads/{name}");
         match git
-            .run(&repo, &["ls-remote", "--heads", "origin", &heads])
+            .run_without_prompts(&repo, &["ls-remote", "--heads", "origin", &heads])
             .await
         {
             Ok(out) if !out.trim().is_empty() => Ok(BranchCheck::Problem {
@@ -321,9 +330,12 @@ impl Board {
                     .to_owned(),
             }),
             Ok(_) => Ok(BranchCheck::Ok),
-            Err(e) => Ok(BranchCheck::Problem {
-                message: format!("Can\u{2019}t check origin for {name}: {e}"),
-            }),
+            Err(e) => {
+                tracing::warn!(key = %ticket.key, branch = name, error = %e, "can't check origin for the PR's branch");
+                Ok(BranchCheck::Unchecked {
+                    message: UNCHECKED.to_owned(),
+                })
+            }
         }
     }
 

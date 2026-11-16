@@ -364,6 +364,16 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             text.unwrap_or_default().to_owned(),
             Target::Ticket { key: key.clone() },
         ),
+        // "SHOP-19 needs you to sign in" · "Codex needs you to sign in" (decision 118).
+        Status::NeedsYou
+            if let Some(prompt) = text.filter(|t| crate::signals::sign_in_screen::is_prompt(t)) =>
+        {
+            (
+                format!("{key}{}", crate::signals::sign_in_screen::PROMPT_END),
+                prompt.to_owned(),
+                Target::Ticket { key: key.clone() },
+            )
+        }
         Status::NeedsYou => (
             format!("{key} needs permission"),
             text.unwrap_or_default().to_owned(),
@@ -1673,6 +1683,20 @@ mod tests {
         let out = notifications(plan(&[long], &texts, &mut HashSet::new(), &on()));
         assert_eq!(out[0].body, command.trim());
         assert_eq!(out[0].subtitle, format!("shop-web · {title}"));
+    }
+
+    /// Decision 118: an agent whose Codex stopped at its own sign-in screen asks the user to sign in, not for a
+    /// permission.
+    #[test]
+    fn a_sign_in_screen_says_sign_in() {
+        let waiting = item("SHOP-22", Status::NeedsYou, NeedsYouGroup::Family, 1);
+        let texts = HashMap::from([(
+            "SHOP-22".to_owned(),
+            ItemText::from("Codex needs you to sign in"),
+        )]);
+        let out = notifications(plan(&[waiting], &texts, &mut HashSet::new(), &on()));
+        assert_eq!(out[0].title, "SHOP-22 needs you to sign in");
+        assert_eq!(out[0].body, "Codex needs you to sign in");
     }
 
     /// T-0371 (d0090): an unticked kind posts nothing but is still remembered, so ticking it later doesn't bring

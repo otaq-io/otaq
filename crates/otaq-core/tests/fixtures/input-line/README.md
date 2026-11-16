@@ -12,8 +12,31 @@ on Windows 11 ARM64, kept byte for byte, at 120 × 30 with Otaq's dark theme col
 | `copilot-approval-feedback.bin` | the same, with the user's feedback typed into option 2 |
 | `copilot-working.bin` | Copilot at work after that refusal and feedback: its usual `┃` input line, and the footer `○ Working · 144 B ctrl+c interrupt` |
 | `copilot-idle-after.bin` | Copilot idle again after the turn: the same input line, the footer `← open sidebar · Interactive · …` |
+| `copilot-idle-unfocused.bin` | Copilot idle in its fresh layout (`❯` between two rules), then focus out (`ESC[O`): it redraws its logo with the cursor hidden and leaves it there |
+| `copilot-idle-refocused.bin` | the same, then focus in (`ESC[I`): the cursor back on its input line, shown |
+| `copilot-idle-unfocused-attach.bin` | Copilot idle in its `┃` layout after a turn, its terminal unfocused (cursor hidden at the screen's end); replayed through `otaq attach` |
+| `copilot-approval-unfocused.bin`, `copilot-approval-unfocused-attach.bin` | Copilot's permission prompt with its terminal unfocused, raw and replayed through `otaq attach`: drawn as when focused, cursor hidden |
+| `copilot-trust.bin` | Copilot's "Confirm folder trust" prompt (`❯ 1. Yes`, …), cursor hidden |
+| `copilot-model-unfocused.bin` | Copilot's `/model` picker, unfocused: no numbers, `❯ Copilot Fusion ✓` and `❯  Search models…` over `↑/↓ to navigate · … enter to select · esc to cancel`, cursor hidden (focused too) |
+| `claude-trust-unfocused.bin` | Claude Code 2.1.325's folder trust prompt, unfocused: `> No, exit` over `Yes, I trust this folder`, no numbers, `Enter to confirm · Esc to cancel`, cursor hidden |
+| `claude-resume-unfocused.bin` | Claude Code's `/resume` picker, unfocused: its list (`> Mkdir newdir command`) under the `> /resume` echo, cursor hidden |
+| `codex-sign-in.bin` | Codex 0.166's sign-in screen at start with an expired ChatGPT sign-in (`codex login status` still says "Logged in using ChatGPT"): "Welcome to Codex …", `> 1. Sign in with ChatGPT` … `4. Use Amazon Bedrock`, `Press enter to continue`, cursor hidden (decision 118) |
+| `opencode-permission-unfocused.bin` | OpenCode 1.19.5's permission prompt (`Allow once   Allow always   Reject`, `⇆ select  enter confirm`), unfocused, cursor hidden |
 
 The Copilot 1.0.112 files (2026-11-15) come from a real signed-in session (model MAI-Code-1.1-Flash) in a scratch
 repository (`~\cap-copilot\repo`). A small ConPTY host started Copilot, answered the terminal's colour and cursor
 queries, sent the keys for each step and saved the output at each one. The Windows user name in the folder path is
 replaced with `otaq-tester`, which has the same length so the layout stays the same.
+
+The unfocused captures (2026-11-16) come from the same kind of host (`conrec.ps1`, 120 × 30, the same colour
+answers), which sends the focus reports Otaq's terminal passes on (`ESC[O` when it loses focus, `ESC[I` when it gets
+it back); each file is the output up to the step it is named after. Copilot 1.0.112, Claude Code 2.1.325 and OpenCode
+1.19.5 ran in scratch repositories. The two `-attach` files are Otaq's kept output of a real Copilot session (the
+release test's TOOL-8) replayed by `otaq attach` inside the host: a second ConPTY drew it again, so the screen is exact
+but the bytes aren't Copilot's own.
+
+`codex-sign-in.bin` (2026-11-16) comes from the same host: `codex.js --no-daemon -c check_for_update_on_startup=false
+"…"` as Otaq launches Codex, in a scratch repository, with a scratch `CODEX_HOME` holding a copy of the VM's expired
+`auth.json`; the output up to 25 s after the start, the menu drawn. The same start, taken past the menu with "Use an
+OpenAI API key" (a made-up key) and the folder trust prompt, went on to run its launch prompt: Codex keeps it through
+the menu. The Windows user name is replaced with `otaq-tester` as above.

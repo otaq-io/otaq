@@ -210,12 +210,12 @@ async fn a_refused_commit_message_is_fixed_in_open_prs_field() {
     assert!(edited.commits.is_empty(), "{edited:?}");
     type_commit(&app, 1, "fix: cover deep links").await;
 
-    // Fixed in the commit's field, the confirm goes on and the commit is reworded.
-    let fixed = type_commit(&app, 0, "fix: redirect after login").await;
-    assert_eq!(
-        fields(view(&fixed))[0],
-        ("fix: redirect after login".to_owned(), false)
-    );
+    // Fixed in the commit's field, the confirm goes on and the commit is reworded. The page's text area keeps the
+    // message's line breaks (F-C-3), so the blank line and the trailer under the subject reach the commit as typed.
+    let fixed_message =
+        "fix: redirect after login\n\nCo-Authored-By: Claude <noreply@anthropic.com>";
+    let fixed = type_commit(&app, 0, fixed_message).await;
+    assert_eq!(fields(view(&fixed))[0], (fixed_message.to_owned(), false));
     name_branch(&app, "feature/SHOP-1-login").await;
     let confirmed = request(&app, "pr.confirm", json!({ "key": "SHOP-1" }))
         .await
@@ -224,6 +224,15 @@ async fn a_refused_commit_message_is_fixed_in_open_prs_field() {
     assert_eq!(
         subjects(&repo, "main..feature/SHOP-1-login"),
         ["fix: redirect after login", "fix: cover deep links"]
+    );
+    let first = git(
+        &repo,
+        &["log", "--reverse", "--format=%B%x00", "main..feature/SHOP-1-login"],
+    );
+    assert_eq!(
+        first.split('\0').next().map(str::trim_end),
+        Some(fixed_message),
+        "the whole message, its line breaks and trailer kept"
     );
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(ticket.flags.hook_refusal, None);

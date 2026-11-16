@@ -513,6 +513,7 @@ mod tests {
                         agents_waiting: 0,
                         unclean_start: false,
                         interrupted_at_start: 0,
+                        summary_shown: Some(false),
                         paused: Vec::new(),
                         stopped_to_quit: None,
                     }),

@@ -3,6 +3,25 @@
 What changed for you in each release. The maintainer copies a version's section into its GitHub release notes
 before Publish (`scripts/README.md`, "Making a release").
 
+## Unreleased
+
+- **GitHub Copilot removed its "Auto · efficiency" profile** (Copilot CLI 1.0.112 refuses it), so Otaq no longer
+  offers it: Copilot's Auto is balance or intelligence. An agent saved on efficiency shows "no longer listed" and
+  its new starts, Start from scratch included, wait "Model unavailable" until you pick another model for it. A
+  ticket whose conversation ran on efficiency resumes on Auto · balance, keeping its conversation, and its History
+  says so.
+- **A check judges only what changed since you approved.** Once you pass a ticket at a review step (Spec review,
+  Review, any stage that waits for you), a later check (Validate, Code review, your own check) judges only the
+  changes made after that approval; what you approved stays readable as context and is never failed as out of scope.
+  With no approval yet, a check judges the whole branch as before.
+- **With the agent limit on, Running shows what holds each slot.** An agent waiting for you keeps its slot, as it
+  always has; the Running popover now lists it under the working agents ("SHOP-6 · waits for you · decide"), as it
+  does a start in progress, so "1/1 agents" no longer sits over "Nothing running". Settings → Limits says "Right
+  now: 1 of 1 slot taken", and "Run at most" says a waiting agent keeps its slot.
+- **The box for new work steps aside while a ticket is open.** It used to shrink into a "+ Ctrl+N" pill half under
+  the project rail; now it is hidden while any ticket's sheet is open, Ctrl+N opens the full New ticket form there,
+  and the box is back at the bottom of the board once the sheet closes.
+
 ## 0.2.0
 
 - **A shorter first run.** It is Welcome (your board's columns are your process, in one picture) → Tools (the agent

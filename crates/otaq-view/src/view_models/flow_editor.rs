@@ -299,6 +299,33 @@ pub fn shipped_caption(skill: &str, back: Option<&str>) -> Option<String> {
             back.unwrap_or("the stage before")
         ),
         "open-pr" => PR_CAPTION.to_owned(),
+        // tuq's step-back: with no tool's tuq installed, its row has no description of its own (F-D-2).
+        "step-back" => {
+            "An agent steps back from a feature\u{2019}s decisions and names the ones adding the most complication."
+                .to_owned()
+        }
+        // Otaq's workflow skills, in a sentence instead of their instructions to the agent (F-D-1).
+        "address-review" => {
+            "An agent fixes what you sent back from review, then hands the ticket back to you.".to_owned()
+        }
+        "answer-question" => {
+            "An agent answers a linked ticket\u{2019}s question from this finished ticket\u{2019}s work, changing nothing."
+                .to_owned()
+        }
+        "check-ticket" => format!(
+            "{} starts it before a check stage\u{2019}s own skill: the checking agent changes nothing and gives its verdict.",
+            otaq_core::naming::PRODUCT_NAME
+        ),
+        "commit" => "An agent commits every change in the ticket\u{2019}s own copy of the repo.".to_owned(),
+        "flow" => "Noyan changes the project\u{2019}s flow: its agents and stages.".to_owned(),
+        "noyan" => "Noyan, the project\u{2019}s coordinator, turns what you ask for into tickets.".to_owned(),
+        "push" => {
+            "An agent pushes the ticket\u{2019}s new commits to its pull request once their messages are confirmed."
+                .to_owned()
+        }
+        "restack" => {
+            "An agent brings the ticket\u{2019}s branch up to date with the branch it merges into.".to_owned()
+        }
         _ => return None,
     })
 }
@@ -1066,7 +1093,14 @@ fn skill_tools(skill: &FoundSkill) -> String {
 /// badge on each. A user's skill's second line is where it lives, the tools that have it, then its description; an
 /// Otaq row's says what it does (Otaq's own words for its shipped skills): every tool has it.
 fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
-    let mut skills: Vec<&FoundSkill> = f.skills.iter().collect();
+    let checked = |skill: &FoundSkill| stage.skill.as_deref() == Some(skill.name.as_str());
+    // Otaq's `check-ticket` is a checker's workflow skill, never a stage's own (decision 113): Otaq starts it before a
+    // check stage's task skill. Listed only on a stage that already names it.
+    let mut skills: Vec<&FoundSkill> = f
+        .skills
+        .iter()
+        .filter(|s| s.name != otaq_core::agent_tools::CHECK_TICKET_SKILL || checked(s))
+        .collect();
     let order = |s: &FoundSkill| match (s.otaq, s.places.first().map(|p| p.scope)) {
         (true, _) => 2,
         (false, Some(SkillScope::Project)) => 1,
@@ -1075,7 +1109,6 @@ fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
     skills.sort_by_key(|s| (order(s), s.name.to_lowercase()));
     let (otaqs, users): (Vec<&FoundSkill>, Vec<&FoundSkill>) =
         skills.into_iter().partition(|s| s.otaq);
-    let checked = |skill: &FoundSkill| stage.skill.as_deref() == Some(skill.name.as_str());
     let mut items: Vec<MenuItem> = users
         .into_iter()
         .map(|skill| {
@@ -2765,12 +2798,14 @@ mod tests {
         assert_eq!(items[3].0, own("address-review"));
         let otaqs = &picker.items[3..];
         // Otaq's workflow skills and tuq's (decision 104), tuq's as tuq is known to have them, by their namespaced
-        // names, each with the "Otaq" badge.
+        // names, each with the "Otaq" badge. All but `check-ticket`: a checker's workflow skill, never a stage's own
+        // (decision 113).
         assert_eq!(
             otaqs.len(),
-            shipped::SKILLS.len() + otaq_core::tuq::KNOWN.len()
+            shipped::SKILLS.len() - 1 + otaq_core::tuq::KNOWN.len()
         );
         let ids: Vec<&str> = otaqs.iter().map(|i| i.id.as_str()).collect();
+        assert!(!ids.contains(&otaq_core::agent_tools::CHECK_TICKET_SKILL));
         let product_spec = format!("{}:product-spec", otaq_core::tuq::NAMESPACE);
         assert!(
             ids.contains(&own("validate").as_str())
@@ -2797,7 +2832,7 @@ mod tests {
         let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
         assert_eq!(
             picker.items.len(),
-            1 + shipped::SKILLS.len() + otaq_core::tuq::KNOWN.len()
+            1 + shipped::SKILLS.len() - 1 + otaq_core::tuq::KNOWN.len()
         );
         assert!(picker.items[0].header && picker.items[0].mark && !picker.items[0].separated);
         assert!(
@@ -2805,6 +2840,78 @@ mod tests {
                 .iter()
                 .all(|i| !i.disabled && !i.id.is_empty())
         );
+    }
+
+    /// F-D-1, F-D-2 (decision 108: "its second line says what it does"): with no tool's tuq installed, every row of
+    /// the "Otaq" group says what it does in Otaq's words, tuq's `step-back` too, and none reads as instructions to
+    /// the agent.
+    #[test]
+    fn every_otaq_row_says_what_it_does_without_tuq_installed() {
+        let mut e = env();
+        e.skills = otaq_skills();
+        let step_back = format!("{}:step-back", otaq_core::tuq::NAMESPACE);
+        assert!(
+            e.skills
+                .iter()
+                .any(|s| s.name == step_back && s.description.is_none())
+        );
+        let (file, d) = plan_draft(None);
+        let d = Draft {
+            proposal: d,
+            ..draft(&file, false)
+        };
+        let v = render(&e, &d, &file, &shop_web(), Some("plan"));
+        let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
+        let otaqs: Vec<&MenuItem> = picker.items.iter().filter(|i| !i.header).collect();
+        assert!(!otaqs.is_empty());
+        for row in &otaqs {
+            assert_eq!(row.hint, shipped_caption(&row.id, None), "{}", row.id);
+            let hint = row.hint.as_deref().unwrap();
+            assert!(
+                !hint.contains('$') && !hint.contains('`') && hint.len() < 120,
+                "{}: {hint}",
+                row.id
+            );
+        }
+        assert_eq!(
+            otaqs.iter().find(|i| i.id == step_back).unwrap().hint,
+            shipped_caption(&step_back, None)
+        );
+        // A check stage's `check-ticket`, listed when a stage names it, has Otaq's words too.
+        assert!(shipped_caption(otaq_core::agent_tools::CHECK_TICKET_SKILL, None).is_some());
+        // The user's own skills keep their own descriptions: a bare name is never captioned.
+        assert_eq!(shipped_caption("step-back", None), None);
+        assert_eq!(shipped_caption("address-review", None), None);
+    }
+
+    /// Decision 113: Otaq's `check-ticket` is never offered as a stage's skill (Otaq starts it before a check stage's
+    /// task skill), but a stage that already names it still shows it, checked.
+    #[test]
+    fn check_ticket_shows_only_on_a_stage_that_names_it() {
+        let mut e = env();
+        e.skills = otaq_skills();
+        let shop = shop_web();
+        let check_ticket = otaq_core::agent_tools::CHECK_TICKET_SKILL;
+        let listed = |skill: Option<&str>| {
+            let (file, d) = plan_draft(skill);
+            let d = Draft {
+                proposal: d,
+                ..draft(&file, false)
+            };
+            let v = render(&e, &d, &file, &shop, Some("plan"));
+            plan_details(&v)
+                .skill
+                .as_ref()
+                .unwrap()
+                .picker
+                .items
+                .iter()
+                .find(|i| i.id == check_ticket)
+                .map(|i| i.checked)
+        };
+        assert_eq!(listed(None), None);
+        assert_eq!(listed(Some(otaq_core::own_skill!("validate"))), None);
+        assert_eq!(listed(Some(check_ticket)), Some(true));
     }
 
     /// Decision 108: a personal `validate` is the user's, listed above the "Otaq" group, unmarked, apart from Otaq's

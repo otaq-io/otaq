@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { LayoutView } from "../generated/LayoutView";
-import { newWorkRight, Frame, FrameBody } from "./Frame";
+import { Frame, FrameBody } from "./Frame";
 import {
   agentPanelWidth,
   INITIAL_LAYOUT,
@@ -108,7 +108,6 @@ describe("the frame", () => {
       "agent_panel",
       "board",
       "sheet",
-      "new_work",
       "overlays",
       "toasts",
     ]);
@@ -238,12 +237,11 @@ describe("the layout's state", () => {
   });
 });
 
-describe("the box for new work beside the ticket sheet (#21)", () => {
-  it("ends at the sheet's left edge, and hides while the sheet fills the main area", () => {
-    expect(newWorkRight(false, false, 0)).toBe(0);
-    expect(newWorkRight(true, false, 640)).toBe(640);
-    expect(newWorkRight(true, true, 1200)).toBeNull();
+describe("the box for new work and the ticket sheet (#21, 0.3 F-A-1)", () => {
+  it("is at the board's bottom centre with no sheet open, and gone while any ticket sheet is open", () => {
+    expect(slots(body(INITIAL_LAYOUT))).toContain("new_work");
+    expect(body(INITIAL_LAYOUT)).toContain('<div class="frame-new-work" data-slot="new_work">');
+    expect(slots(body(INITIAL_LAYOUT, true))).not.toContain("new_work");
     expect(slots(body({ ...INITIAL_LAYOUT, sheetExpanded: true }, true))).not.toContain("new_work");
-    expect(slots(body(INITIAL_LAYOUT, true))).toContain("new_work");
   });
 });

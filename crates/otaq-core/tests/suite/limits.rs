@@ -13,7 +13,7 @@ use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
 use otaq_core::domain::{Actor, Flags, Status, TicketKey};
 use otaq_core::scheduler::{
-    Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, running_count,
+    Busy, Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, running_count, slot_holders,
 };
 use otaq_core::service::EventBus;
 
@@ -96,6 +96,41 @@ fn needs_you_and_background_count_review_and_parked_do_not() {
     );
     assert!(HOLDS_A_SLOT.contains(&Status::WorkingInBackground));
     assert!(!HOLDS_A_SLOT.contains(&Status::WaitingForYou));
+}
+
+/// Decision 114: the tickets listed as holding a slot are exactly those the limit counts, a check that gave no
+/// result or failed included.
+#[test]
+fn slot_holders_are_what_the_limit_counts() {
+    let tickets = [
+        t("SHOP-1", Status::Working, 0),
+        t("SHOP-2", Status::WorkingInBackground, 0),
+        t("SHOP-3", Status::AsksYou, 0),
+        t("SHOP-4", Status::NeedsYou, 0),
+        t("SHOP-5", Status::Idle, 0),
+        t("SHOP-6", Status::WaitingForYou, 0),
+        t("SHOP-7", Status::Parked, 0),
+        t("SHOP-8", Status::PrOpen, 0),
+        t("SHOP-9", Status::Interrupted, 0),
+        t("SHOP-10", Status::Queued, 0),
+        t("SHOP-11", Status::WaitingForSlot, 0),
+        t("SHOP-12", Status::CheckNoResult, 0),
+        t("SHOP-13", Status::CheckFailed, 0),
+        t("BILL-1", Status::Working, 0),
+    ];
+    let busy = HashSet::from(["SHOP-10".to_owned()]);
+    let holders: Vec<String> = slot_holders(&tickets, &busy)
+        .map(|t| t.key.to_string())
+        .collect();
+    assert_eq!(
+        holders,
+        [
+            "SHOP-1", "SHOP-2", "SHOP-3", "SHOP-4", "SHOP-5", "SHOP-10", "SHOP-12", "SHOP-13",
+            "BILL-1"
+        ]
+    );
+    assert_eq!(holders.len(), running_count(&tickets, &busy));
+    assert_eq!(running_count(&tickets, &HashSet::new()), 8);
 }
 
 #[test]
@@ -184,6 +219,35 @@ impl StartTickets for Recorder {
     fn starting(&self) -> HashSet<String> {
         HashSet::new()
     }
+}
+
+/// Starts that are running, as the start sequence reports them.
+struct Starting(HashSet<String>);
+
+impl StartTickets for Starting {
+    fn spawn_start(&self, _: &ToStart) {}
+
+    fn starting(&self) -> HashSet<String> {
+        self.0.clone()
+    }
+}
+
+/// A session of `kind` on the ticket, live or ended.
+async fn session(f: &Fixture, ticket: &Ticket, kind: &str, live: bool) {
+    let project = f.board.project("SHOP").await.unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, state, started_at, ended_at)
+         VALUES (?, ?, ?, ?, 'claude', ?, 1, ?)",
+    )
+    .bind(otaq_core::store::new_id())
+    .bind(&project.id)
+    .bind(&ticket.id)
+    .bind(kind)
+    .bind(if live { "running" } else { "ended" })
+    .bind(if live { None } else { Some(2_i64) })
+    .execute(f.board.store().pool())
+    .await
+    .unwrap();
 }
 
 async fn queued(f: &Fixture, title: &str) -> Ticket {
@@ -304,6 +368,80 @@ async fn the_scheduler_reads_the_settings_and_counts_needs_you_across_projects()
     queued(&f, "c").await;
     scheduler.pass().await.unwrap();
     assert_eq!(recorder.0.lock().unwrap().last().unwrap(), "SHOP-3");
+}
+
+/// F-B-2 and decision 114: the status names every ticket holding a slot, also those Running doesn't list as working:
+/// a check that gave no result with its Developer session live, a limit wait with no session, an agent idle whose
+/// session is gone, and a start in progress. The count stays what it was.
+#[tokio::test]
+async fn the_status_names_every_slot_holder() {
+    let f = Fixture::shop().await;
+    let no_result = queued(&f, "no result").await;
+    let limit_wait = queued(&f, "limit wait").await;
+    let gone = queued(&f, "session gone").await;
+    let starting = queued(&f, "starting").await;
+    let working = queued(&f, "working").await;
+    let _waiting = queued(&f, "waiting").await;
+    set(&f, "SHOP-1", Status::CheckNoResult).await;
+    session(&f, &no_result, "agent", true).await;
+    session(&f, &no_result, "validator", false).await;
+    set(&f, "SHOP-2", Status::WaitingForLimitReset).await;
+    set(&f, "SHOP-3", Status::Idle).await;
+    session(&f, &gone, "agent", false).await;
+    set(&f, "SHOP-5", Status::Working).await;
+    session(&f, &working, "agent", true).await;
+    limits(
+        &f,
+        AgentLimits {
+            enabled: true,
+            max_concurrency: 1,
+            back_pressure: 50,
+        },
+    )
+    .await;
+    let scheduler = Scheduler::new(
+        f.board.clone(),
+        Arc::new(Starting(HashSet::from([starting.id.clone()]))),
+        EventBus::new(16),
+        Duration::from_secs(3600),
+    );
+    let status = scheduler.status().await.unwrap();
+    let holders: Vec<(String, Status, Option<Busy>)> = status
+        .holders
+        .iter()
+        .map(|h| (h.key.to_string(), h.status, h.busy))
+        .collect();
+    assert_eq!(
+        holders,
+        [
+            ("SHOP-1".to_owned(), Status::CheckNoResult, None),
+            ("SHOP-2".to_owned(), Status::WaitingForLimitReset, None),
+            ("SHOP-3".to_owned(), Status::Idle, None),
+            ("SHOP-4".to_owned(), Status::Queued, Some(Busy::Starting)),
+            ("SHOP-5".to_owned(), Status::Working, None),
+        ]
+    );
+    assert_eq!(status.holding, 5, "the count is unchanged: one per holder");
+    assert_eq!(status.holders[0].title, "no result");
+    // Running lists only SHOP-5: the others are what the popover adds under it.
+    let at_work: Vec<String> = otaq_core::usage::activity::working(f.board.store())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|w| w.key)
+        .collect();
+    assert_eq!(at_work, ["SHOP-5"]);
+    let _ = (limit_wait, working);
+    // The wire: an older service's status, without holders, still reads.
+    let old = serde_json::json!({
+        "limits": status.limits,
+        "holding": 1,
+        "waiting_for_slot": 0,
+        "needs_you": 0,
+        "starts_paused": false,
+    });
+    let read: otaq_core::scheduler::SchedulerStatus = serde_json::from_value(old).unwrap();
+    assert!(read.holders.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

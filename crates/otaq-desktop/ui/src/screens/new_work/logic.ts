@@ -148,7 +148,10 @@ export async function askNoyan(
 /** Counts the asks to open the box and give it the keyboard (⌘N, the toolbar's New ticket, Backlog's +). */
 export const openRequests: Store<number> = createStore(0);
 
-/** Whether the box is on screen to take them: the project's board or List, with Noyan's panel closed. */
+/**
+ * Whether the box is on screen to take them: the project's board or List, with Noyan's panel and every ticket sheet
+ * closed.
+ */
 export const boxOnScreen: Store<boolean> = createStore(false);
 
 /**
@@ -159,7 +162,7 @@ export const boardAway: Store<boolean> = createStore(false);
 
 /**
  * ⌘N and the toolbar's New ticket: the box opens with the keyboard in it. Where the box isn't on screen (Noyan's panel
- * open, a full-page ticket, Files with no file picked), the full form opens instead.
+ * open, a ticket sheet open, Files with no file picked), the full form opens instead.
  */
 export function openNewWork(openForm: () => void, onScreen: Store<boolean> = boxOnScreen): void {
   if (onScreen.get()) openRequests.update((n) => n + 1);

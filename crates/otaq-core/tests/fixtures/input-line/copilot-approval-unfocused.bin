@@ -1,0 +1,197 @@
+[?9001h[?1004h[>4;2m[?u[?25l[2J[m[H]0;C:\Users\otaq-tester\AppData\Local\GitHubCopilotCLI\copilot.exe[?25h[?1049h[?2004h[?1004h[?1003h[?1006h[2J[>q[14t]4;0;?\]4;1;?\]4;2;?\]4;3;?\]4;4;?\]4;5;?\]4;6;?\]4;7;?\]4;8;?\]4;9;?\]4;10;?\]4;11;?\]4;12;?\]4;13;?\]4;14;?\]4;15;?\[?12l[?1007l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[?25l[120C[22;0t]0;GitHub Copilot]7501;state=idle:app=copilot\[2J[H [97m[44m[1m[Current][m  Sessions  [2m Issues [22m [2m Pull requests [22m  Gists[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[120C[?996n[90m[2m[3;1H╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│[116C│
+│[m  [34m╭─╮╭─╮[90m[2m[29C│[m  [34m[1mGetting started[90m[22m[2m[61C│
+│[m  [34m╰─╯╰─╯  [mCopilot v1.0.112 uses AI.  [90m[2m│[m  Use the tabs above to explore your sessions and pull requests[90m[2m[15C│
+│[m  [35m█ [96m▘▝ [35m█  [mCheck for mistakes.[90m[2m[8C│[m  /model — Switch models across providers, or use Auto[90m[2m[24C│
+│[m   [35m▔▔▔▔ [90m[2m[29C│[78C│
+│[116C│
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m[90m[2m[3;1H│[m  [34m╭─╮╭─╮[29X[90m[2m[29C│[m  [34m[1mGetting started[m[61X[90m[2m[61C│[m ┃[34m[4;3H ╰─╯╰─╯  [mCopilot v1.0.112 uses AI.  [90m[2m│[m  Use the tabs above to explore your sessions and pull requests[37m[17C┃[35m[5;3H █ [96m▘▝ [35m█  [mCheck for mistakes.[11C/model — Switch models across providers, or use Auto[37m[26C┃[35m[6;3H  ▔▔▔▔[28X[m[33C[61X[37m[78C┃[m[7;3H[28X[36C[55X[37m[81C┃[90m[2m
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m [37m┃[m
+[119X[37m[119C┃[90m
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ [m[1mConfirm folder trust[90m[22m[97C│
+│ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│ ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮ │
+│ │ [mC:\Users\otaq-tester\p1-capture\repo[90m[77C│ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│[118C│
+│ [mCopilot can read files in this folder and, with your permission, edit them or run code and shell commands. It will   [90m│
+│ [mremember your permissions for the rest of this session.[90m[62C│
+│[118C│
+│ [mGit commands run in this folder may use configuration from the enclosing repository and execute programs configured  [90m│
+│ [mby that repository.[90m[98C│
+│[118C│
+│ [mDo you trust the files in this folder?[90m[79C│
+│[118C│
+│ [97m[44m❯ 1. Yes[108X[m[108C [90m│
+│   [m2. Yes, and remember this folder for future sessions[90m[63C│
+│   [m3. No (Esc)[90m[104C│
+│[118C│
+│ [m[1m↑/↓[22m to navigate · [1menter[22m to select · [1mesc[22m to cancel[90m[68C│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m[5;43Hinit — Initialize Copilot instructions for this repository[6;42H/model — Switch models across providers, or use Auto[90m[2m[3;1H│[m  [35m█ [96m▘▝ [35m█  [mCheck for mistakes.        [90m[2m│[m  /init — Initialize Copilot instructions for this repository                 [K[90m[2m│[m ┃[90m[2m│[m   [35m▔▔▔▔[30X[90m[2m[30C│[m  /model — Switch models across providers, or use Auto[24X[90m[2m[24C│[m [37m┃[90m[2m
+│[m[116X[90m[2m[116C│[m [37m┃[90m[2m
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m [37m┃[m
+[119X[37m[119C┃[m
+ [34m● [mNo Copilot instructions found for this repository. Run /init to generate them.[38X[37m[38C┃[m
+                                                                                                                       [K[37m┃[m[96m[3;6H╴╶[m[96m[3;6H  [m[96m[3;6H╴╶[m[96m[3;6H▘▝[m[96m[3;6H╴╶[m[4;90HCopilot Fusion[96m[3;6H  [m[96m[3;6H╴╶[m[96m[3;6H▘▝[m[96m[3;6H╴╶[m[96m[3;6H  [m[96m[3;6H╴╶[m[96m[3;6H▘▝[m[35m[3;5H█ [96m▘▝[35m▐[4;5H [m[35m[3;5H [96m▘▝ [35m█[4;5H▔[m[90m[2m[3;1H╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮[m  [4;3H       [29C[65X[81C [34m[5;3H ╭─╮╭─╮[90m[2m[29C│[m  [34m[1mGetting started[m[63C [90m[2m
+│[m  [34m╰─╯╰─╯  [mCopilot v1.0.112 uses AI.  [90m[2m│[m  Use the tabs above to explore your sessions and pull requests[15X[90m[2m[15C│[m  [90m[2m
+│[m  [35m█ [96m▘▝ [35m█  [mCheck for mistakes.[90m[2m[8C│[m  /init — Initialize Copilot instructions for this repository[90m[2m[17C│[m  [90m[2m
+│[m   [35m▔▔▔▔[30X[90m[2m[30C│[m  /model — Switch models across providers, or use Copilot Fusion[90m[2m[14C│[m  [90m[2m
+│[116C│[m  [90m[2m
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m  
+[K
+ [34m● [mNo Copilot instructions found for this repository. Run /init to generate them.[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[120C[26;2H~\p1-capture\repo[54CRun on: This computer [1mctrl+e[22m change environment[2m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[22m
+❯[2m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[22m[1m[30;2H←[22m open sidebar · Interactive · Manual Approval · [1m/[22m commands · [1m?[22m help · [1mtab[22m next tab[21CCopilot Fusion[28;3H[?25h[?25l[26;20H[⎇ main][28;1H❯ [?25h[?25l[34m[14;2H● [mMCP Servers reloaded: 1 server connected[28;3H[?25h[?25l[34m[5;6H─╮╭╮[6;6H─╯╰╯[35m[7;5H█ [96m▘▝[35m▐[8;5H ▔[28;3H[?25h[m[?25l[34m[5;6H╮╭─╮[6;6H╯╰─╯[35m[7;5H [96m▘▝ [35m█[8;5H▔▔[28;3H[?25h[m[?25l[34m[5;6H─╮╭╮[6;6H─╯╰╯[35m[7;5H█ [96m▘▝[35m▐[8;5H ▔[28;3H[?25h[m[?25l[34m[5;6H╮╭─╮[6;6H╯╰─╯[35m[7;5H [96m▘▝ [35m█[8;5H▔▔[28;3H[?25h[m[?25l[36m[21;1H┃ [m❯ /model[36m
+┃   [m/model plan  Set the model used while in plan mode[36m
+┃   [m/model fusion|auto  Let Copilot pick the model automatically[36m
+┃   [m/model --session|-s  Set the model for this session[36m
+┃   [m/model --global  Set the default model for future sessions
+┃   /model --repo  Set the model default for this repository[K[28;1H❯ /model [plan|fusion|--session|--global|--repo|--local|--plan|<model-id>][30;1H Interactive · Manual Approval · [1m@[22m files/sessions · [1m#[22m issues[24X[28;9H[?25h[?25l[21;1H[K
+[K
+[K
+[K
+[K
+ ~\p1-capture\repo [⎇ main][33X[45CRun on: This computer [1mctrl+e[22m change environment[28;1H❯[K[30;1H [1m←[22m open sidebar · Interactive · Manual Approval · [1m/[22m commands · [1m?[22m help · [1mtab[22m next tab[28;3H[?25h[?25l[90m[3;1H────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+[K
+   Copilot Fusion chooses models and workflows based on your task. [36m]8;id=u-md-1j22lpv%12332354096572701706;https://gh.io/github-copilot-fusion\[4mLearn more[m]8;;\[K
+[K
+   Optimize for[K
+     [1mStandard[22m — Prioritizes versatile models for efficient everyday coding.[K
+     [1mHigh[22m — Prioritizes capable models for challenging tasks and deeper reasoning. Unavailable: This tier is not        
+     available for the user's Copilot plan.[K[1m[11;6HMax[22m — Prioritizes the most capable models for the most demanding tasks and complex reasoning. Unavailable: This
+     tier is not available for the user's Copilot plan.[K[90m[14;1H────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m[16;2HSession only. Copilot Fusion chooses a model; it does not change Autopilot or Assisted Permissions. Use `/config
+ model` for future sessions.
+ Your Copilot Free plan currently includes only Copilot Fusion, which automatically selects the best available model
+ for each task.[21;1H   [1m                    [22m  [1mTier              [36m[22m[75C┃[97m[44m[22;2H❯ Copilot Fusion ✓      ← Standard →[80X[m[80C [90m┃[m[2m[26;2H──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[22m
+ ❯ [7m [27mSearch models…[K
+ [2m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[22m
+ [94m● S[34mcanning local providers [m· [1m↑/↓[22m to navigate · [1m←/→[22m routing profile · [1mshift+tab[22m group: recommended · [1menter[22m to select ·  
+ [1mesc[22m to cancel[K[106C[34m[29;13HOllama [m· [1m↑/↓[22m to navigate · [1m←/→[22m routing profile · [1mshift+tab[22m group: recommended · [1menter[22m to select · [1mesc[22m to  
+ cancel[K[113C[29;1H [94m◉ [34mSc[94man[m [34m○[94m[9C O[m [34m◎ Scann[94min[34mg Ol[94mla[m [34m◉[6Cing [94mO[34mllam[94ma[m [94m●[34m[9C Ol[94mla[34mma[m [94m◉[34m[12Clam[94ma[m [94m◎[34m[15Ca[m [34m○ [m [34m◉ [94mS[34mc[m [34m● Sc[94man[m [94m◉ S[34mcann[94min[m [94m◎ [34mSc[94man[34mning [94mO[m [94m○ [34mScann[94min[34mg Ol[94mla[m [34m◎[6Cing [94mO[34mllam[94ma[m [34m◉[9C Ol[94mla[34mma[m [34m●[12Clam[94ma[m [94m◎[34m[15Ca[m [94m○ [m [94m◎ S[34mc[m [1m↑/↓[22m to navigate · [1m←/→[22m routing profile · [1mshift+tab[22m group: recommended · [1mctrl+r[22m rescan providers · [1menter[22m to select · [1mesc[22m[30;2Hto cancel[90m[2m[3;1H╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮[m  [90m[2m
+│[116C│
+│[m  [34m╭─╮╭─╮[29X[90m[2m[29C│[m  [34m[1mGetting started[m[21X[90m[2m[61C│
+│[m  [34m╰─╯╰─╯  [mCopilot v1.0.112 uses AI.  [90m[2m│[m  Use the tabs above to explore your sessions and pull requests[90m[2m[15C│
+│[m  [35m█ [96m▘▝ [35m█  [mCheck for mistakes.[90m[2m[8C│[m  /init — Initialize Copilot instructions for this repository[90m[2m[17C│
+│[m   [35m▔▔▔▔[30X[90m[2m[30C│[m  /model — Switch models across providers, or use Copilot Fusion[90m[2m[14C│
+│[m[111X[90m[2m[116C│
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m
+[K
+ [34m● [mNo Copilot instructions found for this repository. Run /init to generate them.[14;1H [34m● [mMCP Servers reloaded: 1 server connected[K[16;1H[K
+[K
+[K
+[K[21;1H[K
+[K[26;1H ~\p1-capture\repo [⎇ main]                                             Run on: This computer [1mctrl+e[22m change environment[2m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[22m
+❯[K[2m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[22m[1m[30;2H←[22m open sidebar · Interactive · Manual Approval · [1m/[22m commands · [1m?[22m help · [1mtab[22m next tab[21CCopilot Fusion[96m[7;6H╴╶ [m[96m[7;6H   [m[96m[7;6H╴╶ [m[96m[7;6H▘▝ [m[28;3H[?25h[?25lRun the shell command `git status` and tell me what it says.[30;1H Interactive · Manual Approval · [1m@[22m files/sessions · [1m#[22m issues[24X[28;63H[?25h[?25l[26;95H[K[28;1H❯[K[30;1H [94m● W[34morking [m[1mctrl+c[22m interrupt[33X[28;3H[?25h]0;Run the shell command `git status` and tell me what it says. - GitHub Copilot]7501;state=working:app=copilot\[?25l[16;2H❯ Run the shell command `git status` and tell me what it says.[50C12:18[28;3H[?25h[?25l[30;1H [94m◉ [34mWo[94mrk[28;3H[?25h[m[?25l[30;1H [34m◎ [94mW[34morki[94mng[28;3H[?25h[?25l[m[30;1H [34m○ Wo[94mrk[34ming[28;3H[?25h[m[?25l[30;1H [34m◎ Worki[94mng[28;3H[?25h[m[?25l[30;1H [34m◉[6Cng[28;3H[?25h[m[?25l[30;1H [94m● [28;3H[?25h[m[?25l[30;85HCopilot Fusion → mai-code-1.1-flash[28;3H[?25h[?25l[26;73H[21X[28CSession: 0 AIC used[28;1H❯ [?25h[?25l[30;1H [94m◉ [28;3H[?25h[?25l[m[34m[18;2H● [mCopilot Fusion selected MAI-Code-1.1-Flash because it was the best choice out of the models available in your plan.[28;3H[?25h[?25l[30;1H [34m○ Wo[94mrk[28;3H[?25h[?25l[m[30;1H [34m◎ [94mW[34morki[94mng[28;3H[?25h[m[?25l[30;1H [34m◉ Wo[94mrk[34ming[28;3H[?25h[m[?25l[30;1H [34m● Worki[94mng[28;3H[?25h[m[?25l[30;1H [94m◉[34m[6Cng[28;3H[?25h[m[?25l[30;1H [94m◎ [28;3H[?25h[m]0;Run Git Status Command - GitHub Copilot[?25l[30;1H [94m○ [28;3H[?25h[m[?25l[30;1H [34m◎ [94mW[34mo[28;3H[?25h[m[?25l[30;1H [34m◉ Wo[94mrk[28;3H[?25h[m[?25l[30;1H [34m● [94mW[34morki[94mng[28;3H[?25h[m[?25l[30;1H [34m◉ Wo[94mrk[34ming[28;3H[?25h[?25l[m[30;1H [94m○ [34mWork[28;3H[?25h[m[?25l[30;1H [94m◎ [28;3H[?25h[m[?25l[30;1H [34m◉ [28;3H[?25h[m[?25l[30;1H [34m● [94mW[34mo[28;3H[?25h[m[?25l[30;1H [34m◉ Wo[94mrk[28;3H[?25h[m[?25l[34m[5;6H─╮╭╮[6;6H─╯╰╯[35m[7;5H█ [96m▘▝[35m▐[8;5H ▔[28;3H[?25h[m[?25l[30;1H [34m◎ [94mW[34morki[94mng[28;3H[?25h[m[?25l[30;1H [94m○ [34mWo[94mrk[34ming[28;3H[?25h[m[?25l[30;1H [94m◎ [34mWorki[94mng[28;3H[?25h[m[?25l[30;1H [34m●[6Cng[28;3H[?25h[m[?25l[30;1H [34m◉ [28;3H[?25h[m[?25l[30;1H [34m◎ [94mW[34mo[28;3H[?25h[m[?25l[30;1H [34m○ Wo[94mrk[28;3H[?25h[m[?25l[30;1H [94m◎ W[34morki[94mng[28;3H[?25h[m[?25l[30;12H· 35 B [1mctrl+c[22m interrupt[28;3H[?25h[?25l[30;14H93 [28;3H[?25h[?25l[30;1H [94m◉ [34mWo[94mrk[34ming [m· 139 B [1mctrl+c[22m interrupt[28;3H[?25h[?25l[30;1H [94m● [34mWorki[94mng[28;3H[?25h[m]7501;state=blocked:app=copilot:kind=permission\[?25l[90m[2m[3;1H│[m  [34m╰──╯╰╯  [mCopilot v1.0.112 uses AI.  [90m[2m│[m  Use the tabs above to explore your sessions and pull requests[15X[90m[2m[15C│[m ┃[35m[4;3H ██ [96m▘▝[35m▐  [mCheck for mistakes.[90m[2m[8C│[m  /init — Initialize Copilot instructions for this repository[19C┃[35m[5;3H   ▔▔▔ [m[32C/model — Switch models across providers, or use Copilot Fusion[37m[16C┃[m[6;3H[100X[37m[117C┃[90m[2m
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m [37m┃[m
+[119X[37m[119C┃[m
+ [34m● [mNo Copilot instructions found for this repository. Run /init to generate them.[36C  [37m┃[m
+[119X[37m[119C┃[34m[11;2H● [mMCP Servers reloaded: 1 server connected[37m[76C┃[m
+[119X[37m[119C┃[m[13;2H❯ Run the shell command `git status` and tell me what it says.[50C12:18 [37m┃[m
+[119X[37m[119C┃[34m[15;2H● [mCopilot Fusion selected MAI-Code-1.1-Flash because it was the best choice out of the models available in your plan. [37m┃[m
+[119X[37m[119C┃[90m
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ [m[1mCheck repository status and branch info[22m[78X[90m[78C│
+│ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│ ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮ │
+│ │ [mgit status --short --branch[90m[86C│ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│[118C│
+│ [mDo you want to run this command?[90m[85C│
+│[118C│
+│ [97m[44m❯ 1. Yes[108X[m[108C [90m│
+│   [m2. No, and tell Copilot what to do differently (Esc to stop)[55X[90m[55C│
+│[118C│
+│ [m[1m↑/↓[22m to navigate · [1menter[22m to select · [1mesc[22m to cancel[68X[90m[68C│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m[90m[2m[3;1H│[m[116X[90m[2m[116C│[m ┃[90m[2m
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m ┃
+                                                                                                                       ┃ [34m● [mNo Copilot instructions found for this repository. Run /init to generate them.[38X[37m[38C┃[m
+[119X[37m[119C┃[m
+ [34m● [mMCP Servers reloaded: 1 server connected[76X[37m[76C┃[m
+[119X[37m[119C┃[m
+ ❯ Run the shell command `git status` and tell me what it says.                                                  12:18 [37m┃[m
+[119X[37m[119C┃[m
+ [34m● [mCopilot Fusion selected MAI-Code-1.1-Flash because it was the best choice out of the models available in your plan. [37m┃[m
+[119X[37m[119C┃[m
+ ○ [1mShell [22mCheck repository status and branch info[71X[37m[71C┃[m
+   git status --short --branch[89X[37m[89C┃[m
+                                                                                                                       [K[37m┃[m

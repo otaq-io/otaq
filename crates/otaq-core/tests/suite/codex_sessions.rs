@@ -213,9 +213,11 @@ async fn an_agent_dying_before_its_id_is_a_failed_start() {
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
     let problem = ticket.start_problem.unwrap();
     assert_eq!(problem.step, StartStep::Launch);
+    // With what Codex last printed.
     assert_eq!(
         problem.message,
-        "Codex stopped before its conversation started, so there is nothing to resume."
+        "Codex stopped before its conversation started, so there is nothing to resume. It said:\n\
+         ARGS --no-daemon -c check_for_update_on_startup=false $otaq:work-ticket"
     );
     w.starter.retry("SHOP-1", &me()).await.unwrap();
     assert_eq!(w.status("SHOP-1").await, Status::Queued);

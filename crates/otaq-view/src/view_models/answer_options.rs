@@ -261,6 +261,10 @@ pub struct Answer {
     pub hint: String,
     pub in_terminal: &'static str,
     pub send: &'static str,
+    /// A restart stopped the ticket while it asked (d0045): the send resumes its conversation, and the sheet's own
+    /// actions (Resume, a held tool's callout) stay under the box. Optional on the page: left out, it's live.
+    #[ts(as = "Option<bool>", optional)]
+    pub resumes: bool,
 }
 
 /// A question's text split into its question line (up to the first line break) and its context (the rest, without
@@ -295,6 +299,7 @@ fn answer(question: &HumanQuestion, rows: Vec<AnswerRow>, hint: String) -> Answe
         hint,
         in_terminal: "Answer in terminal",
         send: "Send answer",
+        resumes: false,
     }
 }
 

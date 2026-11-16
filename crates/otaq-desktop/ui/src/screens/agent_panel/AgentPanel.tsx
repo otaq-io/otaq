@@ -319,9 +319,17 @@ function CreatedRow({
         {row.key}
       </button>
       <span className="agent-panel-created-text">
-        {row.change !== null ? (
-          // A changed row says what changed ("SHOP-7 · now waits for SHOP-6"), a created one what it was given
-          // ("SHOP-16 · waits for SHOP-15"); the title is its tooltip.
+        {row.change !== null && !row.edited ? (
+          // A created row keeps its title, then, muted, what it was given ("SHOP-16 Add the run-tests line · waits
+          // for SHOP-15"); on one line, the title taking the ellipsis.
+          <span className="agent-panel-created-head">
+            <span className="agent-panel-created-title" title={row.title || undefined}>
+              {row.title}
+            </span>
+            <span className="agent-panel-created-given">{`· ${row.change}`}</span>
+          </span>
+        ) : row.change !== null ? (
+          // A changed row says what changed ("SHOP-7 · now waits for SHOP-6"); the title is its tooltip.
           <span className="agent-panel-created-title" title={row.title || undefined}>
             {row.undone !== null ? row.change : `· ${row.change}`}
           </span>

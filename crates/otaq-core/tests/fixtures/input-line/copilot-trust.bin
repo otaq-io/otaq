@@ -1,0 +1,94 @@
+[?9001h[?1004h[>4;2m[?u[?25l[2J[m[H]0;C:\Users\otaq-tester\AppData\Local\GitHubCopilotCLI\copilot.exe[?25h[?1049h[?2004h[?1004h[?1003h[?1006h[2J[>q[14t]4;0;?\]4;1;?\]4;2;?\]4;3;?\]4;4;?\]4;5;?\]4;6;?\]4;7;?\]4;8;?\]4;9;?\]4;10;?\]4;11;?\]4;12;?\]4;13;?\]4;14;?\]4;15;?\[?12l[?1007l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[?25l[120C[22;0t]0;GitHub Copilot]7501;state=idle:app=copilot\[2J[H [97m[44m[1m[Current][m  Sessions  [2m Issues [22m [2m Pull requests [22m  Gists[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[120C[?996n[90m[2m[3;1H╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│[116C│
+│[m  [34m╭─╮╭─╮[90m[2m[29C│[m  [34m[1mGetting started[90m[22m[2m[61C│
+│[m  [34m╰─╯╰─╯  [mCopilot v1.0.112 uses AI.  [90m[2m│[m  Use the tabs above to explore your sessions and pull requests[90m[2m[15C│
+│[m  [35m█ [96m▘▝ [35m█  [mCheck for mistakes.[90m[2m[8C│[m  /model — Switch models across providers, or use Auto[90m[2m[24C│
+│[m   [35m▔▔▔▔ [90m[2m[29C│[78C│
+│[116C│
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m[90m[2m[3;1H│[m  [34m╭─╮╭─╮[29X[90m[2m[29C│[m  [34m[1mGetting started[m[61X[90m[2m[61C│[m ┃[34m[4;3H ╰─╯╰─╯  [mCopilot v1.0.112 uses AI.  [90m[2m│[m  Use the tabs above to explore your sessions and pull requests[37m[17C┃[35m[5;3H █ [96m▘▝ [35m█  [mCheck for mistakes.[11C/model — Switch models across providers, or use Auto[37m[26C┃[35m[6;3H  ▔▔▔▔[28X[m[33C[61X[37m[78C┃[m[7;3H[28X[36C[55X[37m[81C┃[90m[2m
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m [37m┃[m
+[119X[37m[119C┃[90m
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ [m[1mConfirm folder trust[90m[22m[97C│
+│ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│ ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮ │
+│ │ [mC:\Users\otaq-tester\p1-capture\repo[90m[77C│ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│[118C│
+│ [mCopilot can read files in this folder and, with your permission, edit them or run code and shell commands. It will   [90m│
+│ [mremember your permissions for the rest of this session.[90m[62C│
+│[118C│
+│ [mGit commands run in this folder may use configuration from the enclosing repository and execute programs configured  [90m│
+│ [mby that repository.[90m[98C│
+│[118C│
+│ [mDo you trust the files in this folder?[90m[79C│
+│[118C│
+│ [97m[44m❯ 1. Yes[108X[m[108C [90m│
+│   [m2. Yes, and remember this folder for future sessions[90m[63C│
+│   [m3. No (Esc)[90m[104C│
+│[118C│
+│ [m[1m↑/↓[22m to navigate · [1menter[22m to select · [1mesc[22m to cancel[90m[68C│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m[5;43Hinit — Initialize Copilot instructions for this repository[6;42H/model — Switch models across providers, or use Auto[90m[2m[3;1H│[m  [35m█ [96m▘▝ [35m█  [mCheck for mistakes.        [90m[2m│[m  /init — Initialize Copilot instructions for this repository                 [K[90m[2m│[m ┃[90m[2m│[m   [35m▔▔▔▔[30X[90m[2m[30C│[m  /model — Switch models across providers, or use Auto[24X[90m[2m[24C│[m [37m┃[90m[2m
+│[m[116X[90m[2m[116C│[m [37m┃[90m[2m
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m [37m┃[m
+[119X[37m[119C┃[m
+ [34m● [mNo Copilot instructions found for this repository. Run /init to generate them.[38X[37m[38C┃[m
+                                                                                                                       [K[37m┃[m[96m[3;6H╴╶[m[96m[3;6H  [m[96m[3;6H╴╶[m[96m[3;6H▘▝[m[96m[3;6H╴╶[m[4;90HCopilot Fusion[96m[3;6H  [m[96m[3;6H╴╶[m[96m[3;6H▘▝[m[96m[3;6H╴╶[m[96m[3;6H  [m[96m[3;6H╴╶[m[96m[3;6H▘▝[m[35m[3;5H█ [96m▘▝[35m▐[4;5H [m[35m[3;5H [96m▘▝ [35m█[4;5H▔

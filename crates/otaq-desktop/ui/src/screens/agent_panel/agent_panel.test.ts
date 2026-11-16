@@ -511,6 +511,40 @@ describe("a running agent", () => {
     expect(ask).toHaveBeenCalledWith("board.start", { key: "NOTE-12" });
   });
 
+  it("a created ticket that waits keeps its title, the wait muted after it; a changed row still reads its change", () => {
+    const running = RUNNING.running;
+    const created = running?.created;
+    const second = created?.rows[1];
+    if (!running || !created || !second) throw new Error("the fixture runs and created tickets");
+    show({
+      ...RUNNING,
+      running: {
+        ...running,
+        created: {
+          ...created,
+          folded: false,
+          rows: [created.rows[0], { ...second, change: "waits for NOTE-11" }].filter((r) => r !== undefined),
+        },
+      },
+    });
+    const rows = [...box.querySelectorAll(".agent-panel-created-row")];
+    // Key, title, then the muted "· waits for …" on the same line (F-B-3: the title used to be only its tooltip).
+    expect(rows[1]?.textContent).toBe("NOTE-12Cache note previews· waits for NOTE-11Start");
+    const head = rows[1]?.querySelector(".agent-panel-created-head");
+    expect(head?.querySelector(".agent-panel-created-title")?.textContent).toBe("Cache note previews");
+    expect(head?.querySelector(".agent-panel-created-given")?.textContent).toBe("· waits for NOTE-11");
+    expect(rows[1]?.querySelector(".agent-panel-created-delete")).not.toBeNull();
+    // A created row Noyan gave nothing draws its title alone, as before.
+    expect(rows[0]?.querySelector(".agent-panel-created-given")).toBeNull();
+    expect(rows[0]?.querySelector(".agent-panel-created-title")?.textContent).toBe("Slow search query");
+    // The changed row is unchanged: its change in place of the title (the title its tooltip), with Undo.
+    expect(rows[2]?.textContent).toBe("NOTE-5· now waits for NOTE-4Undo");
+    expect(rows[2]?.querySelector(".agent-panel-created-given")).toBeNull();
+    expect(rows[2]?.querySelector(".agent-panel-created-title")?.getAttribute("title")).toBe(
+      "Sync conflicts",
+    );
+  });
+
   it("an undone changed row says it was undone, with no Undo", () => {
     const running = RUNNING.running;
     const created = running?.created;

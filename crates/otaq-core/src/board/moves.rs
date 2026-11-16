@@ -321,6 +321,13 @@ impl Board {
                 .execute(self.store.pool())
                 .await?;
         }
+        // A reopened ticket starts its checks over: no earlier approval narrows them (tuq decision 116).
+        sqlx::query(
+            "UPDATE tickets SET approved_sha = NULL, approved_stage_id = NULL, approved_at = NULL WHERE id = ?",
+        )
+        .bind(&ticket.id)
+        .execute(self.store.pool())
+        .await?;
         tracing::info!(key = %reopened.key, started, "reopened");
         self.ticket_by_id(&ticket.id).await
     }

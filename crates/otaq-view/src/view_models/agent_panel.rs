@@ -315,7 +315,8 @@ pub fn whereabouts(input: &BoardInput, keys: &[TicketKey]) -> Vec<Whereabouts> {
 /// One row of Created and changed: the key (a link that opens the ticket), the title, then Start on a created ticket
 /// still in Backlog (Noyan never starts one: only the user does), else where it is and why it waits; Delete on a
 /// created ticket that never went to Dev (TKT-08, the 0060 confirmation). A changed row is one change: the key, then
-/// what changed ("SHOP-7 · now waits for SHOP-6").
+/// what changed ("SHOP-7 · now waits for SHOP-6"); a created row keeps its title, then what Noyan gave it ("SHOP-16
+/// Add the run-tests line · waits for SHOP-15").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentPanelCreatedRow")]
 pub struct CreatedRow {
@@ -329,8 +330,8 @@ pub struct CreatedRow {
     pub icon: IconName,
     pub edited: bool,
     /// A changed row: what Noyan changed, shown in place of the title ("now waits for SHOP-6"); the title stays
-    /// for the tooltip. A created row: what Noyan gave it as it made it ("waits for SHOP-15"), shown the same way;
-    /// None when it gave it nothing.
+    /// for the tooltip. A created row: what Noyan gave it as it made it ("waits for SHOP-15"), shown muted after
+    /// the title; None when it gave it nothing.
     pub change: Option<String>,
     /// "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
     pub start: Option<&'static str>,

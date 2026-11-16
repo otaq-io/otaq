@@ -292,7 +292,8 @@ fn installer_runs(home: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The ticket's notes about tuq ([`otaq_core::tuq::Updated::text`]), oldest first.
+/// The ticket's notes about tuq ([`otaq_core::tuq::Updated::text`], [`otaq_core::tuq::Missing::text`]), oldest
+/// first.
 async fn tuq_notes(w: &TestService, t: &Ticket) -> Vec<String> {
     let mut notes: Vec<String> = w
         .board
@@ -302,7 +303,7 @@ async fn tuq_notes(w: &TestService, t: &Ticket) -> Vec<String> {
         .into_iter()
         .filter(|e| {
             e.kind == otaq_core::board::tickets::EventKind::StartNote
-                && e.payload["note"] == "tuq_updated"
+                && (e.payload["note"] == "tuq_updated" || e.payload["note"] == "tuq_missing")
         })
         .map(|e| e.payload["message"].as_str().unwrap().to_owned())
         .collect();
@@ -396,6 +397,42 @@ async fn an_older_tuq_lacking_the_skill_is_updated_then_runs() {
     w.stop().await;
 }
 
+/// tuq's installer running fine but installing a tuq without the stage's skill: the stage holds as for a failing
+/// install, and History says no tuq release has the skill yet, not that the install failed (F-E1-1).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tuq_release_without_the_skill_holds_and_history_says_so() {
+    let World { w, home, _dir } = world().await;
+    w.board.tuq().set_installer(Some(tuq_installer(
+        _dir.path(),
+        &home,
+        "2026.11.14",
+        &["step-back"],
+    )));
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let t = w.create("SHOP", "Coupon codes").await;
+    let key = t.key.to_string();
+    w.board
+        .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    let outcome = w
+        .starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(
+        matches!(&outcome, otaq_core::start::StartOutcome::Held { .. }),
+        "{outcome:?}"
+    );
+    assert_eq!(installer_runs(&home).len(), 1);
+    assert_eq!(
+        tuq_notes(&w, &t).await,
+        ["No tuq release has tuq:product-spec yet: Claude Code has tuq 2026.11.14, the latest"]
+    );
+    w.stop().await;
+}
+
 /// tuq's installer failing (offline): the stage holds in Needs you, "Your tuq doesn't have `tuq:product-spec`"
 /// (decision 083), and nothing starts. The installer isn't run again on its own; Check again runs it again, and once
 /// it installs tuq the stage starts.
@@ -450,11 +487,21 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
     assert_eq!(task_skills, 0);
     assert_eq!(needs_you_line(&w, &t).await.as_deref(), Some(text));
     assert_eq!(installer_runs(&home).len(), 1);
+    // History says why: the installer failed, with its reason cut to one short line (F-E1-1).
+    let notes = tuq_notes(&w, &t).await;
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    let failed = format!(
+        "{} couldn't install tuq on Claude Code: tuq's installer failed: tuq install: couldn't download",
+        otaq_core::naming::PRODUCT_NAME
+    );
+    assert!(notes[0].starts_with(&failed), "{notes:?}");
+    assert!(notes[0].ends_with('\u{2026}'), "{notes:?}");
 
-    // Check again runs the installer again; still offline, still held.
+    // Check again runs the installer again; still offline, still held, and History doesn't say it twice.
     assert!(!w.gate.check_again(&t.id).await.unwrap());
     assert_eq!(installer_runs(&home).len(), 2);
     assert_eq!(w.status(&key).await, Status::Held);
+    assert_eq!(tuq_notes(&w, &t).await, notes);
 
     // Back online: Check again installs tuq and the stage starts with it.
     w.board.tuq().set_installer(Some(tuq_installer(
@@ -466,7 +513,10 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
     w.gate.check_again(&t.id).await.unwrap();
     assert_eq!(installer_runs(&home).len(), 3);
     assert_eq!(hold_of(&w, &t, SessionRole::Developer).await, None);
-    assert_eq!(tuq_notes(&w, &t).await, ["tuq 2026.11.14 installed"]);
+    assert_eq!(
+        tuq_notes(&w, &t).await,
+        [notes[0].clone(), "tuq 2026.11.14 installed".to_owned()]
+    );
     let _ = w
         .starter
         .start(&key, &me(), otaq_core::session::Start::Auto)
@@ -497,9 +547,9 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
 }
 
 /// A stage's `skill:` is the only place a skill is picked. The validator of a Validate stage that names no skill of
-/// its own runs Otaq's (`/otaq:validate`); one whose stage names the user's `team-validate` runs it by its own name
-/// (`/team-validate`), which the tool finds itself (here in `~/.claude/skills`). Nothing is written into the
-/// worktree, so the verdict counts (VAL-02, d0063).
+/// its own runs Otaq's (`/otaq:validate`); one whose stage names the user's `team-validate` starts Otaq's
+/// `check-ticket` and then has it typed by its own name (`/team-validate`, decision 113), which the tool finds itself
+/// (here in `~/.claude/skills`). Nothing is written into the worktree, so the verdict counts (VAL-02, d0063).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stage_names_the_users_skill_by_its_own_name() {
@@ -531,7 +581,18 @@ async fn a_stage_names_the_users_skill_by_its_own_name() {
         };
         assert_eq!(typed, claude_skill(named.unwrap_or("otaq:validate")));
         let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-        assert!(args.ends_with(&typed), "{args}");
+        // The user's skill is the check's task skill, typed after Otaq's `check-ticket` (decision 113); Otaq's
+        // `validate` starts alone.
+        let first = match named {
+            Some(_) => claude_skill(otaq_core::agent_tools::CHECK_TICKET_SKILL),
+            None => typed.clone(),
+        };
+        assert!(args.ends_with(&first), "{args}");
+        let waiting: Vec<String> = named.map(|_| typed.clone()).into_iter().collect();
+        assert_eq!(
+            crate::common::waiting_texts(&w.deliveries, &validator.id).await,
+            waiting
+        );
         assert!(out.contains("AGENTS ."), "{out}");
         nothing_written(&worktree);
         let after = w
@@ -763,7 +824,7 @@ async fn needs_you_line(w: &TestService, t: &Ticket) -> Option<String> {
 /// the skill only in `~/.claude/skills` (Claude Code's, not Codex's), doesn't start. Its hold says why, the ticket waits
 /// in Needs you with "Codex doesn't have the skill `$team-validate`", and nothing is typed into any session. Check
 /// again before the skill reaches Codex keeps it held; once it is linked into `~/.codex/skills`, Check again starts
-/// the check on Codex with the skill by its own name.
+/// the check on Codex, its skill waiting to be typed by its own name after Otaq's `check-ticket`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_check_whose_tool_lacks_its_skill_waits_until_check_again_finds_it() {
@@ -838,9 +899,18 @@ async fn a_check_whose_tool_lacks_its_skill_waits_until_check_again_finds_it() {
     .expect("the check started");
     assert_eq!(checker.tool, Some(Tool::Codex));
     let out = w.wait_for_output(&checker.id, "CLAUDE").await;
-    let typed = w.adapters.get(Tool::Codex).skill_reference("team-validate");
+    // Otaq's `check-ticket` first, then the check's task skill in Codex's form (decision 113).
+    let codex = w.adapters.get(Tool::Codex);
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.contains(&typed), "{args}");
+    assert!(
+        args.contains(&codex.skill_reference(otaq_core::agent_tools::CHECK_TICKET_SKILL)),
+        "{args}"
+    );
+    assert!(!args.contains("team-validate"), "{args}");
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &checker.id).await,
+        [codex.skill_prompt("team-validate")]
+    );
     assert_eq!(hold_of(&w, &t, SessionRole::Validator).await, None);
     let ticket = w.board.ticket(&key).await.unwrap();
     assert_eq!(ticket.flags.missing_skill, None);
@@ -1283,7 +1353,8 @@ async fn a_0_2_flow_is_renamed_once_and_back_and_import_give_the_same_names() {
 
 /// Tuq decision 063: a bare name is always the user's skill. A Validate stage naming `validate` while the user has no
 /// such skill doesn't run Otaq's: it is held as missing, "Claude Code doesn't have the skill `/validate`"; once the
-/// user's own `validate` is there, Check again starts it as `/validate`.
+/// user's own `validate` is there, Check again starts the check, which types it as `/validate` after Otaq's
+/// `check-ticket`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_bare_validate_with_no_such_user_skill_is_held_as_missing() {
@@ -1333,7 +1404,15 @@ async fn a_bare_validate_with_no_such_user_skill_is_held_as_missing() {
     .await
     .expect("the check started");
     let out = w.wait_for_output(&checker.id, "CLAUDE").await;
+    // The user's `validate` is the check's task skill, typed after Otaq's `check-ticket` (decision 113).
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with(" /validate"), "{args}");
+    assert!(
+        args.ends_with(&format!(" /{PLUGIN_NAMESPACE}:check-ticket")),
+        "{args}"
+    );
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &checker.id).await,
+        ["/validate"]
+    );
     w.stop().await;
 }

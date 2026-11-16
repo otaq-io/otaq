@@ -125,6 +125,15 @@ async fn submit_starts_a_validator_in_the_worktree() {
         "{out}"
     );
     assert!(!out.contains("work-ticket"), "{out}");
+    // Otaq's own `validate` starts alone: no `check-ticket`, nothing waits (decision 113).
+    assert!(!out.contains("check-ticket"), "{out}");
+    assert!(
+        w.deliveries
+            .pending(&validator.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let worktree = t.work.as_ref().unwrap().worktree.clone().unwrap();
     let worktree = folder_text(&std::fs::canonicalize(worktree).unwrap());
     assert!(
@@ -195,11 +204,13 @@ async fn uncommitted_files_refuse_before_any_validator() {
     w.stop().await;
 }
 
+/// The skill the Validate stage names, the user's, is its task skill (decision 113): the checker starts with Otaq's
+/// `check-ticket`, in place of `validate`, and the stage's skill waits to be typed after that first turn
+/// (check_ticket_start.rs).
 #[tokio::test(flavor = "multi_thread")]
-async fn the_validate_stages_skill_is_the_prompt() {
+async fn the_validate_stages_skill_is_typed_after_check_ticket() {
     let w = world().await;
     w.add_project("shop-web").await;
-    // The skill the Validate stage names runs by its own name, in place of `validate`.
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-validate");
     w.use_step_skill(WorkflowStep::Validate, &folder).await;
     let t = working(&w, "Cart totals").await;
@@ -208,11 +219,16 @@ async fn the_validate_stages_skill_is_the_prompt() {
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .unwrap();
-    let named = claude_skill("my-validate");
-    let out = w.wait_for_output(&validator.id, &named).await;
+    let out = w.wait_for_output(&validator.id, "CWD=").await;
+    assert!(out.contains(&claude_skill("otaq:check-ticket")), "{out}");
+    assert!(!out.contains("my-validate"), "{out}");
     assert!(
         !out.contains(&format!("{} ", claude_skill("otaq:validate"))),
         "{out}"
+    );
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &validator.id).await,
+        [claude_skill("my-validate")]
     );
     w.stop().await;
 }

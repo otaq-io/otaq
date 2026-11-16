@@ -12,7 +12,8 @@ description is. A single line break stays a line break, so comments written as p
 ## Decision
 
 - **Where:** the Ticket tab's comment thread, the Delete dialog's quoted comment, comments on a diff in the Files tab
-  and the comments listed in the review dialogs.
+  and the comments listed in the review dialogs; also the agents' texts outside the thread: Overview's "What the
+  agent did" and the checker's verdict, and Changes' Agent summary and Validation report.
 - **What is drawn:** paragraphs, bold and italic, inline code, code blocks (highlighted, scrolling sideways rather than
   wrapping), bulleted, numbered and task lists (their boxes can't be ticked), quotes, tables (scrolling sideways) and
   links. A link opens the way a description's link does.
@@ -42,3 +43,8 @@ outside code, which is why HTML shows as written; about 13 have glob stars (`bef
 words in italics, which is accepted. Turned down: showing comments from before the change as plain text (a hidden
 cutoff, a thread with two looks, and agents' Markdown left raw) and a per-comment "Show as plain text" switch (a
 control for a rare, cosmetic case).
+
+## Changelog
+
+- 2026-11-16: refined: the agents' summaries and checker verdicts on Overview and Changes are drawn the same way
+  (0.3 regression F-C-1: they showed raw marks and joined lists).

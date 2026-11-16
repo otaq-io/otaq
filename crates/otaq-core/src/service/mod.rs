@@ -25,6 +25,7 @@ pub mod testing;
 use std::fmt;
 use std::io;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
@@ -262,6 +263,8 @@ struct Shared {
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
+    /// An app opened the after-restart dialog for this start (`service.summary_shown`, REC-06).
+    summary_shown: AtomicBool,
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
     events: EventBus,
@@ -430,6 +433,7 @@ impl Shared {
         {
             let validation = self.validation.clone();
             let plan_limit = self.plan_limit.clone();
+            let deliveries = self.deliveries.clone();
             let (session, ticket_id, signal) = (session.clone(), ticket_id.clone(), signal.clone());
             tokio::spawn(async move {
                 if let Err(e) = validation
@@ -437,6 +441,18 @@ impl Shared {
                     .await
                 {
                     tracing::warn!(session, error = %e, "can't apply the validator's hook");
+                }
+                // Then its check's task skill, if one waits (decision 113). The order matters: typed first, the
+                // same turn end would read as a check that ended with no result. A checker with nothing waiting (Otaq's
+                // own `validate`) is left as it was.
+                if signal.ends_turn()
+                    && deliveries
+                        .pending(&session)
+                        .await
+                        .is_ok_and(|p| !p.is_empty())
+                    && let Err(e) = deliveries.deliver_if_ready(&session).await
+                {
+                    tracing::warn!(session, error = %e, "delivery failed");
                 }
                 if let Signal::LimitReached { hit, resets_at } = &signal {
                     // A check agent held while its round's others run on doesn't stop the ticket (d0130 row 17):
@@ -547,6 +563,7 @@ impl Shared {
                     .count(),
             )
             .unwrap_or(u32::MAX),
+            summary_shown: Some(self.summary_shown.load(Ordering::Relaxed)),
             paused: self.pause.paused().await.unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "can't read the paused projects");
                 Vec::new()
@@ -1304,6 +1321,7 @@ impl Service {
             scheduler,
             store,
             started_at: now_ms(),
+            summary_shown: AtomicBool::new(false),
             started: Instant::now(),
             stop: Arc::new(stop),
             events,
@@ -1493,6 +1511,12 @@ impl Service {
         let models = tokio::spawn(shared.models.clone().run(shared.stop.subscribe()));
         let gate = tokio::spawn(shared.gate.clone().run(shared.stop.subscribe()));
         let deliveries = tokio::spawn(shared.deliveries.clone().run(shared.stop.subscribe()));
+        // A tool's own sign-in screen at a session's start (decision 118).
+        let sign_in_screens = tokio::spawn(crate::signals::sign_in_screen::run(
+            shared.signals.clone(),
+            shared.connected.clone(),
+            shared.stop.subscribe(),
+        ));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1526,6 +1550,7 @@ impl Service {
         let _ = models.await;
         let _ = gate.await;
         let _ = deliveries.await;
+        let _ = sign_in_screens.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

@@ -486,10 +486,14 @@
   font-weight: 600;
 }
 
-.diff-summary-text {
-  margin: 0;
+/* The summary is drawn as Markdown (tuq 110) in its own 12 px secondary look, indented under the title, rather than a
+   comment's 13 px primary. */
+.md-editor.diff-summary-text {
   padding-left: 36px;
   color: var(--text-secondary);
+}
+
+.md-editor.diff-summary-text .ProseMirror {
   font-size: 12px;
   line-height: 1.5;
 }

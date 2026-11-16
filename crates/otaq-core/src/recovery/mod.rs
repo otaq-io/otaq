@@ -51,6 +51,28 @@ fn ended_payload(info: &SessionInfo) -> serde_json::Value {
     json!({ "reason": reason, "session": info.id, "tool": info.tool })
 }
 
+/// A screen line of a tool's own is cut after this many characters in a Start failed message.
+const MAX_SAID: usize = 200;
+
+/// The last `n` lines of a tool's rendered screen that say something: a TUI's box sides are taken off each line's
+/// ends, and a line of frame only (borders, rules) is skipped; each is cut at [`MAX_SAID`] characters.
+fn tool_last_lines(screen: &str, n: usize) -> String {
+    let side = |c: char| c.is_whitespace() || ('\u{2500}'..='\u{259f}').contains(&c) || c == '|';
+    let mut said: Vec<String> = screen
+        .lines()
+        .rev()
+        .map(|line| line.trim_matches(side))
+        .filter(|line| !line.chars().all(|c| "+-=_~*".contains(c)))
+        .take(n)
+        .map(|line| match line.char_indices().nth(MAX_SAID) {
+            Some((cut, _)) => format!("{}…", &line[..cut]),
+            None => line.to_owned(),
+        })
+        .collect();
+    said.reverse();
+    said.join("\n")
+}
+
 /// The flows tickets walk, read once per project for a startup reconcile.
 #[derive(Default)]
 struct Flows(std::collections::HashMap<String, Flow>);
@@ -615,11 +637,11 @@ impl Recovery {
             Some(StageAt::Agent)
         ) && AT_WORK.contains(&ticket.status);
         // A resume whose tool can't find the conversation: Resume failed, never a fallback (REC-03).
-        let output = self
+        let (output, size) = self
             .inner
             .sessions
-            .attach(&info.id)
-            .map(|a| a.scrollback)
+            .output_of_session(&info.id)
+            .map(|(_, output, size)| (output, size))
             .unwrap_or_default();
         if at_work
             && self
@@ -636,9 +658,18 @@ impl Recovery {
             && let Some(tool) = info.tool
             && info.tool_session_id.as_deref().is_none_or(str::is_empty)
         {
-            return self
-                .start_failed(&ticket.id, ticket.status, tool, info)
-                .await;
+            return self.start_failed(&ticket, tool, info, &output, size).await;
+        }
+        // A new conversation (Claude Code, Copilot: the id chosen up front) whose tool exited before the conversation
+        // came to exist (a refused argument, a crash at start): nothing to resume, so the start failed too. A resume
+        // is never taken this way (REC-03), and OpenCode never is (its conversation exists before launch).
+        if at_work
+            && let Some(tool) = info.tool
+            && let Some(tool_id) = info.tool_session_id.clone()
+            && !self.resumes_conversation(info, &tool_id).await?
+            && !self.conversation_exists(&ticket, tool, tool_id).await?
+        {
+            return self.start_failed(&ticket, tool, info, &output, size).await;
         }
         // A card that moved on from the ended session's stage: only the session that runs its stage counts (STG-09).
         // An automatic PR Delivery run by the Delivery's own agent isn't Dev's leftover session's to interrupt.
@@ -1006,29 +1037,87 @@ impl Recovery {
         Ok(Some(ticket.key))
     }
 
-    /// The agent ended before its tool said its conversation's id: Start interrupted at the launch, with the reason;
-    /// Retry start runs the start again.
+    /// Whether session `info` resumed the conversation `tool_id` rather than starting it: another session (of any
+    /// kind) ran it before.
+    async fn resumes_conversation(
+        &self,
+        info: &SessionInfo,
+        tool_id: &str,
+    ) -> Result<bool, BoardError> {
+        let earlier: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM sessions WHERE tool_session_id = ? AND id <> ? LIMIT 1",
+        )
+        .bind(tool_id)
+        .bind(&info.id)
+        .fetch_optional(self.inner.board.store().pool())
+        .await?;
+        Ok(earlier.is_some())
+    }
+
+    /// Whether the conversation `tool_id` of a new session on `tool` exists. Only a tool whose adapter
+    /// [checks new conversations](crate::agent_tools::AgentTool::checks_new_conversation) is asked (Claude Code,
+    /// Copilot: a file check each); every other one counts as yes.
+    async fn conversation_exists(
+        &self,
+        ticket: &Ticket,
+        tool: Tool,
+        tool_id: String,
+    ) -> Result<bool, BoardError> {
+        if !self.inner.adapters.get(tool).checks_new_conversation() || tool_id.is_empty() {
+            return Ok(true);
+        }
+        let cwd = match ticket.work.as_ref().and_then(|w| w.worktree.clone()) {
+            Some(worktree) => std::path::PathBuf::from(worktree),
+            None => std::path::PathBuf::from(
+                self.inner
+                    .board
+                    .project(ticket.key.project.as_str())
+                    .await?
+                    .repo_path,
+            ),
+        };
+        let adapters = self.inner.adapters.clone();
+        Ok(
+            tokio::task::spawn_blocking(move || adapters.get(tool).can_resume(&tool_id, &cwd))
+                .await
+                .unwrap_or(true),
+        )
+    }
+
+    /// The agent ended before its conversation existed (its tool said no id yet, or never made the conversation):
+    /// Start interrupted at the launch, with the reason and the tool's last screen lines; the ticket waits again
+    /// before the stage it was starting, as a refused model's does. Retry start runs the start again (a new
+    /// conversation, on the agent's current model).
     async fn start_failed(
         &self,
-        ticket_id: &str,
-        before: Status,
+        ticket: &Ticket,
         tool: Tool,
         info: &SessionInfo,
+        output: &[u8],
+        size: crate::session::TerminalSize,
     ) -> Result<Option<TicketKey>, BoardError> {
         let board = &self.inner.board;
-        let message = format!(
+        let (ticket_id, before) = (ticket.id.as_str(), ticket.status);
+        let mut message = format!(
             "{} stopped before its conversation started, so there is nothing to resume.",
             self.inner.adapters.get(tool).display_name()
         );
+        let said = tool_last_lines(&crate::session::screen::render(output, size), 3);
+        if !said.is_empty() {
+            message.push_str(" It said:\n");
+            message.push_str(&said);
+        }
+        let waits_before = crate::start::sequence::waits_before(board, ticket).await?;
         let now = now_ms();
         let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = NULL, state = ?, start_problem_step = ?, start_problem_message = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
                                 start_problem_hook = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL, interrupted_from = NULL,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
+        .bind(waits_before)
         .bind(Status::StartInterrupted.as_str())
         .bind(StartStep::Launch.as_str())
         .bind(&message)
@@ -1052,7 +1141,7 @@ impl Recovery {
         .await?;
         tx.commit().await?;
         let ticket = board.ticket_by_id(ticket_id).await?;
-        tracing::warn!(ticket = %ticket.key, "the agent ended before its tool id was known: start failed");
+        tracing::warn!(ticket = %ticket.key, "the agent ended before its conversation existed: start failed");
         self.publish(&ticket.id, &ticket.key, Some(Status::StartInterrupted));
         Ok(Some(ticket.key))
     }
@@ -1155,5 +1244,31 @@ impl Recovery {
                 status,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tools_last_lines_skip_frames_and_blanks() {
+        let screen = "ARGS --model auto\n\nError: The efficiency Auto profile is no longer available.\n\
+                      Set --auto-tier to balance or intelligence.\n╭──────────╮\n│          │\n╰──────────╯\n";
+        assert_eq!(
+            tool_last_lines(screen, 2),
+            "Error: The efficiency Auto profile is no longer available.\nSet --auto-tier to balance or intelligence."
+        );
+        assert_eq!(
+            tool_last_lines("│ crashed at start │\n────\n", 3),
+            "crashed at start"
+        );
+        assert_eq!(tool_last_lines("  \n━━━━\n|  |\n+-----+\n", 3), "");
+        assert_eq!(
+            tool_last_lines("--auto-tier: bad\n------\n", 3),
+            "--auto-tier: bad"
+        );
+        let long = "x".repeat(MAX_SAID + 10);
+        assert_eq!(tool_last_lines(&long, 1).chars().count(), MAX_SAID + 1);
     }
 }

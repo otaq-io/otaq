@@ -169,6 +169,7 @@ fn ends_the_service(request: &Request) -> bool {
         Request::Ping
         | Request::ServiceStatus
         | Request::StartupReport
+        | Request::ServiceSummaryShown
         | Request::Subscribe(_)
         | Request::ToolsCheck
         | Request::GitToolsCheck

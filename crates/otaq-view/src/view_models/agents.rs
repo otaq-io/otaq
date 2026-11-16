@@ -724,8 +724,8 @@ pub mod fixtures {
         }
     }
 
-    /// Copilot's list (T-0353): the three Auto tiers (resolved per task) with Copilot's descriptions, and one exact
-    /// model a paid account lists.
+    /// Copilot's list (T-0353): the Auto tiers it runs (resolved per task; no efficiency since Copilot 1.0.112,
+    /// decision 117) with Copilot's descriptions, and one exact model a paid account lists.
     pub fn copilot_list() -> ModelList {
         let auto = |tier: &str, display: &str, description: &str| ModelEntry {
             description: Some(description.to_owned()),
@@ -733,11 +733,6 @@ pub mod fixtures {
         };
         ModelList {
             entries: vec![
-                auto(
-                    "efficiency",
-                    "Auto \u{b7} efficiency",
-                    "Fast and light on credits",
-                ),
                 auto(
                     "balance",
                     "Auto \u{b7} balance",

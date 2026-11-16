@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FlowEditorSkillField } from "../../generated/FlowEditorSkillField";
 import type { FlowEditorSkillState } from "../../generated/FlowEditorSkillState";
 import type { MenuItem } from "../../generated/MenuItem";
+import { Menu } from "../../components/Menu";
 import { type EditorActions, SkillField } from "./FlowEditor";
 
 const ignore = () => undefined;
@@ -215,6 +216,47 @@ describe("the Skill field", () => {
     // Nothing of Otaq's matches: no header either.
     search("zzz");
     expect(drawn()).toEqual(["Use zzz", "Ask the agent to write it…"]);
+  });
+
+  // F-D-1, decision 108 refined: wide enough to read, each description cut to two lines with the whole on hover.
+  it("opens Pick a skill… 360 wide, its descriptions cut to two lines with the whole on hover", () => {
+    const long =
+      "Address the review feedback on the Otaq ticket named by $OTAQ_TICKET after the user sent it back - get the " +
+      "context and the user's comment with `otaq prime`, read the line comments, fix them and commit everything.";
+    const picker = [
+      row("", { label: "Otaq", header: true, mark: true }),
+      row("otaq:address-review", { badge: "Otaq", hint: long }),
+    ];
+    show({ state: "set", skill: "validate", warning: null, fix: null }, false, actions, picker);
+    search("");
+    expect(document.querySelector<HTMLElement>(".menu")?.style.width).toBe("360px");
+    const hint = rows()[0]?.querySelector<HTMLElement>(".menu-item-hint");
+    expect(hint?.textContent).toBe(long);
+    expect(hint?.hasAttribute("data-cut")).toBe(true);
+    expect(hint?.style.getPropertyValue("--menu-hint-lines")).toBe("2");
+    expect(hint?.title).toBe(long);
+  });
+
+  // Only Pick a skill… cuts its hints: another menu (the Approve menu, say) keeps its width and its hints whole.
+  it("leaves other menus' hints whole, at their usual width", () => {
+    const hint =
+      "Merges the branch, then runs the checks again on the merged code before it closes the ticket.";
+    act(() => {
+      root.render(
+        createElement(Menu, {
+          label: "Approve",
+          items: [row("merge", { label: "Approve and merge", hint })],
+          onChoose: ignore,
+          onClose: ignore,
+        }),
+      );
+    });
+    expect(document.querySelector<HTMLElement>(".menu")?.style.width).toBe("260px");
+    const shown = rows()[0]?.querySelector<HTMLElement>(".menu-item-hint");
+    expect(shown?.textContent).toBe(hint);
+    expect(shown?.hasAttribute("data-cut")).toBe(false);
+    expect(shown?.getAttribute("style")).toBeNull();
+    expect(shown?.hasAttribute("title")).toBe(false);
   });
 
   it("draws the name typed in Pick a skill… as code in its Use row", () => {

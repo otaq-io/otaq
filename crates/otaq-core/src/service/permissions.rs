@@ -417,6 +417,7 @@ async fn action_for(
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::ServiceStopAgents => Action::UserOnly("stop every agent and the background service"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),
+        R::ServiceSummaryShown => Action::UserOnly("report the after-restart dialog"),
         R::NotificationsAskAnswered => Action::UserOnly("answer the notifications ask"),
         R::NotificationsDismissBlocked => Action::UserOnly("dismiss notices"),
         // A pause never lifts on its own, and no agent stops or starts the others (PAU-01, d0112).

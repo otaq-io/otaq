@@ -827,6 +827,31 @@
         "unchanged": {}
       }
     },
+    "ApprovedEarlier": {
+      "kind": "struct",
+      "fields": {
+        "at": {
+          "ty": "i64",
+          "required": true
+        },
+        "base": {
+          "ty": "String",
+          "required": true
+        },
+        "files": {
+          "ty": "Vec<String>",
+          "omittable": true
+        },
+        "sha": {
+          "ty": "String",
+          "required": true
+        },
+        "stage": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "Arrival": {
       "kind": "enum",
       "attrs": [
@@ -1188,6 +1213,14 @@
               "required": true
             }
           }
+        },
+        "unchecked": {
+          "fields": {
+            "message": {
+              "ty": "String",
+              "required": true
+            }
+          }
         }
       }
     },
@@ -1224,6 +1257,13 @@
         "freed",
         "present"
       ]
+    },
+    "Busy": {
+      "kind": "enum",
+      "variants": {
+        "delivering": {},
+        "starting": {}
+      }
     },
     "CameFrom": {
       "kind": "enum",
@@ -8785,6 +8825,7 @@
         "service.status": {},
         "service.stop": {},
         "service.stop_agents": {},
+        "service.summary_shown": {},
         "session.attach": {
           "newtype": "AttachParams"
         },
@@ -9621,6 +9662,9 @@
     "SchedulerStatus": {
       "kind": "struct",
       "fields": {
+        "holders": {
+          "ty": "Vec<SlotHolder>"
+        },
         "holding": {
           "ty": "u32",
           "required": true
@@ -9723,6 +9767,10 @@
         },
         "stopped_to_quit": {
           "ty": "Option<StopRecord>",
+          "omittable": true
+        },
+        "summary_shown": {
+          "ty": "Option<bool>",
           "omittable": true
         },
         "unclean_start": {
@@ -10317,6 +10365,27 @@
           "omittable": true
         },
         "stage_id": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
+    "SlotHolder": {
+      "kind": "struct",
+      "fields": {
+        "busy": {
+          "ty": "Option<Busy>",
+          "omittable": true
+        },
+        "key": {
+          "ty": "TicketKey",
+          "required": true
+        },
+        "status": {
+          "ty": "Status",
+          "required": true
+        },
+        "title": {
           "ty": "String",
           "required": true
         }
@@ -12064,6 +12133,10 @@
     "ValidatePrime": {
       "kind": "struct",
       "fields": {
+        "approved": {
+          "ty": "Option<ApprovedEarlier>",
+          "omittable": true
+        },
         "children": {
           "ty": "Vec<Linked>",
           "omittable": true

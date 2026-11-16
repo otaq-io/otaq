@@ -105,7 +105,8 @@ pub fn offers_sign_in(tool: otaq_core::agent_tools::Tool, tools: &Tools) -> bool
         && tools.status(tool).is_some_and(|s| s.can_sign_in)
 }
 
-/// A service that started this long before the app opened was already running: a normal reopen.
+/// A service that started this long before the app opened was already running: a normal reopen. Only for a service
+/// that doesn't say whether the dialog was shown for its start (`summary_shown`, older than 0.3).
 pub const ALREADY_RUNNING_MS: i64 = 15_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,6 +120,11 @@ pub enum OnConnect {
 
 /// What a connection to the service shows. `app_started_ms`: when this app opened; `first_connect`: the app's
 /// first connection; `shown_for`: the service start a summary was already shown for.
+///
+/// The service says whether an app already showed the dialog for its start (`summary_shown`), so it opens once per
+/// start however long after it the app connects: a service started from a terminal (`otaq daemon start`) and the app
+/// opened later still gets it (F-D-3). A service older than that field (`None`) falls back to timing: one that
+/// started more than [`ALREADY_RUNNING_MS`] before the app opened was already running, a normal reopen.
 pub fn on_connect(
     status: &ServiceStatus,
     app_started_ms: i64,
@@ -128,7 +134,12 @@ pub fn on_connect(
     if shown_for == Some(status.started_at) {
         return OnConnect::Nothing;
     }
-    let already_running = status.started_at + ALREADY_RUNNING_MS < app_started_ms;
+    if status.summary_shown == Some(false) && status.interrupted_at_start > 0 {
+        return OnConnect::Summary;
+    }
+    // Shown already for this start: whenever the app opened, this is a reopen.
+    let already_running = status.summary_shown == Some(true)
+        || status.started_at + ALREADY_RUNNING_MS < app_started_ms;
     if already_running {
         return if first_connect {
             OnConnect::Reconnected
@@ -513,11 +524,71 @@ mod tests {
         );
     }
 
+    /// A service older than `summary_shown` (`None`, as every status above): one that started more than 15 s
+    /// before the app opened was already running, so its stopped agents get no dialog (today's rule, kept for it).
     #[test]
     fn a_normal_reopen_is_a_quiet_reconnected() {
         let s = status(APP - 3_600_000, 4, true);
+        assert_eq!(s.summary_shown, None);
         assert_eq!(on_connect(&s, APP, true, None), OnConnect::Reconnected);
         assert_eq!(on_connect(&s, APP, false, None), OnConnect::Nothing);
+    }
+
+    fn told(started_at: i64, interrupted: u32, shown: bool) -> ServiceStatus {
+        ServiceStatus {
+            summary_shown: Some(shown),
+            ..status(started_at, interrupted, false)
+        }
+    }
+
+    /// F-D-3: `otaq daemon stop` / `otaq daemon start` from a terminal, the app opened an hour later. The service
+    /// says no app showed the dialog for its start, so it opens however long ago the service started.
+    #[test]
+    fn a_service_started_from_a_terminal_opens_the_dialog_when_the_app_opens() {
+        let s = told(APP - 3_600_000, 1, false);
+        assert_eq!(on_connect(&s, APP, true, None), OnConnect::Summary);
+        // Once shown, this app doesn't open it again for the same start.
+        assert_eq!(
+            on_connect(&s, APP, false, Some(s.started_at)),
+            OnConnect::Nothing
+        );
+    }
+
+    /// Shown for this start already (an earlier app showed it, then quit): a reopen, however soon after the start.
+    #[test]
+    fn a_dialog_shown_for_this_start_is_not_opened_again() {
+        for started_at in [APP - 3_600_000, APP - 1_000] {
+            let s = told(started_at, 3, true);
+            assert_eq!(on_connect(&s, APP, true, None), OnConnect::Reconnected);
+            assert_eq!(on_connect(&s, APP, false, None), OnConnect::Nothing);
+        }
+    }
+
+    /// Nothing stopped: a reopen is the quiet "Reconnected", a start just now nothing, as before.
+    #[test]
+    fn nothing_interrupted_opens_no_dialog() {
+        assert_eq!(
+            on_connect(&told(APP - 3_600_000, 0, false), APP, true, None),
+            OnConnect::Reconnected
+        );
+        assert_eq!(
+            on_connect(&told(APP + 2_000, 0, false), APP, true, None),
+            OnConnect::Nothing
+        );
+    }
+
+    /// The app's own start or restart of the service opens it as before.
+    #[test]
+    fn a_start_from_the_app_opens_it_as_before() {
+        let s = told(APP + 600_000, 3, false);
+        assert_eq!(
+            on_connect(&s, APP, false, Some(APP - 1)),
+            OnConnect::Summary
+        );
+        assert_eq!(
+            on_connect(&s, APP, false, Some(s.started_at)),
+            OnConnect::Nothing
+        );
     }
 
     fn report(interrupted: &[&str]) -> StartupReport {

@@ -867,6 +867,15 @@
   padding-left: 22px;
 }
 
+/* Cut to the menu's `hintLines` (`--menu-hint-lines`), the whole hint on hover: Pick a skill… only. */
+.menu-item-hint[data-cut] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--menu-hint-lines);
+  line-clamp: var(--menu-hint-lines);
+  overflow: hidden;
+}
+
 .tooltip-anchor {
   display: inline-flex;
 }
