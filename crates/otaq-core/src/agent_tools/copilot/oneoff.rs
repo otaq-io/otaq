@@ -32,7 +32,7 @@ pub(super) fn command(
     request: &OneOffRequest,
 ) -> Result<OneOffCommand, LaunchError> {
     let mut args = vec!["-p".to_owned(), request.prompt.clone()];
-    args.extend(launch::model_flags(request.model.as_deref()));
+    args.extend(launch::model_flags(request.model.as_deref(), false));
     args.push("--available-tools".to_owned());
     args.extend(READING_TOOLS.map(str::to_owned));
     for denied in DENIED {

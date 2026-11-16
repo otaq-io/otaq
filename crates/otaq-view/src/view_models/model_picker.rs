@@ -468,7 +468,6 @@ mod tests {
             (
                 Some(s("ALWAYS THE NEWEST")),
                 vec![
-                    (s("Auto · efficiency"), Some(s("Fast and light on credits"))),
                     (
                         s("Auto · balance"),
                         Some(s("A balance of speed and quality"))
@@ -491,6 +490,23 @@ mod tests {
         assert_eq!(
             p.groups[1].items[0].detail.as_deref(),
             Some("Copilot picks the model for each task")
+        );
+        // An agent saved on Auto · efficiency, which Copilot no longer runs (decision 117): shown as saved, "no
+        // longer listed", and not offered.
+        let p = picker(
+            Tool::Copilot,
+            ListState::Listed(&list),
+            Some("auto@efficiency"),
+            false,
+            None,
+        );
+        assert_eq!(p.value.label, "auto@efficiency");
+        assert_eq!(p.value.no_longer_listed.as_deref(), Some(NO_LONGER_LISTED));
+        assert!(
+            p.groups
+                .iter()
+                .flat_map(|g| &g.items)
+                .all(|i| !i.label.contains("efficiency"))
         );
     }
 

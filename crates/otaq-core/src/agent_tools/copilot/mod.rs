@@ -221,6 +221,10 @@ impl AgentTool for Copilot {
         launch::conversation_not_found(output)
     }
 
+    fn resume_note(&self, model: Option<&str>) -> Option<String> {
+        launch::resume_note(model)
+    }
+
     fn resume_hint(&self, tool_id: &str) -> String {
         launch::resume_hint(tool_id)
     }

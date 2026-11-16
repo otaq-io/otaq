@@ -3,6 +3,14 @@
 What changed for you in each release. The maintainer copies a version's section into its GitHub release notes
 before Publish (`scripts/README.md`, "Making a release").
 
+## Unreleased
+
+- **GitHub Copilot removed its "Auto · efficiency" profile** (Copilot CLI 1.0.112 refuses it), so Otaq no longer
+  offers it: Copilot's Auto is balance or intelligence. An agent saved on efficiency shows "no longer listed" and
+  its new starts, Start from scratch included, wait "Model unavailable" until you pick another model for it. A
+  ticket whose conversation ran on efficiency resumes on Auto · balance, keeping its conversation, and its History
+  says so.
+
 ## 0.2.0
 
 - **A shorter first run.** It is Welcome (your board's columns are your process, in one picture) → Tools (the agent
