@@ -595,6 +595,11 @@ impl Deliveries {
                 .lock()
                 .expect("behind dialog")
                 .remove(&session);
+            // Nothing waits (any more): nothing to look again for, until a delivery is queued, which looks itself.
+            // Asked after the removal, so one queued meanwhile, which found this look still on, isn't left behind.
+            if !this.pending(&session).await.is_ok_and(|p| !p.is_empty()) {
+                return;
+            }
             if let Err(e) = this.deliver_if_ready(&session).await {
                 tracing::warn!(session, error = %e, "delivery failed");
             }
