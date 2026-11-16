@@ -509,7 +509,7 @@ pub struct Section<Id> {
     pub title: Option<String>,
     pub intro: Option<String>,
     pub rows: Vec<Row>,
-    /// A line under the rows ("Right now: 3 running · …").
+    /// A line under the rows ("Right now: 3 of 5 slots taken · …").
     pub note: Option<String>,
 }
 

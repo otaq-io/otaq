@@ -190,6 +190,21 @@ export function ActivityBody({
             <span className="activity-ticket-line">{row.line}</span>
           </button>
         ))}
+        {/* With the agent limit on, the other tickets holding a slot ("waits for you · decide"), decision 114. */}
+        {agents.holders.map((row) => (
+          <button
+            key={row.key}
+            type="button"
+            className="activity-ticket activity-holder"
+            onClick={() => {
+              onOpenAgent?.(row.key);
+            }}
+          >
+            <span className="activity-ticket-key">{row.key}</span>
+            <span className="activity-ticket-title">{row.title}</span>
+            <span className="activity-ticket-line">{row.line}</span>
+          </button>
+        ))}
         {agents.rows.map((row) => (
           <div key={row.name} className="activity-tool">
             {row.avatar && <ToolAvatar avatar={row.avatar} />}

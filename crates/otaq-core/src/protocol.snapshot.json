@@ -1250,6 +1250,13 @@
         "present"
       ]
     },
+    "Busy": {
+      "kind": "enum",
+      "variants": {
+        "delivering": {},
+        "starting": {}
+      }
+    },
     "CameFrom": {
       "kind": "enum",
       "attrs": [
@@ -9646,6 +9653,9 @@
     "SchedulerStatus": {
       "kind": "struct",
       "fields": {
+        "holders": {
+          "ty": "Vec<SlotHolder>"
+        },
         "holding": {
           "ty": "u32",
           "required": true
@@ -10342,6 +10352,27 @@
           "omittable": true
         },
         "stage_id": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
+    "SlotHolder": {
+      "kind": "struct",
+      "fields": {
+        "busy": {
+          "ty": "Option<Busy>",
+          "omittable": true
+        },
+        "key": {
+          "ty": "TicketKey",
+          "required": true
+        },
+        "status": {
+          "ty": "Status",
+          "required": true
+        },
+        "title": {
           "ty": "String",
           "required": true
         }

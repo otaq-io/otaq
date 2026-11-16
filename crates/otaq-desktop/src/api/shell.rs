@@ -669,4 +669,69 @@ mod tests {
         assert_eq!(popover["limits"]["max_agents"]["value"], 6);
         h.service.stop_all().await;
     }
+
+    /// F-B-2 (decision 114): with "Run at most 1" held by a check that gave no result, the header reads "1/1 agents"
+    /// and the popover lists that ticket instead of "Nothing running".
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_popover_lists_what_holds_the_slot() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let shop = add(&h, &repos, "shop-web").await;
+        let Reply::Ticket(t) = h
+            .app
+            .service
+            .send(Request::TicketCreate(otaq_core::board::tickets::NewTicketInput {
+                project: shop.key.clone(),
+                title: "Add CONTRIBUTING.md".into(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("no ticket");
+        };
+        let mut settings = settings(&h.app).await.unwrap();
+        settings.agent_limits = AgentLimits {
+            enabled: true,
+            max_concurrency: 1,
+            back_pressure: 50,
+        };
+        h.app
+            .service
+            .send(Request::SettingsSet(settings))
+            .await
+            .unwrap();
+        let store = otaq_core::store::Store::open(&h.service.data.database_path())
+            .await
+            .unwrap();
+        let status = otaq_core::domain::Status::CheckNoResult;
+        sqlx::query("UPDATE tickets SET stage_id = ?, state = ? WHERE id = ?")
+            .bind(otaq_core::flow::engine::default_stage(status, None))
+            .bind(status.as_str())
+            .bind(&t.id)
+            .execute(store.pool())
+            .await
+            .unwrap();
+        store.close().await;
+
+        let header = request(&h.app, "shell.header", json!({ "project": shop.key }))
+            .await
+            .unwrap();
+        assert_eq!(header["activity"]["agents"]["count"], "1/1");
+        let popover =
+            serde_json::to_value(popover_with(&h.app, &[AvatarTool::ClaudeCode]).await.unwrap()).unwrap();
+        assert_eq!(popover["agents"]["count"], "0");
+        assert_eq!(popover["agents"]["tickets"], json!([]));
+        assert_eq!(
+            popover["agents"]["holders"],
+            json!([{
+                "key": t.key.to_string(),
+                "title": "Add CONTRIBUTING.md",
+                "line": "waits for you · decide",
+            }])
+        );
+        assert_eq!(popover["agents"]["empty"], Value::Null);
+        h.service.stop_all().await;
+    }
 }

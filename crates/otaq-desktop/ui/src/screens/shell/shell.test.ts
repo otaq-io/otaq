@@ -389,6 +389,7 @@ const POPOVER: ActivityPopover = {
       { key: "NOTE-6", title: "Tags", line: "Developer · asks you" },
       { key: "API-1", title: "Sync endpoint", line: "Checker · 2m" },
     ],
+    holders: [],
     rows: [],
     empty: null,
   },
@@ -495,6 +496,41 @@ describe("the Activity popover", () => {
     expect(out.indexOf("Agent limits")).toBeLessThan(out.indexOf("AGENTS RUNNING"));
     expect(out).toContain("Nothing running. A started ticket begins");
     expect(out).not.toContain("PROCESSES");
+  });
+
+  it("lists, with the limit on, the tickets holding a slot that aren't working, under the working ones", () => {
+    const out = draw({
+      ...POPOVER,
+      limits: LIMITS,
+      agents: {
+        ...POPOVER.agents,
+        count: "0",
+        tickets: [],
+        holders: [
+          { key: "SHOP-6", title: "Add CONTRIBUTING.md", line: "waits for you · decide" },
+          { key: "SHOP-7", title: "Footer", line: "starting" },
+        ],
+        empty: null,
+      },
+    });
+    expect(out.match(/class="activity-ticket activity-holder"/g)).toHaveLength(2);
+    expect(out).not.toContain("Nothing running");
+    const head = out.indexOf("AGENTS RUNNING");
+    const usage = out.indexOf("USAGE");
+    for (const text of ["SHOP-6", "Add CONTRIBUTING.md", "waits for you · decide", "starting"]) {
+      const at = out.indexOf(text);
+      expect(at).toBeGreaterThan(head);
+      expect(at).toBeLessThan(usage);
+    }
+    // Working rows come first.
+    const both = draw({
+      ...POPOVER,
+      agents: {
+        ...POPOVER.agents,
+        holders: [{ key: "SHOP-6", title: "Docs", line: "waits for you · decide" }],
+      },
+    });
+    expect(both.indexOf("API-1")).toBeLessThan(both.indexOf("SHOP-6"));
   });
 
   it("the stepper is disabled at its bound", () => {
