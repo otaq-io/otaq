@@ -268,7 +268,7 @@ pub fn attachment_line(a: &Attachment, command: &str) -> String {
 }
 
 /// "3:05 pm", "12:40 am", local time (0093's form).
-fn clock(at: i64) -> Option<String> {
+pub(crate) fn clock(at: i64) -> Option<String> {
     let t = crate::local_time::local(at)?;
     let (h, suffix) = match t.hour {
         0 => (12, "am"),

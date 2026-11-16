@@ -28,6 +28,7 @@ mod check_counters;
 mod check_ticket_start;
 mod checkout_skills;
 mod checkpoint;
+mod checks_since_approval;
 mod claude_typing;
 mod cleanup;
 mod client;

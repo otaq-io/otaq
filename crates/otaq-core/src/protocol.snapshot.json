@@ -827,6 +827,31 @@
         "unchanged": {}
       }
     },
+    "ApprovedEarlier": {
+      "kind": "struct",
+      "fields": {
+        "at": {
+          "ty": "i64",
+          "required": true
+        },
+        "base": {
+          "ty": "String",
+          "required": true
+        },
+        "files": {
+          "ty": "Vec<String>",
+          "omittable": true
+        },
+        "sha": {
+          "ty": "String",
+          "required": true
+        },
+        "stage": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "Arrival": {
       "kind": "enum",
       "attrs": [
@@ -12064,6 +12089,10 @@
     "ValidatePrime": {
       "kind": "struct",
       "fields": {
+        "approved": {
+          "ty": "Option<ApprovedEarlier>",
+          "omittable": true
+        },
         "children": {
           "ty": "Vec<Linked>",
           "omittable": true

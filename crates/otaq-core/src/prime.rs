@@ -734,8 +734,13 @@ pub struct ValidatePrime {
     /// The manual checks listed for the user so far (d0125), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manual_checks: Vec<ManualCheck>,
-    /// `git diff <base_sha> HEAD` in the worktree: the committed change.
+    /// The committed change the check judges, in the worktree: `git diff <base_sha> HEAD`, or, after the user
+    /// approved the ticket's work at a human check, only what changed since (tuq decision 116, [`ApprovedEarlier`]).
     pub diff: String,
+    /// What the user approved earlier, context and not in scope (tuq decision 116); `None` with no approval to
+    /// narrow the check, when [`Self::diff`] is the whole branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved: Option<ApprovedEarlier>,
     /// After a Send back: the user's line comments, each to check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<LineReview>,
@@ -750,6 +755,23 @@ pub struct ValidatePrime {
     /// Codex sessions only: the file to pass long text through with `--stdin-file` ([`crate::prime::long_text_file`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub long_text_file: Option<std::path::PathBuf>,
+}
+
+/// The ticket's work the user approved at a human check, the latest approval (tuq decision 116): a check reads it as
+/// context and judges only the changes made after it (`prime --validate`'s "Approved earlier").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovedEarlier {
+    /// The human check's name ("Spec review").
+    pub stage: String,
+    /// The commit approved.
+    pub sha: String,
+    /// Where the approved changes start: the branch's base below the approved commit.
+    pub base: String,
+    /// When the user approved it (ms).
+    pub at: i64,
+    /// The files the approved changes touched, as `git diff --name-status` prints them ("M\tREADME.md").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
 }
 
 /// The user's line comments of the latest Send back (`prime --validate`'s "The user's review").
@@ -821,6 +843,7 @@ impl Board {
                     + 1
             }
         };
+        let (diff, approved) = self.check_scope(&ticket).await?;
         Ok(ValidatePrime {
             round,
             rounds,
@@ -830,7 +853,8 @@ impl Board {
             comments: base.comments,
             user_answers: base.user_answers,
             manual_checks: base.manual_checks,
-            diff: self.committed_diff(&ticket).await?,
+            diff,
+            approved,
             review,
             instructions: base.instructions,
             parents: base.parents,
@@ -859,20 +883,137 @@ impl Board {
         Ok(LineReview { round, comments })
     }
 
-    /// `git diff <base_sha> HEAD` in the ticket's worktree; empty when it has none yet.
-    async fn committed_diff(&self, ticket: &Ticket) -> Result<String, BoardError> {
+    /// What a check judges (tuq decision 116), in the ticket's worktree: the changes since the user's latest approval
+    /// at a human check, with that approval as context; with none (or none that still holds, [`Self::approval`]),
+    /// `git diff <base_sha> HEAD`, the whole branch. Empty when it has no worktree yet.
+    async fn check_scope(
+        &self,
+        ticket: &Ticket,
+    ) -> Result<(String, Option<ApprovedEarlier>), BoardError> {
         let Some(work) = &ticket.work else {
-            return Ok(String::new());
+            return Ok((String::new(), None));
         };
         let base = self.current_base_sha(ticket).await?;
         let (Some(worktree), Some(base)) = (&work.worktree, &base) else {
-            return Ok(String::new());
+            return Ok((String::new(), None));
         };
-        Ok(self
-            .git()?
-            .run(std::path::Path::new(worktree), &["diff", base, "HEAD"])
-            .await?)
+        let worktree = std::path::Path::new(worktree);
+        let git = self.git()?;
+        let Some((from, approved)) = self.approval(ticket, worktree, base).await? else {
+            return Ok((git.run(worktree, &["diff", base, "HEAD"]).await?, None));
+        };
+        // An approval right before the check (Review → a check, a Pass into an agent check) leaves this diff empty:
+        // decision 116 as written, the check has nothing new to judge and prime says so ([`render_approved_earlier`]).
+        // The one place to change if such a check should read the whole branch instead: return the whole-branch
+        // diff with no approval here when this one is empty.
+        let diff = git.run(worktree, &["diff", &from, "HEAD"]).await?;
+        Ok((diff, Some(approved)))
     }
+
+    /// The ticket's latest approval (tuq decision 116) and what the check's diff starts from: the approved commit,
+    /// or, when the base was merged into the branch after it, the approved commit's tree with those base commits
+    /// merged in ([`Board::reviewed_with_target`]). `None`, so the whole branch is judged as with no approval, when
+    /// there's none, its commit is no longer on the branch (reset or rebased by hand) or already on the base (it
+    /// approved nothing of the ticket's own).
+    async fn approval(
+        &self,
+        ticket: &Ticket,
+        worktree: &std::path::Path,
+        base: &str,
+    ) -> Result<Option<(String, ApprovedEarlier)>, BoardError> {
+        let row: Option<(Option<String>, Option<String>, Option<i64>)> = sqlx::query_as(
+            "SELECT approved_sha, approved_stage_id, approved_at FROM tickets WHERE id = ?",
+        )
+        .bind(&ticket.id)
+        .fetch_optional(self.store().pool())
+        .await
+        .map_err(crate::store::StoreError::from)?;
+        let Some((Some(sha), stage_id, at)) = row else {
+            return Ok(None);
+        };
+        let git = self.git()?;
+        let Some(head) = git.resolve(worktree, "HEAD").await? else {
+            return Ok(None);
+        };
+        // A commit git can't find (gone with a rebase) is no ancestor.
+        let on_branch = git
+            .is_ancestor(worktree, &sha, &head)
+            .await
+            .unwrap_or(false);
+        let on_base = git.is_ancestor(worktree, &sha, base).await.unwrap_or(false);
+        if !on_branch || on_base {
+            return Ok(None);
+        }
+        let Ok(own_base) = git.run(worktree, &["merge-base", base, &sha]).await else {
+            return Ok(None);
+        };
+        let own_base = own_base.trim().to_owned();
+        let files: Vec<String> = git
+            .run(worktree, &["diff", "--name-status", &own_base, &sha])
+            .await?
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(str::to_owned)
+            .collect();
+        if files.is_empty() {
+            return Ok(None);
+        }
+        let (from, _) = self
+            .reviewed_with_target(worktree, &sha, &head, ticket.base.branch())
+            .await?;
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let stage = stage_id
+            .as_deref()
+            .map(|id| flow.stage(id).map_or(id, |s| s.name.as_str()).to_owned())
+            .unwrap_or_default();
+        Ok(Some((
+            from,
+            ApprovedEarlier {
+                stage,
+                sha,
+                base: own_base,
+                at: at.unwrap_or_default(),
+                files,
+            },
+        )))
+    }
+}
+
+/// "## Approved earlier" (tuq decision 116): what the user approved is context, not in scope, and the diff below is
+/// what changed since; with nothing changed since, the check has nothing new to judge.
+fn render_approved_earlier(approved: &ApprovedEarlier, diff: &str) -> String {
+    let short = |sha: &str| sha.chars().take(12).collect::<String>();
+    let at = crate::board::ticket_comments::clock(approved.at)
+        .map(|t| format!(" ({t})"))
+        .unwrap_or_default();
+    let stage = if approved.stage.is_empty() {
+        "a review step".to_owned()
+    } else {
+        approved.stage.clone()
+    };
+    let mut out = format!(
+        "\n## Approved earlier\n\nThe user approved this ticket's work up to `{sha}` at {stage}{at}. Those changes \
+         are context, not in scope: read them when you need them (`git diff {base} {sha}`, files below), and never \
+         fail the ticket for them or note them as out of scope. ",
+        sha = short(&approved.sha),
+        base = short(&approved.base),
+    );
+    if diff.trim().is_empty() {
+        out.push_str(&format!(
+            "Nothing changed since the user approved it at {stage}: there is nothing new to judge, so pass with a \
+             short note saying so.\n"
+        ));
+    } else {
+        out.push_str("Judge only the diff below, the changes made since.\n");
+    }
+    if !approved.files.is_empty() {
+        out.push('\n');
+        for file in &approved.files {
+            let (status, path) = file.split_once('\t').unwrap_or(("", file));
+            out.push_str(&format!("- {status} {}\n", path.replace('\t', " → ")));
+        }
+    }
+    out
 }
 
 /// "Your stage": the stage, the agent that runs it and its skill ("Dev, as Developer, with the skill
@@ -958,6 +1099,9 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
                 c.status.label()
             ));
         }
+    }
+    if let Some(approved) = &ctx.approved {
+        out.push_str(&render_approved_earlier(approved, &ctx.diff));
     }
     out.push_str(&format!(
         "\n## The diff\n\n```diff\n{}\n```\n\n## Your verdict\n\nKeep it short: one or two lines, one line per \
