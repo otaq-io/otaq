@@ -92,7 +92,7 @@ interface TextAreaProps extends Omit<TextProps, "ref"> {
   ref?: Ref<HTMLTextAreaElement>;
 }
 
-/** Multi-line text (What and why, a note). */
+/** Multi-line text (What and why, a note); `mono` is code-like text (a commit message), so spell check is off too. */
 export function TextArea({
   id,
   value,
@@ -118,6 +118,7 @@ export function TextArea({
   return (
     <textarea
       {...PROSE_TEXT}
+      spellCheck={mono ? PLAIN_TEXT.spellCheck : undefined}
       ref={(el) => {
         own.current = el;
         if (typeof ref === "function") return ref(el);

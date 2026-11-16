@@ -41,6 +41,14 @@
   font-weight: 500;
 }
 
+/* The commit messages, one growing area per commit; as one block they keep their height and the dialog's body
+   scrolls instead of squeezing them. */
+.pr-commits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .pr-field {
   display: flex;
   flex-direction: column;
