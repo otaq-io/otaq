@@ -1,0 +1,21 @@
+[?9001h[?1004h[?25l[2J[m[H]0;claude[?25h[?25l[?2004h[?2031h[?1004h]0;✳ Claude Code[38;2;215;119;87m ▐[48;2;0;0;0m▛███▛█[m[1m[3CClaude[1CCode[38;2;153;153;153m[22m[1Cv2.1.325[38;2;215;119;87m
+▝▜[48;2;0;0;0m█████[49m█▀[38;2;153;153;153m[2COpus[1C5.5[1C·[1CClaude[1CUltra[38;2;215;119;87m
+ ▝▝[3C▝▝[38;2;153;153;153m[3C~\p1-capture\repo2[38;2;136;136;136m[6;1H────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+> [2mTry[1C"how[1Cdoes[1C<filepath>[1Cwork?"[38;2;136;136;136m[22m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;255;193;7m[9;3H⏵⏵[1Cauto[1Cmode[1Con [38;2;153;153;153m(shift+tab[1Cto[1Ccycle)[1C·[1C←[1Cfor[1Cagents[47C◐[1Cmedium[1C·[1C/effort[7;3H[?25h[>0q[m[?u]7501;?[?2004h[?25l[38;2;177;185;249m/resume[K[9;3H> /[1mresume[22m[27X[1m[27CResume[22m a previous conversation[m[32C[K[38;2;153;153;153m[10;3H [1C/workflow-authoring[15CLoad[1Cthe[1Creference[1Cfor[1Cwriting[1CWorkflow[1Ctool[1Cscripts[11;3H [1C/clear[28CStart[1Ca[1Cnew[1Csession[1Cwith[1Cempty[1Ccontext;[1Cprevious[1Csession[1Cstays[1Con[1Cdisk[12;39H(resumable[1Cwith[1C/[m[1mresume[38;2;153;153;153m[22m)[13;3H [1C/teleport[25CSend[1Cthis[1Csession[1Cto[1Cthe[1Ccloud,[1Cor[m[1m[1Cresume[38;2;153;153;153m[22m one[1Cfrom[1Cclaude.ai[14;3H [1C/docs[29Cdocs[1C(editable[1Cdocs[1Cpeople[1Cshare[1Cand[1Ccomment[1Con;[1Cthe[1Cdefault[1Cfor[1Cany[1Cdocument,[15;39Hnamed[1Cas[1Ca[1Cdoc[1Cor[1Cnot:[1Ca[1Cdocument,[1Creport,[1Cproposal,[m[1m[1Cresume[38;2;153;153;153m[22m,[1Ccover[1Cletter,[1Clett…[7;10H[?25h[m[?25l[38;2;153;153;153m[48;2;55;55;55m[6;1H> [38;2;255;255;255m/resume                                                                                                               [m
+[K[38;2;177;185;249m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[1m[9;3HResume s[1Cssion[m[K[10;3H[K[38;2;255;255;255m
+✢  [mLoading conversations…[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[120C[2m[10;3H╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮[11;3H│[38;2;153;153;153m[22m[1C⌕ Search…[14X[m[2m[104C│[12;3H╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[38;2;177;185;249m[22m[15;3H>[1CMkdir[1Cnewdir[1Ccommand[38;2;153;153;153m[16;5H1[1Cminute[1Cago[1C·[1Cmain[1C·[1C386.9KB[18;5HCtrl+A[1Cto[1Cshow[1Call[1Cprojects[1C·[1CSpace[1Cto[1Cpreview[1C·[1CCtrl+R[1Cto[1Crename[1C·[1CType[1Cto[1Csearch[1C·[1CEsc[1Cto[1Ccancel[m[38;2;153;153;153m[18;35HCtrl+B to only show curren[1C b[1Ca[1Cch · Spac[5Cpreview · Ctrl+R to rename · Type to [19;5Hsearch[1C·[1CEsc[1Cto[1Ccancel[m[38;2;153;153;153m[13;5Hrepo2[m[?2004h
