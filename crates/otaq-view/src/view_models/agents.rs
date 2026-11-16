@@ -342,14 +342,6 @@ pub struct Choice {
     pub selected: bool,
 }
 
-pub(crate) fn choice(id: &str, label: &str, selected: bool) -> Choice {
-    Choice {
-        id: id.to_owned(),
-        label: label.to_owned(),
-        selected,
-    }
-}
-
 /// An empty cell.
 pub const NOTHING: &str = "\u{2014}";
 

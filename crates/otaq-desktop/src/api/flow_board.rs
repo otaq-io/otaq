@@ -110,7 +110,7 @@ async fn projects(app: &App) -> Result<Vec<otaq_core::board::snapshot::ProjectIn
 }
 
 /// A project's flow in use, when it reads.
-async fn flow_of(app: &App, project: &str) -> Option<otaq_core::flow::FlowFile> {
+pub(super) async fn flow_of(app: &App, project: &str) -> Option<otaq_core::flow::FlowFile> {
     match app
         .service
         .send(Request::FlowCurrent(ProjectParams {

@@ -4,8 +4,9 @@
 //! message starts the agent, d0087), Rename, End agent (asks first mid-turn), Close ended agents and Resume. Which
 //! agent each project shows, + and the empty agent panel are the page's own state: nothing here starts without a message
 //! or a click. The empty agent panel names what "Noyan starts on" (one app setting, UX-70) runs on, which
-//! [`project_agent`] reads for Ask the agent too, and lets the new conversation pick another model and effort for
-//! itself before its first message.
+//! [`project_agent`] reads for Ask the agent too, and its header lets the new conversation pick another model and
+//! effort for itself before its first message ("For this conversation", canvas A-6), offering the pairs the
+//! projects' flows use ([`uses`]).
 //! `agent_panel.undo` is a CHANGED row's Undo (decision 013): it takes back one change Noyan made on a ticket.
 
 use otaq_core::agents::NoyanStartsOn;
@@ -18,6 +19,8 @@ use otaq_core::protocol::{
     ProjectParams, Reply, Request, TicketChoicesParams,
 };
 use otaq_view::view_models::agent_panel::{self as vm, EditedTicket, AgentPanelView};
+use otaq_view::view_models::model_effort::Use;
+use otaq_view::view_models::tool_problems::Tools;
 use otaq_view::view_models::project_agent_page::{self as agent_page, CloseDialog};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
@@ -220,24 +223,55 @@ pub struct StartOn {
 }
 
 impl StartOn {
-    fn setting(&self) -> NoyanStartsOn {
+    /// As the setting's shape; an effort the model's tool doesn't offer becomes the nearest it does (a model picked
+    /// after the effort, UX-75), none for a tool without levels.
+    fn setting(&self, tools: &Tools) -> NoyanStartsOn {
+        let model = self.model.clone().filter(|m| !m.trim().is_empty());
+        let effort = self.effort.as_deref().filter(|e| !e.trim().is_empty());
+        let tool = model
+            .as_deref()
+            .and_then(|m| otaq_view::view_models::model_effort::runs_on(m, tools))
+            .map(|on| on.tool);
         NoyanStartsOn {
-            model: self.model.clone().filter(|m| !m.trim().is_empty()),
-            effort: self.effort.clone().filter(|e| !e.trim().is_empty()),
+            effort: match tool {
+                Some(tool) => effort.and_then(|e| otaq_core::agents::nearest_effort(tool, e)),
+                None => effort,
+            }
+            .map(str::to_owned),
+            model,
         }
     }
+}
+
+/// The model-and-effort pairs every project's flow uses: the header's menu offers them for a new conversation.
+async fn uses(app: &App) -> Vec<Use> {
+    let Ok(Reply::Projects(projects)) = app.service.send(Request::ProjectList).await else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for p in projects {
+        if let Some(file) = super::flow_board::flow_of(app, &p.key).await {
+            out.extend(otaq_view::view_models::model_effort::uses_in(&p.name, &file.flow));
+        }
+    }
+    out
 }
 
 pub async fn view(app: &App, params: Params) -> Result<AgentPanelView, RequestError> {
     let agents = agents(app, &params.project).await?;
     let name = project_name(app, &params.project).await?;
     let new_agent = project_agent(app).await?;
-    let start_on = params.start_on.as_ref().map(StartOn::setting);
     let tools = super::editor::agent_tools(app).await;
+    let start_on = params.start_on.as_ref().map(|on| on.setting(&tools));
     let shown = params
         .agent
         .as_deref()
         .filter(|id| agents.open.iter().any(|a| a.id == *id));
+    // Only a conversation not started yet can switch its model.
+    let uses = match shown {
+        Some(_) => Vec::new(),
+        None => uses(app).await,
+    };
     let (created, edited) = match shown {
         Some(id) => {
             let created = created_of(app, id).await?;
@@ -274,6 +308,7 @@ pub async fn view(app: &App, params: Params) -> Result<AgentPanelView, RequestEr
         keys: super::keymap::labels(app).await,
         tools: &tools,
         start_on: start_on.as_ref(),
+        uses: &uses,
         project: &params.project,
     }))
 }
@@ -284,7 +319,7 @@ pub async fn view(app: &App, params: Params) -> Result<AgentPanelView, RequestEr
 pub struct SendParams {
     pub project: String,
     pub message: String,
-    /// The empty agent panel's own pick of model and effort (sent while [`vm::ModelPick::own`]); `None` for "Noyan
+    /// The model and effort picked for this conversation in the header's "For this conversation"; `None` for "Noyan
     /// starts on".
     #[serde(default)]
     #[ts(optional)]
@@ -294,12 +329,16 @@ pub struct SendParams {
 /// Send in the empty agent panel: the message is the go-ahead, and the new agent starts with it as its first prompt
 /// (`project_agent.open`, d0087). The new agent's id, which the agent panel shows next.
 pub async fn send(app: &App, params: SendParams) -> Result<String, RequestError> {
+    let on = match &params.on {
+        Some(on) => Some(on.setting(&tools(app).await)),
+        None => None,
+    };
     match app
         .service
         .send(Request::ProjectAgentOpen(ProjectAgentOpenParams {
             project: params.project,
             message: params.message,
-            on: params.on.as_ref().map(StartOn::setting),
+            on,
         }))
         .await
     {
@@ -660,6 +699,24 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(view["empty"]["line"]["agent"], "Claude Code");
+        // The header shows the conversation's model (its menu "For this conversation" needs a tool set up, which
+        // this test's Mac has none of).
+        assert_eq!(view["header"]["model"]["text"], "opus");
+        assert_eq!(view["header"]["model"]["pick"], Value::Null);
+        // An effort the picked model's tool doesn't offer becomes the nearest it does (UX-75).
+        let view = table(
+            &h.app,
+            "agent_panel.view",
+            json!({ "project": project, "start_on": { "model": "codex", "effort": "max" } }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view["header"]["model"]["text"], "default \u{b7} xhigh");
+        // The next conversation, with no pick, is on "Noyan starts on" again.
+        let view = table(&h.app, "agent_panel.view", json!({ "project": project }))
+            .await
+            .unwrap();
+        assert_eq!(view["header"]["model"]["text"], "default");
 
         // Send without words is refused; nothing was started.
         assert!(

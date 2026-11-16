@@ -15,9 +15,12 @@
 //!
 //! The agent line names the tool (UX-65, UX-70): on the empty agent panel the one "Noyan starts on" (an app setting)
 //! runs on, or the model picked for this conversation, which the first message starts ("Claude Code · starts when you
-//! send"); on a running agent the one its session started on ("Claude Code · 52k"). The empty agent panel's **Model**
-//! pick ([`ModelPick`]) lists the default model and every connected tool's models, with the tool's effort levels, so a
-//! new conversation can start on another than the setting's.
+//! send"); on a running agent the one its session started on ("Claude Code · 52k"). The header shows the
+//! conversation's **model · effort** ([`HeaderModel`], canvas A-6): before the first message it opens "For this
+//! conversation" ([`model_effort::for_conversation`]: the default from Settings → Tools, the pairs the flows use,
+//! Another model or effort…), so a new conversation can start on another than the setting's; once the conversation
+//! has started it is read-only, and a new conversation is how to change it (one tool's session can't carry on in
+//! another tool).
 //!
 //! **Tool problems** (SHL-04, d0087; *Its tool isn't available*, *Its tool is at its limit*): a running or ended
 //! agent whose tool can't run now shows the notice "Codex isn't available · logged out. This agent continues after
@@ -44,6 +47,7 @@ use crate::keymap::{KeyAction, Platform};
 use crate::view_models::board::BoardInput;
 use crate::view_models::card::tokens_label;
 use crate::view_models::menu::MenuItem;
+use crate::view_models::model_effort;
 use crate::view_models::project_agent_page::{self as agent_page, Recent, ResumeButton};
 use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
 use crate::view_models::tool_problems::{self, Callout, Tools};
@@ -109,6 +113,8 @@ pub struct Header {
     pub switcher: bool,
     /// The shown agent's state; none on the empty agent panel.
     pub pill: Option<crate::view_models::status::PillView>,
+    /// The conversation's model · effort (A-6).
+    pub model: HeaderModel,
     pub recent: Button,
     /// + shows the empty agent panel (as ⇧⌘L does); nothing starts.
     pub new: Button,
@@ -119,6 +125,100 @@ pub struct Header {
     pub collapse: Button,
     /// Closes the panel, as ⌘L and Esc do; the conversation is kept (d0113).
     pub close: Button,
+}
+
+/// The header's model · effort (canvas A-6, UX-70): the tool's avatar and "opus · max". `AgentPanelModel` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentPanelModel")]
+pub struct HeaderModel {
+    /// What it is on, as stored: `default`, a tool (`claude`) or `tool:model` (`claude:opus`); the page sends it
+    /// back with a new effort.
+    pub model: String,
+    /// The effort level; `None` for the tool's own. The page sends it back with a new model.
+    pub effort: Option<String>,
+    pub avatar: Option<ToolAvatarView>,
+    /// "opus · max", "default · high".
+    pub text: String,
+    /// "Claude Code · opus · max", and what switching does (before the first message) or that a new conversation is
+    /// how to change it (after).
+    pub tooltip: String,
+    /// Before the conversation's first message, with a tool set up: its menu "For this conversation"; the page sends
+    /// what is picked as `agent_panel.view`'s `start_on` and the first message's `on`. `None` once the conversation
+    /// has started: the model shows read-only.
+    pub pick: Option<model_effort::View>,
+}
+
+/// The header model's tooltip before the conversation's first message.
+pub const MODEL_SWITCHES: &str =
+    "For this conversation. The next one starts on the default from Settings \u{2192} Tools.";
+/// The header model's tooltip once the conversation has started (UX-70).
+pub const MODEL_STARTED: &str = "To use another model, start a new conversation.";
+
+/// What a conversation runs on, as a stored model: `tool:model` with the model passed at its start, else the tool
+/// alone (its account's default).
+fn ran_model(agent: &ProjectAgent) -> String {
+    match agent.model.as_deref().filter(|m| !m.is_empty()) {
+        Some(model) => format!("{}:{model}", agent.tool.as_str()),
+        None => agent.tool.as_str().to_owned(),
+    }
+}
+
+/// The header's model of a started conversation: read-only, as its session started.
+fn started_model(agent: &ProjectAgent, tools: &Tools) -> HeaderModel {
+    let effort = agent.session.as_ref().and_then(|s| s.effort.as_deref());
+    let model = ran_model(agent);
+    let text = model_effort::short_line(&model, effort, tools);
+    HeaderModel {
+        avatar: Some(ToolAvatarView::of(agent.tool, agent.model.as_deref())),
+        tooltip: format!(
+            "{} \u{b7} {text}. {MODEL_STARTED}",
+            tool_problems::tool_word(agent.tool)
+        ),
+        text,
+        pick: None,
+        effort: effort.map(str::to_owned),
+        model,
+    }
+}
+
+/// The header's model of the empty agent panel: the model picked for this conversation (`on`), else "Noyan starts on"
+/// (`usual`), with its menu while a tool is set up; no avatar while `default` and the default model isn't known.
+fn new_model(
+    on: Option<&NoyanStartsOn>,
+    usual: Option<&NoyanStartsOn>,
+    uses: &[model_effort::Use],
+    tools: &Tools,
+) -> HeaderModel {
+    let usual = usual.cloned().unwrap_or_default();
+    let now = on.cloned().unwrap_or_else(|| usual.clone());
+    let model = now.who().model.text();
+    let runs = model_effort::runs_on(&model, tools);
+    let text = model_effort::short_line(&model, now.effort.as_deref(), tools);
+    let default = usual.who().model.text();
+    HeaderModel {
+        avatar: runs
+            .as_ref()
+            .map(|on| ToolAvatarView::of(on.tool, on.model.as_deref())),
+        tooltip: match &runs {
+            Some(on) => format!(
+                "{} \u{b7} {text}. {MODEL_SWITCHES}",
+                tool_problems::tool_word(on.tool)
+            ),
+            None => format!("{text}. {MODEL_SWITCHES}"),
+        },
+        text,
+        pick: (!tools.connected.is_empty()).then(|| {
+            model_effort::for_conversation(
+                &model,
+                now.effort.as_deref(),
+                (&default, usual.effort.as_deref()),
+                uses,
+                tools,
+            )
+        }),
+        model,
+        effort: now.effort,
+    }
 }
 
 /// The line under the header: the tool avatar (hidden while one tool is connected), the named agent, then the tokens
@@ -221,109 +321,6 @@ pub struct Empty {
     pub send: &'static str,
     /// A first message held before its start (§7.2, SCH-04 `[M23]`): its notice above the box.
     pub notice: Option<Callout>,
-    /// The conversation's own pick of model and effort (UX-70), with at least one tool connected: the page passes
-    /// the picked `model` and `effort` back as `agent_panel.send`'s `on` when [`ModelPick::own`].
-    pub pick: Option<ModelPick>,
-}
-
-/// The empty agent panel's pick of model and effort for the new conversation ("Model: Claude Code · opus", "Effort:
-/// high"), "Noyan starts on" until the user picks another (UX-70). `AgentPanelModelPick` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentPanelModelPick")]
-pub struct ModelPick {
-    pub label: &'static str,
-    /// What it starts on: `default`, a tool (`claude`) or `tool:model` (`claude:opus`).
-    pub model: String,
-    /// `default` ("Your default model"), then each connected tool's models: ids as [`Self::model`].
-    pub models: Vec<crate::view_models::agents::Choice>,
-    pub effort_label: &'static str,
-    /// The picked effort level; `None` for the tool's own.
-    pub effort: Option<String>,
-    /// "Tool default" (id empty), then the model's tool's levels; empty for a tool with none (and `default`).
-    pub efforts: Vec<crate::view_models::agents::Choice>,
-    /// The pick differs from "Noyan starts on": the page sends it.
-    pub own: bool,
-}
-
-/// The pick's `default` entry.
-pub const DEFAULT_MODEL: &str = "Your default model";
-/// The pick's effort entry for the tool's own.
-pub const TOOL_DEFAULT_EFFORT: &str = "Tool default";
-
-/// The pick of model and effort for a new conversation, on `on` (the conversation's pick, else `usual`, "Noyan starts
-/// on"). `None` with no tool connected.
-pub fn model_pick(
-    on: Option<&NoyanStartsOn>,
-    usual: Option<&NoyanStartsOn>,
-    tools: &Tools,
-) -> Option<ModelPick> {
-    use crate::view_models::agents::{ListState, choice};
-    if tools.connected.is_empty() {
-        return None;
-    }
-    let usual = usual.cloned().unwrap_or_default();
-    let now = on.cloned().unwrap_or_else(|| usual.clone());
-    let text = |on: &NoyanStartsOn| on.who().model.text();
-    let model = text(&now);
-    let mut models = vec![choice("default", DEFAULT_MODEL, model == "default")];
-    for &tool in Tool::ALL.iter().filter(|t| tools.connected.contains(t)) {
-        let state = match tools.list(tool) {
-            Some(list) => ListState::Listed(list),
-            None => ListState::Loading,
-        };
-        let picker = crate::view_models::model_picker::picker(tool, state, None, false, None);
-        let mut ids = vec![tool.as_str().to_owned()];
-        models.push(choice(
-            tool.as_str(),
-            &format!(
-                "{} \u{b7} {}",
-                tool_problems::tool_word(tool),
-                crate::view_models::agents::TOOL_DEFAULT
-            ),
-            model == tool.as_str(),
-        ));
-        for item in picker.groups.iter().flat_map(|g| &g.items) {
-            let Some(value) = item.value.as_deref() else {
-                continue;
-            };
-            let id = format!("{}:{value}", tool.as_str());
-            if ids.contains(&id) {
-                continue;
-            }
-            models.push(choice(
-                &id,
-                &format!("{} \u{b7} {}", tool_problems::tool_word(tool), item.label),
-                model == id,
-            ));
-            ids.push(id);
-        }
-    }
-    let levels = now
-        .who()
-        .model
-        .tool()
-        .map(Tool::effort_levels)
-        .unwrap_or_default();
-    let effort = now.effort.clone().filter(|e| levels.contains(&e.as_str()));
-    let efforts = match levels {
-        [] => Vec::new(),
-        levels => std::iter::once(choice("", TOOL_DEFAULT_EFFORT, effort.is_none()))
-            .chain(
-                levels
-                    .iter()
-                    .map(|l| choice(l, l, effort.as_deref() == Some(*l))),
-            )
-            .collect(),
-    };
-    Some(ModelPick {
-        label: "Model",
-        own: text(&now) != text(&usual) || now.effort != usual.effort,
-        model,
-        models,
-        effort_label: "Effort",
-        effort,
-        efforts,
-    })
 }
 
 /// The tool a new agent starts on while there are no named agents (before the starter entry exists): the first.
@@ -357,7 +354,6 @@ pub fn empty(project_name: &str, on: Option<&NoyanStartsOn>, tools: &Tools) -> E
         hint: format!("Enter starts {name}"),
         send: "Send",
         notice: None,
-        pick: None,
     }
 }
 
@@ -970,6 +966,8 @@ pub struct Facts<'a> {
     pub tools: &'a Tools,
     /// The model and effort picked for this conversation in the empty agent panel, instead of "Noyan starts on".
     pub start_on: Option<&'a NoyanStartsOn>,
+    /// The model-and-effort pairs the projects' flows use, for the header's menu "For this conversation".
+    pub uses: &'a [model_effort::Use],
     /// The project's key.
     pub project: &'a str,
 }
@@ -985,6 +983,10 @@ pub fn view(f: &Facts) -> AgentPanelView {
         // Any conversation to continue: an open one, or one recently ended.
         switcher: !open.is_empty() || !f.agents.recent.is_empty(),
         pill: shown.map(agent_page::state_pill),
+        model: match shown {
+            Some(a) => started_model(a, f.tools),
+            None => new_model(f.start_on, f.new_agent, f.uses, f.tools),
+        },
         recent: Button {
             icon: IconName::History,
             label: "Recently ended",
@@ -1052,15 +1054,11 @@ pub fn view(f: &Facts) -> AgentPanelView {
 }
 
 /// The empty agent panel of `f`: on the model picked for this conversation, else on "Noyan starts on" with a held
-/// first message's notice; the pick lists the connected tools' models.
+/// first message's notice.
 fn empty_of(f: &Facts) -> Empty {
-    let pick = model_pick(f.start_on, f.new_agent, f.tools);
     let usual = f.new_agent.cloned().unwrap_or_default();
     if let Some(on) = f.start_on.filter(|on| **on != usual) {
-        return Empty {
-            pick,
-            ..empty(f.project_name, Some(on), f.tools)
-        };
+        return empty(f.project_name, Some(on), f.tools);
     }
     let notice = f
         .agents
@@ -1070,7 +1068,6 @@ fn empty_of(f: &Facts) -> Empty {
         .map(|hold| tool_problems::first_message_notice(hold, f.tools));
     Empty {
         notice,
-        pick,
         ..empty(f.project_name, f.new_agent, f.tools)
     }
 }
@@ -1204,6 +1201,7 @@ pub fn gallery() -> Gallery {
             keys: KeyLabels::base(Platform::Mac),
             tools: &one,
             start_on: None,
+            uses: &[],
             project: "NOTE",
         }),
     };
@@ -1225,6 +1223,7 @@ pub fn gallery() -> Gallery {
                     keys: KeyLabels::base(Platform::Mac),
                     tools: &one,
                     start_on: None,
+                    uses: &[],
                     project: "NOTE",
                 }),
             },
@@ -1297,6 +1296,7 @@ fn several_tools_states(now: i64) -> Vec<GalleryState> {
             keys: KeyLabels::base(Platform::Mac),
             tools,
             start_on: None,
+            uses: &[],
             project: "SHOP",
         }),
     };
@@ -1594,6 +1594,7 @@ mod tests {
             keys: KeyLabels::base(Platform::Mac),
             tools: one_tool(),
             start_on: None,
+            uses: &[],
             project: "NOTE",
         }
     }
@@ -2610,69 +2611,134 @@ mod tests {
         assert_eq!(e.hint, "Enter starts Codex");
         assert_eq!(e.line.avatar.as_ref().unwrap().letters, "CX");
         assert_eq!(e.notice, None);
-        assert!(!e.pick.unwrap().own);
     }
 
-    /// A new conversation can start on another model and effort than "Noyan starts on" (UX-70): the empty agent
-    /// panel's pick lists the default model and the connected tools' models, the one it starts on selected; a pick
-    /// of its own starts on it (and is passed on), picking the setting's is the setting again.
+    /// A-6, UX-70: before the first message the header shows the model "Noyan starts on" and opens "For this
+    /// conversation": the default from Settings → Tools first, the pairs the flows use, Another model or effort… and
+    /// the foot. A conversation switched to sonnet · medium shows and starts on it (the first message names it); the
+    /// following new conversation, with no pick, is on the default again.
     #[test]
-    fn a_new_conversation_picks_its_model() {
+    fn the_header_switches_the_model_for_a_new_conversation_only() {
+        use model_effort::{ANOTHER, CONVERSATION_FOOT, CONVERSATION_TITLE, THE_DEFAULT};
         let tools = tool_problems::fixtures::several();
-        let named = named();
+        let usual = NoyanStartsOn {
+            model: Some("claude:opus".into()),
+            effort: Some("high".into()),
+        };
+        let uses = [model_effort::Use {
+            model: "codex:gpt-5.5".into(),
+            effort: Some("high".into()),
+            what: "Validate".into(),
+            project: Some("shop-web".into()),
+        }];
         let agents = list(Vec::new());
         let base = || Facts {
             tools: &tools,
-            new_agent: Some(&named[0]),
+            new_agent: Some(&usual),
+            uses: &uses,
             ..facts(&agents, None)
         };
-        let selected = |e: &Empty| -> Vec<String> {
-            e.pick
+        let pairs = |m: &HeaderModel| -> Vec<(String, String, bool)> {
+            m.pick
                 .as_ref()
                 .unwrap()
-                .models
+                .menu
+                .pairs
                 .iter()
-                .filter(|o| o.selected)
-                .map(|o| o.id.clone())
+                .map(|p| (p.label.clone(), p.places.clone(), p.selected))
                 .collect()
         };
-        let e = view(&base()).empty.unwrap();
-        let pick = e.pick.as_ref().unwrap();
-        assert_eq!(pick.label, "Model");
-        assert_eq!(pick.model, "codex");
-        assert!(!pick.own);
-        assert_eq!(pick.models[0].id, "default");
-        assert!(pick.models.iter().any(|m| m.id == "claude"));
-        assert_eq!(selected(&e), ["codex"]);
-        let e = view(&Facts {
-            start_on: Some(&named[1]),
-            ..base()
-        })
-        .empty
-        .unwrap();
-        assert_eq!(e.line.agent, "Claude Code");
-        let pick = e.pick.as_ref().unwrap();
-        assert!(pick.own);
-        assert_eq!(pick.model, "claude:sonnet");
-        assert!(!pick.efforts.is_empty(), "Claude Code has effort levels");
-        let e = view(&Facts {
-            start_on: Some(&named[0]),
-            ..base()
-        })
-        .empty
-        .unwrap();
-        assert!(
-            !e.pick.unwrap().own,
-            "the setting's own model is the setting"
+        let m = view(&base()).header.model;
+        assert_eq!(m.text, "opus \u{b7} high");
+        assert_eq!(m.avatar.as_ref().unwrap().letters, "CC");
+        assert!(m.tooltip.ends_with(MODEL_SWITCHES));
+        let menu = &m.pick.as_ref().unwrap().menu;
+        assert_eq!(menu.title, CONVERSATION_TITLE);
+        assert_eq!(menu.pairs_heading, Some("FOR THIS CONVERSATION"));
+        assert_eq!(menu.another, Some(ANOTHER));
+        assert_eq!(menu.foot, CONVERSATION_FOOT);
+        assert_eq!(
+            pairs(&m),
+            [
+                ("opus \u{b7} high".to_owned(), THE_DEFAULT.to_owned(), true),
+                (
+                    "gpt-5.5 \u{b7} high".to_owned(),
+                    "Validate in shop-web".to_owned(),
+                    false
+                ),
+            ]
         );
+        // Switched to sonnet · medium before typing: the header, its menu and the first message's line are on it.
+        let sonnet = NoyanStartsOn {
+            model: Some("claude:sonnet".into()),
+            effort: Some("medium".into()),
+        };
+        let v = view(&Facts {
+            start_on: Some(&sonnet),
+            ..base()
+        });
+        assert_eq!(v.header.model.text, "sonnet \u{b7} medium");
+        assert_eq!(
+            pairs(&v.header.model),
+            [
+                ("opus \u{b7} high".to_owned(), THE_DEFAULT.to_owned(), false),
+                ("sonnet \u{b7} medium".to_owned(), String::new(), true),
+                (
+                    "gpt-5.5 \u{b7} high".to_owned(),
+                    "Validate in shop-web".to_owned(),
+                    false
+                ),
+            ]
+        );
+        let field = v.header.model.pick.as_ref().unwrap();
+        let effort: Vec<&str> = field
+            .effort
+            .as_ref()
+            .unwrap()
+            .levels
+            .iter()
+            .filter(|l| l.selected)
+            .map(|l| l.id.as_str())
+            .collect();
+        assert_eq!(effort, ["medium"], "Another model or effort… opens on it");
+        assert_eq!(v.empty.unwrap().line.agent, "Claude Code");
+        // The following new conversation has no pick: the default again.
+        assert_eq!(view(&base()).header.model.text, "opus \u{b7} high");
+        // No tool set up: the model shows, with nothing to pick.
         let none = Tools::default();
-        let e = view(&Facts {
+        let m = view(&Facts {
             tools: &none,
             ..base()
         })
-        .empty
-        .unwrap();
-        assert_eq!(e.pick, None, "no tool connected: nothing to pick");
+        .header
+        .model;
+        assert_eq!(m.pick, None);
+    }
+
+    /// UX-70: a started conversation's header shows the model and effort its session started on, read-only; a new
+    /// conversation is how to change it.
+    #[test]
+    fn a_started_conversations_model_is_read_only() {
+        let tools = tool_problems::fixtures::several();
+        let mut a = agent("a1", "Search slowness", 1);
+        a.model = Some("sonnet".into());
+        let mut session = session_on("Noyan");
+        session.effort = Some("medium".into());
+        a.session = Some(session);
+        let agents = list(vec![a]);
+        let m = view(&Facts {
+            tools: &tools,
+            ..facts(&agents, Some("a1"))
+        })
+        .header
+        .model;
+        assert_eq!(m.text, "sonnet \u{b7} medium");
+        assert_eq!(m.pick, None, "a started conversation can't switch");
+        assert_eq!(
+            m.tooltip,
+            format!("Claude Code \u{b7} sonnet \u{b7} medium. {MODEL_STARTED}")
+        );
+        assert_eq!(m.avatar.unwrap().letters, "CC");
     }
 
     /// Its tool isn't available: the amber notice with Sign in…; at its limit, neutral with Resume after reset; the
@@ -2743,7 +2809,6 @@ mod tests {
         .empty
         .unwrap();
         assert_eq!(e.line.agent, "Claude Code");
-        assert_eq!(e.pick.unwrap().model, "claude:sonnet");
         assert_eq!(e.notice, None);
     }
 }

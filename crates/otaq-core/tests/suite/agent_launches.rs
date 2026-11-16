@@ -445,6 +445,34 @@ async fn a_project_agent_opens_on_the_model_asked_for() {
         )
     );
     assert_eq!(stored_on(w, &session.id).await.1.as_deref(), Some("opus"));
+    // Switched to sonnet · medium in the panel's header before typing (canvas A-6): it runs on both.
+    let sonnet = NoyanStartsOn {
+        model: Some("claude:sonnet".into()),
+        effort: Some("medium".into()),
+    };
+    let agent = w
+        .project_agents
+        .open_on("SHOP", "Which avatar sizes?", Some(&sonnet))
+        .await
+        .unwrap();
+    let session = agent.session.clone().unwrap();
+    let id = session.tool_session_id.clone().unwrap();
+    assert_eq!(
+        launched(w, &session.id).await,
+        format!(
+            "--session-id {id} --model sonnet --effort medium {} Which avatar sizes?",
+            claude_skill("otaq:noyan")
+        )
+    );
+    assert_eq!(
+        w.sessions
+            .stored(&session.id)
+            .await
+            .unwrap()
+            .effort
+            .as_deref(),
+        Some("medium")
+    );
     let bad = NoyanStartsOn {
         model: Some("gpt-9".into()),
         effort: None,
