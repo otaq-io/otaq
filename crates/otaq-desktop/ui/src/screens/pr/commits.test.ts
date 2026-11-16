@@ -77,7 +77,7 @@ function answer(view: PrDialogView): PrAnswer {
   return { outcome: "dialog", view, intro: null };
 }
 
-const field = (sha: string) => document.querySelector<HTMLInputElement>(`input[aria-label="${sha}"]`);
+const field = (sha: string) => document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${sha}"]`);
 
 describe("Open PR's commit messages", () => {
   it("shows each commit's field with the refused one marked, and sends an edit to Rust", async () => {
@@ -110,7 +110,7 @@ describe("Open PR's commit messages", () => {
 
     await act(async () => {
       // The prototype's setter, so React's value tracker sees a change.
-      Reflect.set(HTMLInputElement.prototype, "value", "fix: redirect after login", refused);
+      Reflect.set(HTMLTextAreaElement.prototype, "value", "fix: redirect after login", refused);
       refused?.dispatchEvent(new Event("input", { bubbles: true }));
       await Promise.resolve();
     });
@@ -122,5 +122,50 @@ describe("Open PR's commit messages", () => {
     });
     expect(field("a1b2c3d4")?.value).toBe("fix: redirect after login");
     expect(field("a1b2c3d4")?.hasAttribute("aria-invalid")).toBe(false);
+  });
+
+  it("keeps a message's line breaks: an edit still sends the blank line and the Co-Authored-By trailer (F-C-3)", async () => {
+    const message =
+      "SHOP-4: add a comment above formatPrice\n\nCo-Authored-By: Claude <noreply@anthropic.com>";
+    const edited = message.replace("formatPrice", "formatPrices");
+    const multiLine: PrDialogView = {
+      ...VIEW,
+      commits_label: "Commit message (1 commit)",
+      commits: [{ sha: "c0ffee12", message, refused: false }],
+      use_proposed: null,
+    };
+    vi.mocked(request).mockImplementation((method: string) =>
+      Promise.resolve(
+        answer(
+          method === "pr.edit"
+            ? { ...multiLine, commits: [{ sha: "c0ffee12", message: edited, refused: false }] }
+            : multiLine,
+        ),
+      ),
+    );
+    await act(async () => {
+      root.render(createElement(OpenPrDialog, { params: { ticket: "SHOP-1" }, close: () => undefined }));
+      await Promise.resolve();
+    });
+    const area = field("c0ffee12");
+    // A mono text area that grows with its lines, without spell check's underlines; not a one-line input.
+    expect(area?.tagName).toBe("TEXTAREA");
+    expect(area?.value).toBe(message);
+    expect(area?.getAttribute("data-mono")).toBe("true");
+    expect(area?.getAttribute("data-grow")).toBe("true");
+    expect(area?.getAttribute("spellcheck")).toBe("false");
+    expect(area?.getAttribute("autocorrect")).toBe("off");
+
+    // One more character in the subject: what goes to Rust is the whole message, its line breaks kept.
+    await act(async () => {
+      Reflect.set(HTMLTextAreaElement.prototype, "value", edited, area);
+      area?.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const sent = vi.mocked(request).mock.calls.find(([method]) => method === "pr.edit")?.[1] as
+      { value: string } | undefined;
+    expect(sent).toEqual({ key: "SHOP-1", field: "commit", index: 0, value: edited });
+    expect(sent?.value).toContain("formatPrices\n\nCo-Authored-By: Claude");
+    expect(field("c0ffee12")?.value).toBe(edited);
   });
 });

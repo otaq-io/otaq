@@ -146,18 +146,24 @@ export function Proposed({
       {/* Open PR and Push to PR both reword the commits they push: each message is editable, and the one the
           project's commit-msg hook refused last time is marked while the field still holds it. */}
       <span className="pr-label">{view.commits_label}</span>
-      {fields.commits.map((message, i) => (
-        <TextInput
-          key={view.commits[i]?.sha ?? i}
-          mono
-          invalid={view.commits[i]?.refused}
-          label={view.commits[i]?.sha ?? view.commits_label}
-          value={message}
-          onChange={(v) => {
-            onEdit("commit", v, i);
-          }}
-        />
-      ))}
+      {/* A commit message is a subject, a blank line and its body or trailers (`Co-Authored-By:`): a one-line input
+          would drop those line breaks on the first keystroke, so each is a text area that grows with its lines. */}
+      <div className="pr-commits">
+        {fields.commits.map((message, i) => (
+          <TextArea
+            key={view.commits[i]?.sha ?? i}
+            mono
+            rows={1}
+            grow
+            invalid={view.commits[i]?.refused}
+            label={view.commits[i]?.sha ?? view.commits_label}
+            value={message}
+            onChange={(v) => {
+              onEdit("commit", v, i);
+            }}
+          />
+        ))}
+      </div>
       {!view.push && (
         <>
           <Field label={view.title_label}>
