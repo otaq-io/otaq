@@ -20,14 +20,23 @@ Start a piece as soon as every piece it waits for is merged:
 
 - First: all 21 pieces wait for nothing; run at most five at a time on the Mac (disk and CPU), starting with 5, 1, 7,
   2 and 3 (the largest and the ones the Windows check needs most). Piece 7 starts only after its investigation
-  (`investigate-116-checks-since-approval.md`) says it isn't large.
+  (`investigate-116-checks-since-approval.md`) says it isn't large; that investigation doesn't exist yet, so the
+  orchestrator first starts one read-only agent to write it (it takes one of the five places).
+- Piece 10 starts after piece 1 is merged (both change session screen reading and need the VM).
+- The Windows VM is used by one piece at a time, in the order 1, 10, 21: the orchestrator schedules it, and a VM
+  piece's prompt says the VM is its alone while it runs (an agent can't stop to ask).
 
 <!-- tuq:order:end -->
 
 ## Running a piece
 
 - Start one Agent call per piece with isolation "worktree". Its prompt: the piece's details from the plan, the paths
-  of its investigation and review, its note below, and "commit on your branch; don't merge; don't push".
+  of its investigation and review with the exact review section (the reviews number pieces as the plan's first
+  draft did: plan 10–15 = review B §14, 11, 12, 13, 15, 16; plan 16–21 = review C §17–22; review A §7 is decision
+  115, not piece 7, and review C §10 was replaced by decision 116, so piece 7 has no review), its note below, and
+  "commit on your branch; don't merge; don't push".
+- Where merges overlap (1/5/10 session reading; 2/3 Copilot start; 11/19 Needs you; 15/20 PR dialog; 6/14 protocol
+  types; CHANGELOG), resolve by hand and regenerate ts-rs types and the protocol snapshot rather than merging them.
 - Check its diff against the plan and the review, and the tests it ran, in its worktree.
 - Merge its branch into `fixes-0-3-regression` with `git merge`, one piece at a time; delete the worktree's `target/`
   afterwards to keep the disk free.
@@ -53,7 +62,10 @@ changing the rule.
 ### Piece 5
 
 The largest piece. The skill text goes on a branch in the otaq-skills submodule (`plugin/skills`); commit there, then
-commit the submodule pointer here. Don't push the submodule; the maintainer pushes both.
+commit the submodule pointer here. Don't push the submodule; the maintainer pushes both. A linked worktree keeps its
+submodule's git data under `.git/worktrees/<name>/modules/`, so before merging the orchestrator fetches the piece's
+submodule branch into the main `plugin/skills` (`git -C plugin/skills fetch <worktree>/plugin/skills <branch>:<branch>`)
+and runs `git submodule update` after the merge; the worktree is never removed before that fetch.
 
 ### Piece 21
 
