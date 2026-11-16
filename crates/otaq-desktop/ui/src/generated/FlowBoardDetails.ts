@@ -5,8 +5,8 @@ import type { FlowBoardSkip } from "./FlowBoardSkip";
 import type { FlowEditorFailTo } from "./FlowEditorFailTo";
 import type { FlowEditorKind } from "./FlowEditorKind";
 import type { FlowEditorMark } from "./FlowEditorMark";
-import type { FlowEditorModelLine } from "./FlowEditorModelLine";
 import type { FlowEditorSkillField } from "./FlowEditorSkillField";
+import type { FlowEditorWho } from "./FlowEditorWho";
 
 /**
  * A stage's details. `FlowBoardDetails` on the page.
@@ -17,9 +17,9 @@ export type FlowBoardDetails = { stage: string,
  */
 title: string, name_label: string, name: string, kind_label: string, kinds: Array<FlowBoardKindOption>, kind: FlowEditorKind | null, description_label: string, description: string, description_hint: string, 
 /**
- * Who does the stage, read-only for now (UX-65).
+ * Who does the stage (UX-65): Model, Effort and Instructions; the Skill field is [`Self::skill`].
  */
-model: FlowEditorModelLine | null, skill: FlowEditorSkillField | null, 
+who: FlowEditorWho | null, skill: FlowEditorSkillField | null, 
 /**
  * "Otaq's own" beside one of Otaq's skills.
  */

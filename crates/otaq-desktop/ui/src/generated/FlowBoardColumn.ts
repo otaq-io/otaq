@@ -19,9 +19,15 @@ id: string, kind: FlowBoardColumnKind, name: string, icon: IconName,
  */
 what: string, avatar: ToolAvatarView | null, 
 /**
- * Its agent ("Strong"), "You" for a check by you.
+ * Who does it (A-1): its model and effort beside the tool's avatar ("gpt-5.5 · medium"), "You" for a check by
+ * you.
  */
-who: string | null, skill: string | null, 
+who: string | null, 
+/**
+ * The model's tool isn't set up on this Mac (A-4): the who line in amber, this on hover ("Codex isn't set up on
+ * this Mac. …").
+ */
+who_off: string | null, skill: string | null, 
 /**
  * "3 rounds · fails go to Dev", "Fails go to Dev".
  */

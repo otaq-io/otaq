@@ -76,6 +76,7 @@ pub mod manual_checks;
 pub mod menu;
 pub mod messages;
 pub mod modal;
+pub mod model_effort;
 pub mod model_picker;
 pub mod move_app;
 pub mod needs_you_strip;

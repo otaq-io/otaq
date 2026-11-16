@@ -16,7 +16,7 @@ import {
   useState,
 } from "react";
 
-import { FloatingPortal, useFloatingStyle } from "../../components";
+import { FloatingPortal, ToolAvatar, useFloatingStyle } from "../../components";
 import { useEscapeLayer } from "../../components/escape";
 import { menuKey } from "../../components/logic";
 import type { AgentsModelChoice } from "../../generated/AgentsModelChoice";
@@ -25,6 +25,7 @@ import type { IconName } from "../../generated/IconName";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { ModelPickerStatus } from "../../generated/ModelPickerStatus";
 import type { ModelPickerView } from "../../generated/ModelPickerView";
+import type { ToolAvatarView } from "../../generated/ToolAvatarView";
 import { Icon } from "../../theme/Icon";
 
 /** One line of a list: a choice, a group's heading, or a muted note in place of a group's choices. */
@@ -39,6 +40,8 @@ export interface Choice {
   detailMono: boolean;
   checked: boolean;
   icon: IconName | null;
+  /** A tool's avatar before the label (the model menu of `ModelEffort.tsx`). */
+  avatar?: ToolAvatarView | null;
 }
 
 /** The id the model picker uses for the tool default (its value is none: Otaq passes no model). */
@@ -223,6 +226,7 @@ export function ChoiceList({
           >
             <span className="menu-item-line">
               {c.icon !== null && <Icon name={c.icon} size={13} />}
+              {c.avatar != null && <ToolAvatar avatar={c.avatar} />}
               <span className="settings-choice-label" data-mono={c.mono || undefined}>
                 {c.label}
               </span>
@@ -364,7 +368,7 @@ export function ModelPicker({
 
 /** The open dropdown, fixed under its field (so no dialog or scrolling page clips or pushes it) and as wide as it,
  * or at least `minWidth` wide. */
-function FloatingList({
+export function FloatingList({
   anchor,
   width,
   minWidth,

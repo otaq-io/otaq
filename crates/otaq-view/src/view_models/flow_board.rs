@@ -42,9 +42,10 @@ use crate::view_models::agents::Choice;
 use crate::view_models::flow_columns::{BACKLOG, DONE};
 use crate::view_models::flow_editor::{
     self as editor, CHECK_ROUNDS, EditorKind, Facts, FailToField, MarkView, ModelLine, Pick,
-    SkillField,
+    SkillField, Who,
 };
 use crate::view_models::hint::HintId;
+use crate::view_models::model_effort;
 use crate::view_models::project_settings::{DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD, SKILL_FIELD};
 use crate::view_models::tool_avatar::ToolAvatarView;
 
@@ -99,8 +100,12 @@ pub struct Column {
     /// "An agent does the work", "Every flow starts here".
     pub what: String,
     pub avatar: Option<ToolAvatarView>,
-    /// Its agent ("Strong"), "You" for a check by you.
+    /// Who does it (A-1): its model and effort beside the tool's avatar ("gpt-5.5 · medium"), "You" for a check by
+    /// you.
     pub who: Option<String>,
+    /// The model's tool isn't set up on this Mac (A-4): the who line in amber, this on hover ("Codex isn't set up on
+    /// this Mac. …").
+    pub who_off: Option<String>,
     pub skill: Option<String>,
     /// "3 rounds · fails go to Dev", "Fails go to Dev".
     pub check_line: Option<String>,
@@ -166,8 +171,8 @@ pub struct Details {
     pub description_label: &'static str,
     pub description: String,
     pub description_hint: &'static str,
-    /// Who does the stage, read-only for now (UX-65).
-    pub model: Option<ModelLine>,
+    /// Who does the stage (UX-65): Model, Effort and Instructions; the Skill field is [`Self::skill`].
+    pub who: Option<Who>,
     pub skill: Option<SkillField>,
     /// "Otaq's own" beside one of Otaq's skills.
     pub skill_tag: Option<String>,
@@ -597,6 +602,7 @@ fn columns(f: &Facts) -> Vec<Column> {
         what: STARTS_HERE.to_owned(),
         avatar: None,
         who: None,
+        who_off: None,
         skill: None,
         check_line: None,
         delivery: None,
@@ -614,9 +620,16 @@ fn columns(f: &Facts) -> Vec<Column> {
     }];
     for (i, stage) in stages.iter().enumerate() {
         let next = stages.get(i + 1).map_or("Done", |s| s.name.as_str());
-        let (avatar, who) = match stage.kind {
-            StageKind::Check { by: CheckBy::You } => (None, Some("You".to_owned())),
-            _ => (editor::stage_on(stage, f).0, editor::stage_who(stage)),
+        let (avatar, who, who_off) = match stage.kind {
+            StageKind::Check { by: CheckBy::You } => (None, Some("You".to_owned()), None),
+            _ => match model_effort::tile(
+                stage.who.model.as_deref(),
+                stage.who.effort.as_deref(),
+                f.tools,
+            ) {
+                Some((avatar, line, off)) => (avatar, Some(line), off),
+                None => (None, None, None),
+            },
         };
         let mark = editor::mark_of(f.marks, &stage.id)
             .map(editor::mark_view)
@@ -629,6 +642,7 @@ fn columns(f: &Facts) -> Vec<Column> {
             what: kind_label(stage_kind(stage)).to_owned(),
             avatar,
             who,
+            who_off,
             skill: stage.skill.clone(),
             check_line: check_line(flow, stage),
             delivery: None,
@@ -653,6 +667,7 @@ fn columns(f: &Facts) -> Vec<Column> {
         what: ENDS_HERE.to_owned(),
         avatar: None,
         who: None,
+        who_off: None,
         skill: None,
         check_line: None,
         delivery: Some(done_line(flow)),
@@ -668,12 +683,28 @@ fn columns(f: &Facts) -> Vec<Column> {
     out
 }
 
+/// Under a stage's Skill field (A-2).
+pub const SKILL_HINT: &str =
+    "How the agent does it. Empty uses the built-in skill for this kind of stage.";
+
 /// How work leaves the flow's last line.
 pub const DELIVERY_NOTE: &str = "Part of the flow, so it travels in the flow file. The project\u{2019}s Repository \
      card shows the same setting.";
 
+/// The model-and-effort pairs the flows in use already have, for the model menu's top (A-3): this project's and every
+/// other project's.
+fn uses(f: &Facts, b: &BoardFacts) -> Vec<model_effort::Use> {
+    let mut out = model_effort::uses_in(f.project_name, &f.in_use.flow);
+    for (_, name, file) in b.others {
+        if let Some(file) = file {
+            out.extend(model_effort::uses_in(name, &file.flow));
+        }
+    }
+    out
+}
+
 fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
-    let d = editor::details(f, stage);
+    let d = editor::details(f, stage, &uses(f, b));
     let kind = stage_kind(stage);
     let has_tickets = f.in_use.flow.stage(&stage.id).is_some() && b.occupied.contains(&stage.id);
     let skill_tag = stage
@@ -707,10 +738,10 @@ fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
         description: stage.description.clone().unwrap_or_default(),
         description_hint: "One or two sentences: what this stage settles, and when it matters. Agents read it to \
              understand the flow; people see it on the column header and when skipping.",
-        model: d.model,
+        who: d.who,
         skill: d.skill,
         skill_tag,
-        skill_hint: "How the agent does it.",
+        skill_hint: SKILL_HINT,
         fail_to: d.fail_to,
         rounds: stage.is_agent_check().then(|| Rounds {
             label: "Rounds",
@@ -1011,6 +1042,35 @@ fn drafting_text(agent: &str, project_name: &str) -> String {
     format!("{agent} is drafting a change to {project_name}\u{2019}s flow\u{2026}")
 }
 
+/// Start from…'s last line (A-7).
+pub const START_FROM_FOOT: &str = "Replaces the stages between Backlog and Done, and how work is delivered. Shipped \
+     flows use the default model of the tools on this Mac: what your account is set to. Change any stage after. \
+     Nothing changes until you save.";
+
+/// A shipped flow's line in Start from… (A-7): "Dev → Validate → Review, each on your tools’ default model · merge or
+/// PR on Approve".
+pub fn shipped_chain(flow: &Flow) -> String {
+    with_words(flow, "each on your tools\u{2019} default model")
+}
+
+/// Same as <project>'s line (A-7): "Dev → Validate → Review, each with the model, effort and skill it has there · …".
+pub fn copied_chain(flow: &Flow) -> String {
+    with_words(flow, "each with the model, effort and skill it has there")
+}
+
+/// [`chain`] with `words` after the stages, when an agent works or checks one of them.
+fn with_words(flow: &Flow, words: &str) -> String {
+    if !flow.stages.iter().any(Stage::runs_agent) {
+        return chain(flow);
+    }
+    let stages: Vec<&str> = flow.stages.iter().map(|s| s.name.as_str()).collect();
+    format!(
+        "{}, {words} \u{b7} {}",
+        stages.join(" \u{2192} "),
+        delivery_words(flow)
+    )
+}
+
 fn start_from(b: &BoardFacts) -> StartFrom {
     StartFrom {
         shipped_label: format!(
@@ -1022,7 +1082,7 @@ fn start_from(b: &BoardFacts) -> StartFrom {
             .map(|p| Entry {
                 key: p.file.to_owned(),
                 name: p.name.clone(),
-                line: chain(&p.read().flow),
+                line: shipped_chain(&p.read().flow),
                 pick: Pick::Preset {
                     file: p.file.to_owned(),
                 },
@@ -1036,7 +1096,7 @@ fn start_from(b: &BoardFacts) -> StartFrom {
                 Some(Entry {
                     key: format!("project:{key}"),
                     name: format!("Same as {name}"),
-                    line: chain(&file.as_ref()?.flow),
+                    line: copied_chain(&file.as_ref()?.flow),
                     pick: Pick::Project {
                         project: key.clone(),
                     },
@@ -1045,7 +1105,7 @@ fn start_from(b: &BoardFacts) -> StartFrom {
             .collect(),
         import: "Import a flow file\u{2026}",
         import_line: "A .flow.yaml someone shared",
-        foot: "Replaces the stages between Backlog and Done, and how work is delivered. Nothing changes until you save.",
+        foot: START_FROM_FOOT,
     }
 }
 
@@ -1071,7 +1131,7 @@ fn more(f: &Facts, b: &BoardFacts) -> More {
     let file = export_file(f.project_name);
     More {
         export: "Export flow file\u{2026}",
-        export_line: format!("{file} \u{b7} stages, agents, skills, delivery"),
+        export_line: format!("{file} \u{b7} stages, models, skills, delivery"),
         export_title: format!("Export {}\u{2019}s flow", f.project_name),
         export_file: file,
         import: "Import a flow file\u{2026}",
@@ -1483,6 +1543,154 @@ mod tests {
         assert_eq!(
             panel.remove, "Remove stage",
             "Remove stage stays either way"
+        );
+    }
+
+    /// A-1…A-4: each tile shows its model and effort beside the tool's avatar ("You" for a check by you); the
+    /// panel's Who does it offers the set-up tools with the pairs the flows use on top; a model whose tool isn't set
+    /// up is marked on its tile and in its panel, kept as it is.
+    #[test]
+    fn who_does_it_shows_on_the_tile_and_in_the_panel() {
+        use crate::view_models::agents::fixtures::all_lists;
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
+        use crate::view_models::flow_editor::{StageEdit, edited};
+        use otaq_core::agent_tools::Tool;
+
+        let s = |t: &str| t.to_owned();
+        let (file, _) = edited(
+            &shop_web(),
+            &StageEdit::Pair {
+                stage: s("validate"),
+                model: s("codex:gpt-5.5"),
+                effort: Some(s("medium")),
+            },
+        )
+        .unwrap();
+        let (file, _) = edited(
+            &file,
+            &StageEdit::Pair {
+                stage: s("dev"),
+                model: s("claude:opus"),
+                effort: Some(s("high")),
+            },
+        )
+        .unwrap();
+        let draft = proposal(&file, true);
+        let mut tools = crate::view_models::tool_problems::Tools {
+            connected: vec![Tool::Claude, Tool::Codex],
+            lists: all_lists(),
+            ..Default::default()
+        };
+        let other = (s("BILL"), s("billing-api"), Some(file.clone()));
+        let others = [other];
+        let b = BoardFacts {
+            base_branch: "main",
+            others: &others,
+            previous: false,
+            occupied: &[],
+        };
+        let render = |tools: &crate::view_models::tool_problems::Tools| {
+            view(
+                &Facts {
+                    project: "SHOP",
+                    project_name: "shop-web",
+                    proposal: &draft,
+                    marks: &[],
+                    swap: false,
+                    applies: &DraftApplies::Nothing,
+                    file: &file,
+                    in_use: &file,
+                    tools,
+                    skills: &[],
+                    writing: &[],
+                    written: &[],
+                    selected: Some("validate"),
+                    agent: None,
+                    new_agent: None,
+                },
+                &b,
+            )
+        };
+        let v = render(&tools);
+        let tile = |v: &View, id: &str| {
+            let c = v.columns.iter().find(|c| c.id == id).unwrap();
+            (
+                c.avatar.as_ref().map(|a| a.letters.clone()),
+                c.who.clone(),
+                c.who_off.is_some(),
+            )
+        };
+        assert_eq!(
+            tile(&v, "dev"),
+            (Some(s("CC")), Some(s("opus \u{b7} high")), false)
+        );
+        assert_eq!(
+            tile(&v, "validate"),
+            (Some(s("CX")), Some(s("gpt-5.5 \u{b7} medium")), false)
+        );
+        assert_eq!(tile(&v, "review"), (None, Some(s("You")), false));
+        let who = v
+            .details
+            .as_ref()
+            .unwrap()
+            .who
+            .as_ref()
+            .expect("Validate's Who does it");
+        assert_eq!(who.picker.value.text, "Codex \u{b7} gpt-5.5");
+        assert_eq!(who.instructions_label, "Instructions \u{b7} optional");
+        let places: Vec<&str> = who
+            .picker
+            .menu
+            .pairs
+            .iter()
+            .map(|p| p.places.as_str())
+            .collect();
+        assert_eq!(
+            places,
+            [
+                "Dev in shop-web and billing-api",
+                "Validate in shop-web and billing-api"
+            ]
+        );
+        assert!(who.picker.menu.pairs[1].selected);
+
+        // A-4: Codex signed out. Validate keeps its model, marked; tickets wait there.
+        tools.connected = vec![Tool::Claude];
+        let v = render(&tools);
+        assert_eq!(
+            tile(&v, "validate"),
+            (Some(s("CX")), Some(s("gpt-5.5 \u{b7} medium")), true)
+        );
+        let who = v.details.as_ref().unwrap().who.as_ref().unwrap();
+        let off = who.picker.not_set_up.as_ref().expect("marked");
+        assert_eq!(
+            off.text,
+            "Codex isn\u{2019}t set up on this Mac. Tickets wait at Validate until you set it up or pick another \
+             model."
+        );
+        // Codex's pair isn't offered while Codex isn't set up (tuq 014).
+        assert_eq!(who.picker.menu.pairs.len(), 1);
+    }
+
+    /// A-7: shipped flows say each stage is on the tools' default model; Same as <project> copies each stage's.
+    #[test]
+    fn start_from_says_whose_models_each_flow_brings() {
+        let b = board(&[]);
+        let start = start_from(&b);
+        assert_eq!(
+            start.presets[0].line,
+            "Dev \u{2192} Validate \u{2192} Review, each on your tools\u{2019} default model \u{b7} merge or PR on \
+             Approve"
+        );
+        assert_eq!(
+            copied_chain(&default_flow()),
+            "Dev \u{2192} Validate \u{2192} Review, each with the model, effort and skill it has there \u{b7} merge \
+             or PR on Approve"
+        );
+        assert!(
+            start
+                .foot
+                .contains("default model of the tools on this Mac")
         );
     }
 

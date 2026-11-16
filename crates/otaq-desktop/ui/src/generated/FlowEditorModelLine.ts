@@ -2,9 +2,8 @@
 import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
- * Who does a stage, read-only (UX-65; Edit flow's Who does it picks it later): its tool's avatar, its model and
- * effort, its instructions, and a warning when its tool doesn't have the stage's skill. `FlowEditorModelLine` on the
- * page.
+ * Who does the delivery, read-only until Done's panel picks it (UX-69): its tool's avatar, its model and
+ * effort and its instructions. `FlowEditorModelLine` on the page.
  */
 export type FlowEditorModelLine = { label: string, avatar: ToolAvatarView | null, 
 /**

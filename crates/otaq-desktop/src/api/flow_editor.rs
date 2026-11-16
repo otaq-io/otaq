@@ -643,7 +643,8 @@ mod tests {
     }
 
     /// T-0529 (d0131): Code review's fails sent to Product spec go through the draft, apply, and read back from the
-    /// flow in use; Validate shows its model read-only (UX-65: set in the flow file).
+    /// flow in use. Who does it (UX-65, UX-67): Codex · gpt-5.5 · medium and an instruction picked on Validate are
+    /// written on that stage of the flow file; Codex isn't set up here, so Validate is marked and still saves (A-4).
     #[tokio::test(flavor = "multi_thread")]
     async fn a_check_agent_and_fails_go_to_apply() {
         let h = Harness::new(None);
@@ -668,6 +669,9 @@ mod tests {
 
         for edit in [
             json!({ "edit": "fail_to", "stage": "code-review", "to": "product-spec" }),
+            json!({ "edit": "model", "stage": "validate", "model": "codex:gpt-5.5" }),
+            json!({ "edit": "effort", "stage": "validate", "effort": "medium" }),
+            json!({ "edit": "instructions", "stage": "validate", "instructions": "Run the tests the ticket touches first." }),
         ] {
             request(
                 &h.app,
@@ -693,8 +697,23 @@ mod tests {
             "{:?}",
             column("Code review").check_line
         );
-        let model = v.details.unwrap().model.unwrap();
-        assert_eq!(model.label, "Model");
+        let who = v.details.unwrap().who.unwrap();
+        assert_eq!(who.picker.value.text, "Codex \u{b7} gpt-5.5");
+        assert_eq!(who.instructions, "Run the tests the ticket touches first.");
+        assert!(
+            who.picker.not_set_up.is_some() == column("Validate").who_off.is_some(),
+            "the tile and the panel agree on the mark"
+        );
+        let file = in_use(&h.app, "SHOP").await;
+        let validate = &file.flow.stage("validate").unwrap().who;
+        assert_eq!(validate.model.as_deref(), Some("codex:gpt-5.5"));
+        assert_eq!(validate.effort.as_deref(), Some("medium"));
+        assert_eq!(
+            validate.instructions.as_deref(),
+            Some("Run the tests the ticket touches first.")
+        );
+        let yaml = otaq_core::flow::yaml::write(&file);
+        assert!(yaml.contains("model: codex:gpt-5.5") && yaml.contains("effort: medium"), "{yaml}");
     }
 
     /// A Blank stage with no skill saves: Otaq's own skill for the stage runs; a skill typed for it is kept, and it

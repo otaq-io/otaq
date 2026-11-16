@@ -43,7 +43,9 @@ import { asRequestError, useServiceView } from "../../service";
 import { pickFlowFile, request, saveFlowFile } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { cardsOf } from "../board/Column";
+import { openOverlay } from "../../app/overlays";
 import { showAgentInPanel } from "../agent_panel/logic";
+import { ModelEffortField } from "../settings/ModelEffort";
 import { type EditorActions, ModelLineField, SkillField } from "../flow_editor/FlowEditor";
 import { editorAgents, editStage, pickEntry, skillButton, writeSkill } from "../flow_editor/logic";
 import {
@@ -105,6 +107,12 @@ export interface FlowBoardProps {
 export function FlowBoard({ open, board }: FlowBoardProps) {
   const project = open.project;
   const [selected, setSelected] = useState<string | null>(open.select ?? null);
+  // Opened again on a stage while the editor is open (a held card's Edit flow…): that stage's panel shows.
+  const [openedOn, setOpenedOn] = useState(open);
+  if (openedOn !== open) {
+    setOpenedOn(open);
+    if (open.select !== undefined) setSelected(open.select);
+  }
   const [focusSkill, setFocusSkill] = useState<string | null>(
     open.focusSkill === true ? (open.select ?? null) : null,
   );
@@ -925,12 +933,22 @@ function ColumnHead({
         )}
       </div>
       <span className="fb-head-what">{column.what}</span>
-      {column.who !== null && (
-        <span className="fb-head-who">
-          {column.avatar !== null && <ToolAvatar avatar={column.avatar} />}
-          <span>{column.who}</span>
-        </span>
-      )}
+      {column.who !== null &&
+        (column.who_off === null ? (
+          <span className="fb-head-who">
+            {column.avatar !== null && <ToolAvatar avatar={column.avatar} />}
+            <span>{column.who}</span>
+          </span>
+        ) : (
+          // A-4: the model's tool isn't set up; tickets wait here.
+          <Tooltip text={column.who_off}>
+            <span className="fb-head-who" data-off>
+              {column.avatar !== null && <ToolAvatar avatar={column.avatar} />}
+              <span>{column.who}</span>
+              <Icon name="triangle-alert" size={11} label={column.who_off} />
+            </span>
+          </Tooltip>
+        ))}
       {column.skill !== null && <span className="fb-head-skill">{column.skill}</span>}
       {column.check_line !== null && <span className="fb-head-line">{column.check_line}</span>}
       {column.delivery !== null && <span className="fb-head-delivery">{column.delivery}</span>}
@@ -962,6 +980,7 @@ function StagePanel({
   onClose: () => void;
 }) {
   const stage = details.stage;
+  const who = details.who;
   const kindIndex = details.kinds.findIndex((k) => k.kind === details.kind);
   return (
     <aside className="fb-side fe-details" aria-label={details.title}>
@@ -1005,7 +1024,42 @@ function StagePanel({
           onEdit({ edit: "description", stage, description });
         }}
       />
-      {details.model !== null && <ModelLineField line={details.model} />}
+      {who !== null && (
+        <>
+          <span className="fb-section">{who.heading}</span>
+          <ModelEffortField
+            view={who.picker}
+            onPick={(pick) => {
+              onEdit(
+                pick.kind === "pair"
+                  ? {
+                      edit: "pair",
+                      stage,
+                      model: pick.model,
+                      ...(pick.effort !== null && { effort: pick.effort }),
+                    }
+                  : { edit: "model", stage, model: pick.model },
+              );
+            }}
+            onEffort={(effort) => {
+              onEdit(effort === null ? { edit: "effort", stage } : { edit: "effort", stage, effort });
+            }}
+            onSetUp={() => {
+              openOverlay("settings", { section: "agent_tools" });
+            }}
+          />
+          {who.warning !== null && (
+            <div className="fe-fix" data-tone="amber">
+              <Icon name="triangle-alert" size={14} />
+              <span className="fe-fix-text">
+                <span>
+                  <CodeText text={who.warning} />
+                </span>
+              </span>
+            </div>
+          )}
+        </>
+      )}
       {details.skill !== null && (
         <>
           <SkillField field={details.skill} stage={stage} actions={actions} focus={focusSkill} />
@@ -1014,6 +1068,18 @@ function StagePanel({
             {details.skill_hint}
           </span>
         </>
+      )}
+      {who !== null && (
+        <TextField
+          key={`instructions-${stage}-${who.instructions}`}
+          label={who.instructions_label}
+          value={who.instructions}
+          hint={who.instructions_hint}
+          multiline
+          onSave={(instructions) => {
+            onEdit({ edit: "instructions", stage, instructions });
+          }}
+        />
       )}
       {details.fail_to !== null && (
         <div className="fe-field">
