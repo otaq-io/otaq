@@ -24,6 +24,7 @@ pub mod hooks;
 pub mod model_refused;
 pub mod quiet;
 pub mod reminder;
+pub mod sign_in_screen;
 pub mod state;
 pub mod watch;
 
@@ -97,6 +98,8 @@ struct Inner {
     asks: Mutex<HashMap<String, asks::OpenPrompts>>,
     /// What applies a prompt the screen shows later (set once at service start, [`asks`]).
     on_shown: OnceLock<asks::OnShown>,
+    /// The sessions looked at for their tool's own sign-in screen ([`sign_in_screen`]).
+    sign_in: Mutex<sign_in_screen::SignInScreens>,
 }
 
 /// One session's current turn.
@@ -126,6 +129,7 @@ impl Signals {
                 reminders: reminder::Reminders::default(),
                 asks: Mutex::new(HashMap::new()),
                 on_shown: OnceLock::new(),
+                sign_in: Mutex::new(sign_in_screen::SignInScreens::default()),
             }),
         }
     }
@@ -185,6 +189,7 @@ impl Signals {
         let session = session_of(caller);
         if let Some(session) = session {
             self.hook_came(session);
+            self.heard_from(session);
         }
         let stored = match session {
             Some(session) => self.stored_session(session).await?,
@@ -226,6 +231,9 @@ impl Signals {
         tool: Tool,
         events: &[ToolEvent],
     ) -> Result<Vec<Signal>, BoardError> {
+        if let Some(session) = session_of(caller) {
+            self.heard_from(session);
+        }
         self.apply_events_from(caller, None, tool, events).await
     }
 

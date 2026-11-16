@@ -12,7 +12,7 @@ use otaq_core::agents::facts::OwnAgent;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{AutoMergeStop, MergeCheckState, ReviewEntry, Status};
-use otaq_core::signals::{ToolStop, stopped_on_error};
+use otaq_core::signals::{ToolStop, sign_in_screen, stopped_on_error};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -278,6 +278,15 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
         }),
         // A helper's prompt keeps the line that names the helper.
         Status::NeedsYou if x.helper_agent => None,
+        // Its tool stopped at its own sign-in screen (decision 118): "Codex needs you to sign in".
+        Status::NeedsYou | Status::CheckerNeedsYou
+            if let Some(prompt) = x
+                .question
+                .as_deref()
+                .filter(|q| sign_in_screen::is_prompt(q)) =>
+        {
+            asks(prompt.to_owned())
+        }
         Status::NeedsYou | Status::CheckerNeedsYou => asks(match question() {
             Some(q) => format!("Asks you \u{b7} {q}"),
             None => "Asks you \u{b7} allow a command?".to_owned(),

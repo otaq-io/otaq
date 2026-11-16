@@ -745,3 +745,153 @@ async fn opencode_with_free_models_only_is_connected_and_still_offers_sign_in() 
     assert!(!row(&signed_in, Tool::OpenCode).can_sign_in);
     w.stop().await;
 }
+
+/// Codex's sign-in screen as captured in the Windows VM (Codex 0.166, an expired ChatGPT sign-in, 120 × 30).
+fn codex_sign_in_screen() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/input-line/codex-sign-in.bin")
+}
+
+/// A Codex agent session of `ticket` (Working) that opens Codex's sign-in screen, as Codex does with an expired
+/// ChatGPT sign-in that `codex login status` still calls signed in; Needs you once Otaq has looked at its screen.
+async fn agent_at_sign_in_screen(
+    w: &TestService,
+    ticket: &otaq_core::board::tickets::Ticket,
+) -> otaq_core::service::testing::AgentShell {
+    use otaq_core::domain::Status;
+    w.force_status(ticket, Status::Working).await;
+    let agent = w
+        .shell_showing(
+            ticket,
+            otaq_core::session::SessionKind::Agent,
+            Tool::Codex,
+            &codex_sign_in_screen(),
+            otaq_core::session::TerminalSize {
+                cols: 120,
+                rows: 30,
+            },
+        )
+        .await;
+    let key = ticket.key.to_string();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while w.status(&key).await != Status::NeedsYou {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("Needs you at Codex's sign-in screen");
+    agent
+}
+
+/// Decision 118 (F-E2-4): a Codex agent whose session opens Codex's own sign-in screen (Codex's `login status` still
+/// says signed in) reads Needs you "Codex needs you to sign in", the session is kept, and Codex reads not signed in on
+/// Settings → Agents, also after a check of the tools; once the session gets past the screen (its first hook) the
+/// agent goes on (Working) and Codex reads signed in again.
+#[tokio::test(flavor = "multi_thread")]
+async fn codex_at_its_sign_in_screen_needs_you_and_reads_signed_out_until_past_it() {
+    use otaq_core::domain::Status;
+    let tools = Tools::new();
+    tools.codex();
+    let w = TestService::start_with(tools.with()).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    assert!(
+        row(&recheck(&client).await, Tool::Codex)
+            .state
+            .is_connected()
+    );
+
+    w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Order email").await;
+    let agent = agent_at_sign_in_screen(&w, &ticket).await;
+    let key = ticket.key.to_string();
+    let waiting = w.board.ticket(&key).await.unwrap();
+    assert_eq!(
+        waiting.signal.and_then(|s| s.text).as_deref(),
+        Some("Codex needs you to sign in")
+    );
+    let items = w
+        .board
+        .needs_you_items(otaq_core::store::now_ms())
+        .await
+        .unwrap();
+    let item = items
+        .iter()
+        .find(|i| i.key == ticket.key)
+        .expect("in Needs you");
+    assert_eq!(item.reason, "Codex needs you to sign in");
+    assert!(
+        w.sessions.info(&agent.session).unwrap().is_running(),
+        "the session is kept"
+    );
+
+    let codex = w.connected.status(Tool::Codex);
+    assert!(
+        matches!(codex.state, AgentToolState::FoundNotSignedIn { .. }),
+        "{:?}",
+        codex.state
+    );
+    // Codex's own status command still says signed in: a check of the tools doesn't undo it.
+    let checked = recheck(&client).await;
+    let codex = row(&checked, Tool::Codex);
+    assert!(
+        matches!(codex.state, AgentToolState::FoundNotSignedIn { .. }),
+        "{:?}",
+        codex.state
+    );
+    assert!(codex.can_sign_in, "Sign in… offered");
+
+    // Signed in there, Codex runs its launch prompt: its first hook.
+    let payload = json!({"hook_event_name": "UserPromptSubmit", "prompt": "$otaq:work-ticket"});
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request":
+        {"method": "hook", "params": {"tool": "codex", "event": "UserPromptSubmit", "payload": payload}}});
+    let ran = agent
+        .send_raw(&w.data.socket_path(), &request.to_string())
+        .await;
+    assert!(ran.stdout.contains("\"reply\":\"ok\""), "{ran:?}");
+    assert_eq!(w.status(&key).await, Status::Working);
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !w.connected.status(Tool::Codex).state.is_connected() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("signed in again once a session got past the screen");
+    w.stop().await;
+}
+
+/// Decision 118: Sign in… on Settings → Agents ends the sign-in screen's hold on Codex's state once its terminal ends;
+/// the agent's own session still waits at the screen.
+#[tokio::test(flavor = "multi_thread")]
+async fn sign_in_from_settings_lets_codex_read_signed_in_again() {
+    let tools = Tools::new();
+    tools.codex();
+    let w = TestService::start_with(tools.with()).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    assert!(
+        row(&recheck(&client).await, Tool::Codex)
+            .state
+            .is_connected()
+    );
+    w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Order email").await;
+    let _agent = agent_at_sign_in_screen(&w, &ticket).await;
+    assert!(!w.connected.status(Tool::Codex).state.is_connected());
+
+    let Reply::ProjectTerminal(_) = ask(&client, "agent_tools.sign_in", json!({"tool": "codex"}))
+        .await
+        .unwrap()
+    else {
+        panic!("a terminal")
+    };
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !w.connected.status(Tool::Codex).state.is_connected() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("signed in once the sign-in terminal ended");
+    assert_eq!(
+        w.status(&ticket.key.to_string()).await,
+        otaq_core::domain::Status::NeedsYou
+    );
+    w.stop().await;
+}

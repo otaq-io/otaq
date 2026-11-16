@@ -260,9 +260,25 @@ struct Found {
     setups: HashMap<Tool, SetupRun>,
     /// Connected tools whose detect still offers Sign in… ([`Detection::sign_in_offered`]).
     sign_in_offered: BTreeSet<Tool>,
+    /// Tools a session of which showed the tool's own sign-in screen ([`ConnectedTools::at_sign_in_screen`]): they
+    /// read signed out whatever their status command says.
+    sign_in_screen: BTreeSet<Tool>,
 }
 
 impl Found {
+    /// A Connected `tool` reads Found · not signed in, keeping its version and its last check's time. Any other state
+    /// is left as it is.
+    fn sign_out(&mut self, tool: Tool) {
+        if let Some((state, _)) = self.states.get_mut(&tool)
+            && let AgentToolState::Connected { version, .. } = state
+        {
+            *state = AgentToolState::FoundNotSignedIn {
+                version: version.take(),
+            };
+            self.sign_in_offered.remove(&tool);
+        }
+    }
+
     fn status(&self, tool: Tool) -> ToolStatus {
         let (found, checked_at) = match self.states.get(&tool) {
             Some((state, at)) => (state.clone(), Some(*at)),
@@ -404,6 +420,10 @@ impl ConnectedTools {
         };
         self.change(|found| {
             found.states.insert(tool, (state, at));
+            // Its own answer can't be trusted while a session of it showed its sign-in screen (decision 118).
+            if found.sign_in_screen.contains(&tool) {
+                found.sign_out(tool);
+            }
         });
     }
 
@@ -424,16 +444,29 @@ impl ConnectedTools {
     /// ticket, the agent panel, the strip) without waiting for a check of the tools. Its last check's time stays; the
     /// next check takes the tool's own answer. Any other state is left as it is.
     pub fn signed_out(&self, tool: Tool) {
+        self.change(|found| found.sign_out(tool));
+    }
+
+    /// A session of `tool` shows the tool's own sign-in screen (Codex's onboarding menu with an expired ChatGPT
+    /// sign-in, decision 118): the tool reads Found · not signed in at once, as after [`Self::signed_out`], and stays
+    /// so through the checks of the tools (its status command still says signed in) until a session of it gets past
+    /// the screen ([`Self::past_sign_in_screen`]) or a Sign in… terminal of it ends.
+    pub fn at_sign_in_screen(&self, tool: Tool) {
         self.change(|found| {
-            if let Some((state, _)) = found.states.get_mut(&tool)
-                && let AgentToolState::Connected { version, .. } = state
-            {
-                *state = AgentToolState::FoundNotSignedIn {
-                    version: version.take(),
-                };
-                found.sign_in_offered.remove(&tool);
-            }
+            found.sign_in_screen.insert(tool);
+            found.sign_out(tool);
         });
+    }
+
+    /// A session of `tool` that showed its sign-in screen got past it (it sent its first hook): the tool's own answer
+    /// stands again, and it is checked now.
+    pub async fn past_sign_in_screen(&self, tool: Tool) -> Result<(), BoardError> {
+        let mut marked = false;
+        self.change(|found| marked = found.sign_in_screen.remove(&tool));
+        if marked {
+            self.recheck(Some(tool)).await?;
+        }
+        Ok(())
     }
 
     /// Sets `tool` Hidden or not, in memory only.
@@ -541,7 +574,14 @@ impl ConnectedTools {
             ));
         };
         let session = self
-            .open_terminal(w, tool, program.display().to_string(), args)
+            .open_terminal_with(
+                w,
+                tool,
+                program.display().to_string(),
+                args,
+                Vec::new(),
+                true,
+            )
             .await?;
         tracing::info!(tool = %tool, session = %session.id, "sign-in terminal opened");
         Ok(ProjectTerminal {
@@ -580,7 +620,7 @@ impl ConnectedTools {
         let command = w.adapters.get(tool).install_command(Os::current());
         let run = crate::terminals::tool::command_line(command, &w.terminals);
         let session = self
-            .open_terminal_with(w, tool, run.program, run.args, run.env)
+            .open_terminal_with(w, tool, run.program, run.args, run.env, false)
             .await?;
         tracing::info!(tool = %tool, session = %session.id, "install terminal opened");
         Ok(ProjectTerminal {
@@ -591,17 +631,8 @@ impl ConnectedTools {
     }
 
     /// A terminal of no project in the home folder, running `program`; the tool is checked again when it ends.
-    async fn open_terminal(
-        &self,
-        w: &Wiring,
-        tool: Tool,
-        program: String,
-        args: Vec<String>,
-    ) -> Result<crate::session::SessionInfo, BoardError> {
-        self.open_terminal_with(w, tool, program, args, Vec::new())
-            .await
-    }
-
+    /// `signs_in`: the tool's Sign in… terminal, after which a sign-in screen a session showed no longer counts
+    /// ([`Self::at_sign_in_screen`]).
     async fn open_terminal_with(
         &self,
         w: &Wiring,
@@ -609,6 +640,7 @@ impl ConnectedTools {
         program: String,
         args: Vec<String>,
         extra_env: Vec<(String, String)>,
+        signs_in: bool,
     ) -> Result<crate::session::SessionInfo, BoardError> {
         let mut env = w.terminals.env(&w.data, None, None);
         env.extend(extra_env);
@@ -641,6 +673,11 @@ impl ConnectedTools {
         let (this, sessions, id) = (self.clone(), w.sessions.clone(), session.id.clone());
         tokio::spawn(async move {
             sessions.wait_ended(&id).await;
+            if signs_in {
+                this.change(|found| {
+                    found.sign_in_screen.remove(&tool);
+                });
+            }
             if let Err(e) = this.recheck(Some(tool)).await {
                 tracing::warn!(tool = %tool, error = %e, "can't check the tool after its terminal ended");
             }

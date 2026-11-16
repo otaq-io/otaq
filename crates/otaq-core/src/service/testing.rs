@@ -459,6 +459,36 @@ impl TestService {
         kind: SessionKind,
         tool: Option<crate::agent_tools::Tool>,
     ) -> AgentShell {
+        let size = TerminalSize {
+            cols: 400,
+            rows: 50,
+        };
+        self.shell_spawn(ticket, kind, tool, Vec::new(), size).await
+    }
+
+    /// [`Self::shell_on`] in a terminal of `size` whose first output is the file `screen` (a capture of the tool's own
+    /// screen), drawn before the shell starts.
+    pub async fn shell_showing(
+        &self,
+        ticket: &Ticket,
+        kind: SessionKind,
+        tool: crate::agent_tools::Tool,
+        screen: &Path,
+        size: TerminalSize,
+    ) -> AgentShell {
+        let file = screen.display().to_string().replace('\\', "/");
+        let args = vec!["-c".to_owned(), format!("cat '{file}'; exec sh")];
+        self.shell_spawn(ticket, kind, Some(tool), args, size).await
+    }
+
+    async fn shell_spawn(
+        &self,
+        ticket: &Ticket,
+        kind: SessionKind,
+        tool: Option<crate::agent_tools::Tool>,
+        args: Vec<String>,
+        size: TerminalSize,
+    ) -> AgentShell {
         let project = self
             .board
             .project(ticket.key.project.as_str())
@@ -477,7 +507,7 @@ impl TestService {
                     key: ticket.key.clone(),
                 }),
                 program: "sh".into(),
-                args: vec![],
+                args,
                 cwd: PathBuf::from(&project.repo_path),
                 env: vec![
                     (naming::ticket_env_var(), ticket.key.to_string()),
@@ -485,10 +515,7 @@ impl TestService {
                     ("PS1".into(), String::new()),
                     ("PATH".into(), path_without_build_folders()),
                 ],
-                size: TerminalSize {
-                    cols: 400,
-                    rows: 50,
-                },
+                size,
                 tool,
                 tool_session_id: None,
                 model: None,

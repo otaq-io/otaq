@@ -142,6 +142,33 @@ impl crate::agent_tools::PromptScreen for Dialog {
     }
 }
 
+/// Codex's sign-in screen (decision 118; captured on Windows with Codex CLI 0.166 and an expired ChatGPT sign-in,
+/// `tests/fixtures/input-line/codex-sign-in.bin`), drawn instead of the conversation, with no hook sent:
+///
+/// ```text
+///   Welcome to Codex, OpenAI's command-line coding agent
+///
+///   Choose how you want to use Codex.
+///
+/// > 1. Sign in with ChatGPT
+///      Usage included with Plus, Pro, Business, and Enterprise plans
+///
+///   2. Sign in with Device Code
+///   …
+///   Press enter to continue
+/// ```
+///
+/// Read off a session's screen only before its first hook, so an agent's own words can't match it.
+pub(super) fn sign_in_screen(screen: &str) -> bool {
+    let has = |words: &str| screen.lines().any(|line| line.contains(words));
+    has(SIGN_IN_OPTION) && has(SIGN_IN_CONTINUE)
+}
+
+/// The sign-in screen's first option, pointed at or not.
+const SIGN_IN_OPTION: &str = "1. Sign in with ChatGPT";
+/// The sign-in screen's last line.
+const SIGN_IN_CONTINUE: &str = "Press enter to continue";
+
 /// `text` without any whitespace, so a command wrapped over lines compares with the one-line command.
 fn squashed(text: &str) -> String {
     text.chars().filter(|c| !c.is_whitespace()).collect()
@@ -311,5 +338,58 @@ mod tests {
             text.contains("\"tool_input\":{\"command\":\"sleep 20\"}"),
             "{text}"
         );
+    }
+
+    /// A capture of the session's screen (`tests/fixtures/input-line/<name>.bin`, 120 × 30, Windows' ConPTY) as
+    /// [`crate::session::Sessions::visible_screen`] gives it.
+    fn screen_of(name: &str) -> String {
+        let path = format!(
+            "{}/tests/fixtures/input-line/{name}.bin",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let size = crate::session::TerminalSize {
+            cols: 120,
+            rows: 30,
+        };
+        crate::session::screen::render_above(&bytes, size, 0)
+    }
+
+    /// Decision 118 (F-E2-4): Codex 0.166 with an expired ChatGPT sign-in, captured in the Windows VM, opens its
+    /// onboarding menu; its idle input line, a typed line and its approval dialog are no sign-in screen.
+    #[test]
+    fn the_captured_sign_in_screen_is_codexs_sign_in_screen() {
+        let screen = screen_of("codex-sign-in");
+        assert!(screen.contains("Welcome to Codex"), "{screen}");
+        assert!(sign_in_screen(&screen), "{screen}");
+        for name in [
+            "codex-empty",
+            "codex-typed",
+            "codex-approval",
+            "codex-after-approval",
+        ] {
+            assert!(!sign_in_screen(&screen_of(name)), "{name}");
+        }
+        // An agent's echo naming one of the two isn't it either.
+        assert!(!sign_in_screen(
+            "› 1. Sign in with ChatGPT is the first option"
+        ));
+        // It reads as a dialog of the tool's own: Otaq types no message into it.
+        let path = format!(
+            "{}/tests/fixtures/input-line/codex-sign-in.bin",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let reading = crate::session::input_line::read_all(
+            &std::fs::read(path).unwrap(),
+            crate::session::TerminalSize {
+                cols: 120,
+                rows: 30,
+            },
+            crate::board::settings::TerminalColors {
+                fg: 0xD6D9E0,
+                bg: 0x14161C,
+            },
+        );
+        assert!(reading.dialog, "{reading:?}");
     }
 }

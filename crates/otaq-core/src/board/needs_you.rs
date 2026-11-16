@@ -367,6 +367,8 @@ fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -
         }
         Status::NeedsYou => match signal {
             Some(prompt) if prompt.starts_with(HELPER_PROMPT_PREFIX) => prompt.to_owned(),
+            // The tool's own sign-in screen (decision 118): "Codex needs you to sign in".
+            Some(prompt) if crate::signals::sign_in_screen::is_prompt(prompt) => prompt.to_owned(),
             Some(prompt) => format!("permission: {prompt}"),
             None => "needs you".into(),
         },
