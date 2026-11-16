@@ -854,3 +854,121 @@ async fn a_refused_pr_message_changes_nothing_and_shows_on_the_ticket() {
         .await;
     s.w.stop().await;
 }
+
+/// What the stand-in for ssh logged since the last read, one line per call to the remote: the prompt variables as
+/// git passed them on ("unset" when not set). The log is emptied.
+fn remote_calls(log: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(log).unwrap_or_default();
+    std::fs::write(log, "").unwrap();
+    text.lines().map(str::to_owned).collect()
+}
+
+/// The prompt variables as this test process has them, which a call that doesn't set them passes on.
+fn inherited() -> String {
+    let var = |name| std::env::var(name).unwrap_or_else(|_| "unset".into());
+    format!(
+        "prompt={} gcm={} askpass={}",
+        var("GIT_TERMINAL_PROMPT"),
+        var("GCM_INTERACTIVE"),
+        var("GIT_ASKPASS")
+    )
+}
+
+/// F-C-2: an origin that can't be reached (an ssh one whose `ssh` logs the prompt variables and fails). The
+/// dialog's background calls to it (the branch check, the PR branch's fetch, checking that the push landed) run with
+/// prompts off, so none can open a sign-in; the check then reads Unchecked with a short line and confirm still goes
+/// through. A fetch the user caused (a start's base sync) keeps git's prompts.
+#[tokio::test(flavor = "multi_thread")]
+async fn background_remote_calls_never_prompt_and_an_unreachable_origin_still_confirms() {
+    use otaq_core::pr::flow::UNCHECKED;
+    let s = setup().await;
+    let w = &s.w;
+    let log = w.repos.root().join("ssh.log");
+    let ssh = w.repos.root().join("fake-ssh.sh");
+    std::fs::write(
+        &ssh,
+        format!(
+            "#!/bin/sh\nprintf 'prompt=%s gcm=%s askpass=%s\\n' \"${{GIT_TERMINAL_PROMPT-unset}}\" \
+             \"${{GCM_INTERACTIVE-unset}}\" \"${{GIT_ASKPASS-unset}}\" >> '{}'\n\
+             echo 'Permission denied (publickey).' >&2\nexit 255\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let command = ssh.to_str().unwrap().replace('\\', "/");
+    git(&s.repo, &["config", "core.sshCommand", &command]);
+    // Without a variant git first probes the command with `-G`: one line per call to the remote instead.
+    git(&s.repo, &["config", "ssh.variant", "ssh"]);
+    git(
+        &s.repo,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "ssh://git@example.invalid/shop.git",
+        ],
+    );
+    let quiet = "prompt=0 gcm=never askpass=";
+
+    // The live check: one call, prompts off; Unchecked with the short line (git's error only in the log).
+    let check = w
+        .board
+        .check_branch_name("SHOP-1", "feature/SHOP-1-login")
+        .await
+        .unwrap();
+    assert_eq!(
+        check,
+        BranchCheck::Unchecked {
+            message: UNCHECKED.to_owned()
+        }
+    );
+    assert_eq!(remote_calls(&log), [quiet]);
+    // A name taken locally is still a problem, found before origin is asked.
+    git(&s.repo, &["branch", "taken-here", "main"]);
+    assert!(matches!(
+        w.board
+            .check_branch_name("SHOP-1", "taken-here")
+            .await
+            .unwrap(),
+        BranchCheck::Problem { .. }
+    ));
+    assert!(remote_calls(&log).is_empty());
+
+    // Confirm checks the name again, can't reach origin, and goes on: the push will tell.
+    confirmed(&s).await;
+    assert_eq!(remote_calls(&log), [quiet]);
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert!(ticket.work.as_ref().unwrap().branch_locked);
+
+    // The agent reports the PR: checking that the push landed asks origin with prompts off.
+    let ran = s
+        .agent
+        .run(&format!(
+            "'{CB}' pr opened https://github.com/acme/shop-web/pull/7 --json"
+        ))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let calls = remote_calls(&log);
+    assert!(!calls.is_empty());
+    assert!(calls.iter().all(|c| c == quiet), "{calls:?}");
+
+    // Push to PR's dialog fetches the PR's branch with prompts off; so does comparing the pushed tree.
+    w.board.pr_flow_view("SHOP-1").await.unwrap();
+    assert_eq!(remote_calls(&log), [quiet]);
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    w.board.verify_pushed(&ticket).await.unwrap();
+    assert_eq!(remote_calls(&log), [quiet]);
+    w.board.check_delivery_push(&ticket).await.unwrap();
+    assert_eq!(remote_calls(&log), [quiet]);
+
+    // A base sync (a start the user caused) keeps git's prompts: the variables are the process's own.
+    let base = otaq_core::git::Git::find().unwrap();
+    base.sync_base(&s.repo, "main").await.unwrap();
+    assert_eq!(remote_calls(&log), [inherited()]);
+    s.w.stop().await;
+}

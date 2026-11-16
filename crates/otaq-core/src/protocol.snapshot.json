@@ -1213,6 +1213,14 @@
               "required": true
             }
           }
+        },
+        "unchecked": {
+          "fields": {
+            "message": {
+              "ty": "String",
+              "required": true
+            }
+          }
         }
       }
     },
