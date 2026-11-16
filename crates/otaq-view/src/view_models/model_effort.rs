@@ -46,6 +46,15 @@ pub const STAGE_HINT: &str =
     "Any model of a tool on this Mac. Every ticket at this stage uses it; it changes only here.";
 /// The most pairs the menu offers on top.
 pub const MAX_PAIRS: usize = 6;
+/// The Noyan panel header's menu (A-6, UX-70): its title, its heading, the default's note, the way to the whole field
+/// and its foot.
+pub const CONVERSATION_TITLE: &str = "For this conversation";
+pub const CONVERSATION_HEADING: &str = "FOR THIS CONVERSATION";
+pub const THE_DEFAULT: &str = "the default, from Settings \u{2192} Tools";
+pub const ANOTHER: &str = "Another model or effort\u{2026}";
+pub const CONVERSATION_FOOT: &str = "The next conversation starts on the default again.";
+/// The Noyan panel's Model hint, under the whole field ("Another model or effort…").
+pub const CONVERSATION_HINT: &str = "For this conversation only. The next conversation starts on the default from Settings \u{2192} Tools.";
 
 /// One place a model and effort are used, for the menu's pairs: a stage of a project's flow ("Dev" in "shop-web"),
 /// Done, or Noyan (no project).
@@ -148,6 +157,9 @@ pub struct Menu {
     pub missing: Option<String>,
     pub set_up: &'static str,
     pub foot: &'static str,
+    /// "Another model or effort…": a short menu of pairs only (the Noyan panel's header, A-6), whose last line opens
+    /// the whole field; `None` for the whole menu.
+    pub another: Option<&'static str>,
 }
 
 /// A model whose tool isn't set up on this Mac (A-4). `ModelEffortNotSetUp` on the page.
@@ -319,17 +331,22 @@ fn places(uses: &[&Use]) -> String {
 /// A pair's model as stored and its effort.
 type PairKey = (String, Option<String>);
 
-/// The pairs on top (tuq 014: only tools set up), most used first, at most [`MAX_PAIRS`]. `default` reads as the
-/// default model's tool, so it groups with the tool's own default.
-fn pairs(uses: &[Use], tools: &Tools, model: Option<&str>, now: Option<&str>) -> Vec<Pair> {
-    let stored = |m: &str| match AgentModel::parse(m) {
+/// `model` as a pair stores it: `default` as the default model's tool, so it groups with the tool's own default.
+fn stored(model: &str, tools: &Tools) -> Option<String> {
+    match AgentModel::parse(model) {
         Ok(AgentModel::Default) => tools
             .default_model
             .as_ref()
             .map(|d| d.tool.as_str().to_owned()),
         Ok(parsed) => Some(parsed.text()),
         Err(_) => None,
-    };
+    }
+}
+
+/// The pairs on top (tuq 014: only tools set up), most used first, at most [`MAX_PAIRS`]. `default` reads as the
+/// default model's tool, so it groups with the tool's own default.
+fn pairs(uses: &[Use], tools: &Tools, model: Option<&str>, now: Option<&str>) -> Vec<Pair> {
+    let stored = |m: &str| stored(m, tools);
     let mut groups: Vec<(PairKey, Vec<&Use>)> = Vec::new();
     for u in uses {
         let Some(m) = stored(&u.model) else { continue };
@@ -441,6 +458,7 @@ pub fn menu(model: Option<&str>, effort: Option<&str>, uses: &[Use], tools: &Too
         },
         set_up: SET_UP,
         foot: MENU_FOOT,
+        another: None,
     }
 }
 
@@ -520,6 +538,76 @@ pub fn view(
         not_set_up,
         effort: on.and_then(|on| effort_control(on.tool, effort)),
     }
+}
+
+/// One pair for `model` and `effort` naming `places`, selected when it is `now`; `None` when the model doesn't read.
+fn pair(
+    model: &str,
+    effort: Option<&str>,
+    places: &str,
+    now: (Option<&str>, Option<&str>),
+    tools: &Tools,
+) -> Option<Pair> {
+    let model = stored(model, tools)?;
+    let on = runs_on(&model, tools)?;
+    let levels = on.tool.effort_levels();
+    let effort = effort.filter(|e| levels.contains(e));
+    let current = now.0.and_then(|m| stored(m, tools));
+    let now_effort = now.1.filter(|e| levels.contains(e));
+    Some(Pair {
+        id: format!("pair:{model}:{}", effort.unwrap_or_default()),
+        selected: current.as_deref() == Some(model.as_str()) && effort == now_effort,
+        avatar: ToolAvatarView::of(on.tool, on.model.as_deref()),
+        label: short_line(&model, effort, tools),
+        places: places.to_owned(),
+        effort: effort.map(str::to_owned),
+        model,
+    })
+}
+
+/// The Noyan panel header's field (A-6, UX-70) for a conversation not started yet, on `model` and `effort`: its
+/// short menu "For this conversation" has the default from Settings → Tools (`default`) first, then the pairs the
+/// flows use (`uses`) and the conversation's own pick when it is none of them, then [`ANOTHER`], which opens the whole
+/// field (`menu.groups`, Effort) for this conversation; the foot says the next conversation starts on the default
+/// again.
+pub fn for_conversation(
+    model: &str,
+    effort: Option<&str>,
+    default: (&str, Option<&str>),
+    uses: &[Use],
+    tools: &Tools,
+) -> View {
+    let mut v = view(
+        Some(model),
+        effort,
+        uses,
+        tools,
+        Place {
+            hint: CONVERSATION_HINT,
+            waits_at: None,
+        },
+    );
+    let now = (Some(model), effort);
+    let mut pairs: Vec<Pair> = pair(default.0, default.1, THE_DEFAULT, now, tools)
+        .into_iter()
+        .collect();
+    for p in std::mem::take(&mut v.menu.pairs) {
+        if !pairs.iter().any(|q| q.id == p.id) {
+            pairs.push(p);
+        }
+    }
+    if !pairs.iter().any(|p| p.selected)
+        && let Some(own) = pair(model, effort, "", now, tools)
+    {
+        let at = pairs.len().min(1);
+        pairs.insert(at, own);
+    }
+    v.menu.title = CONVERSATION_TITLE;
+    v.menu.pairs_heading = Some(CONVERSATION_HEADING);
+    v.menu.pairs = pairs;
+    v.menu.foot = CONVERSATION_FOOT;
+    v.menu.another = Some(ANOTHER);
+    v
 }
 
 #[cfg(test)]

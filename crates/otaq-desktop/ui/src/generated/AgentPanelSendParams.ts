@@ -6,7 +6,7 @@ import type { AgentPanelStartOn } from "./AgentPanelStartOn";
  */
 export type AgentPanelSendParams = { project: string, message: string, 
 /**
- * The empty agent panel's own pick of model and effort (sent while [`vm::ModelPick::own`]); `None` for "Noyan
+ * The model and effort picked for this conversation in the header's "For this conversation"; `None` for "Noyan
  * starts on".
  */
 on?: AgentPanelStartOn, };

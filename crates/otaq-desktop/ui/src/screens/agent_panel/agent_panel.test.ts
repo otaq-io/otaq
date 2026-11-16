@@ -11,6 +11,7 @@ import { overlays } from "../../app/overlays";
 import { registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, selection } from "../../app/selection";
 import type { AgentPanelView } from "../../generated/AgentPanelView";
+import type { ModelEffortView } from "../../generated/ModelEffortView";
 import { request } from "../../tauri";
 import type { TerminalHandle, TerminalProps } from "../../terminal/Terminal";
 import { agentPanel } from ".";
@@ -70,6 +71,14 @@ const EMPTY: AgentPanelView = {
     expand: button("maximize-2", "Expand"),
     collapse: { icon: "minimize-2", label: "Collapse", keys: "Esc" },
     close: { icon: "panel-left-close", label: "Close", keys: "⌘L" },
+    model: {
+      model: "claude",
+      effort: null,
+      avatar: null,
+      text: "default",
+      tooltip: "Claude Code · default. For this conversation.",
+      pick: null,
+    },
   },
   empty: {
     line: {
@@ -90,7 +99,6 @@ const EMPTY: AgentPanelView = {
     hint: "Enter starts Claude Code",
     send: "Send",
     notice: null,
-    pick: null,
   },
   running: null,
   switcher: {
@@ -113,6 +121,14 @@ const RUNNING: AgentPanelView = {
     title: "Tickets waiting on NOTE-5",
     switcher: true,
     pill: { palette: "attn", icon: "hand", label: "Waiting for you" },
+    model: {
+      model: "claude:sonnet",
+      effort: "medium",
+      avatar: null,
+      text: "sonnet · medium",
+      tooltip: "Claude Code · sonnet · medium. To use another model, start a new conversation.",
+      pick: null,
+    },
   },
   empty: null,
   running: {
@@ -834,31 +850,128 @@ describe("a tool problem's notice (M23)", () => {
     expect(labels).toEqual(["Sign in…"]);
   });
 
-  it("a new conversation picks its own model and effort, and its first message starts on them", async () => {
-    show({
-      ...EMPTY,
-      empty: EMPTY.empty && {
-        ...EMPTY.empty,
-        pick: {
-          label: "Model",
-          model: "default",
-          models: [
-            { id: "default", label: "default", selected: true },
-            { id: "claude:sonnet", label: "Claude Code · Sonnet", selected: false },
-          ],
-          effort_label: "Effort",
-          effort: null,
-          efforts: [],
-          own: false,
+  /** "For this conversation" as `model_effort.rs` words it: "Noyan starts on" opus · high, the flows' sonnet · medium. */
+  const avatar = {
+    tool: "claude_code" as const,
+    letters: "CC",
+    background: "tool-cc",
+    foreground: "tool-cc-fg",
+    hover: "CC",
+  };
+  const FOR_THIS: ModelEffortView = {
+    model_label: "Model",
+    value: { avatar, text: "Claude Code · opus", no_longer_listed: null },
+    menu: {
+      title: "For this conversation",
+      pairs_heading: "FOR THIS CONVERSATION",
+      pairs: [
+        {
+          id: "pair:claude:opus:high",
+          model: "claude:opus",
+          effort: "high",
+          avatar,
+          label: "opus · high",
+          places: "the default, from Settings → Tools",
+          selected: true,
         },
+        {
+          id: "pair:claude:sonnet:medium",
+          model: "claude:sonnet",
+          effort: "medium",
+          avatar,
+          label: "sonnet · medium",
+          places: "Dev in shop-web",
+          selected: false,
+        },
+      ],
+      groups: [
+        {
+          tool: "claude",
+          heading: "CLAUDE CODE",
+          avatar,
+          items: [
+            { model: "claude", label: "default", detail: null, mono: false, selected: false },
+            { model: "claude:opus", label: "opus", detail: null, mono: false, selected: true },
+          ],
+          status: null,
+        },
+      ],
+      missing: null,
+      set_up: "Set up…",
+      foot: "The next conversation starts on the default again.",
+      another: "Another model or effort…",
+    },
+    hint: "For this conversation only.",
+    not_set_up: null,
+    effort: {
+      label: "Effort",
+      levels: [
+        { id: "", label: "Default", selected: false },
+        { id: "low", label: "Low", selected: false },
+        { id: "high", label: "High", selected: true },
+      ],
+      hint: "How hard the model thinks.",
+    },
+  };
+  const NEW_ON_OPUS: AgentPanelView = {
+    ...EMPTY,
+    header: {
+      ...EMPTY.header,
+      model: {
+        model: "claude:opus",
+        effort: "high",
+        avatar,
+        text: "opus · high",
+        tooltip: "Claude Code · opus · high. For this conversation.",
+        pick: FOR_THIS,
       },
+    },
+  };
+  const openModel = () => {
+    const found = box.querySelector<HTMLButtonElement>(".agent-panel-header button.me-compact");
+    if (!found) throw new Error("no model button");
+    act(() => {
+      found.click();
     });
-    expect(box.querySelector('.agent-panel-input-row button[aria-label="Model"]')?.textContent).toContain(
-      "default",
+  };
+  /** The open menu's headings and its lines' labels and details. */
+  const lines = () =>
+    [...document.querySelectorAll(".me-menu .menu-header, .me-menu [role=option]")].map((l) =>
+      l.classList.contains("menu-header")
+        ? l.textContent
+        : [
+            l.querySelector(".settings-choice-label")?.textContent,
+            l.querySelector(".settings-choice-detail")?.textContent,
+          ]
+            .filter((t) => t !== undefined)
+            .join(" | "),
     );
-    pickStartOn("NOTE", { model: "claude:sonnet" });
+  const choose = (label: string) => {
+    const found = [...document.querySelectorAll<HTMLButtonElement>(".me-menu [role=option]")].find(
+      (b) => b.querySelector(".settings-choice-label")?.textContent === label,
+    );
+    if (!found) throw new Error(`no ${label}`);
+    act(() => {
+      found.click();
+    });
+  };
+
+  it("the header switches a new conversation to sonnet · medium, and its first message starts on it (A-6)", async () => {
+    show(NEW_ON_OPUS);
+    expect(box.querySelector(".agent-panel-header .me-compact-text")?.textContent).toBe("opus · high");
+    openModel();
+    expect(lines()).toEqual([
+      "FOR THIS CONVERSATION",
+      "opus · high | the default, from Settings → Tools",
+      "sonnet · medium | Dev in shop-web",
+      "Another model or effort…",
+    ]);
+    expect(document.querySelector(".me-menu .me-foot")?.textContent).toBe(
+      "The next conversation starts on the default again.",
+    );
+    choose("sonnet · medium");
     expect(ask).not.toHaveBeenCalled();
-    expect(startOn.get()).toEqual({ NOTE: { model: "claude:sonnet" } });
+    expect(startOn.get()).toEqual({ NOTE: { model: "claude:sonnet", effort: "medium" } });
 
     ask.mockResolvedValue("a2");
     show(EMPTY);
@@ -870,10 +983,33 @@ describe("a tool problem's notice (M23)", () => {
     expect(ask).toHaveBeenCalledWith("agent_panel.send", {
       project: "NOTE",
       message: "Why is checkout slow?",
-      on: { model: "claude:sonnet" },
+      on: { model: "claude:sonnet", effort: "medium" },
     });
+    // The following new conversation starts on "Noyan starts on" again.
     expect(startOn.get()).toEqual({});
     expect(shownAgents.get()).toEqual({ NOTE: "a2" });
+  });
+
+  it("Another model or effort… opens the whole menu: the tools' models and the Effort levels", () => {
+    show(NEW_ON_OPUS);
+    openModel();
+    choose("Another model or effort…");
+    const headings = [...document.querySelectorAll(".me-menu .menu-header")].map((h) => h.textContent);
+    expect(headings).toEqual(["FOR THIS CONVERSATION", "CLAUDE CODE", "EFFORT"]);
+    choose("Low");
+    expect(startOn.get()).toEqual({ NOTE: { model: "claude:opus", effort: "low" } });
+    openModel();
+    choose("Another model or effort…");
+    choose("default");
+    expect(startOn.get()).toEqual({ NOTE: { model: "claude", effort: "high" } });
+  });
+
+  it("a started conversation's header shows its model read-only (UX-70)", () => {
+    show(RUNNING);
+    expect(box.querySelector(".agent-panel-header button.me-compact")).toBeNull();
+    const label = box.querySelector(".agent-panel-header .me-compact[data-read-only]");
+    expect(label?.textContent).toBe("sonnet · medium");
+    expect(label?.getAttribute("aria-label")).toContain("start a new conversation");
   });
 
   it("+ drops the choice: the empty agent panel starts on Noyan's setting again", () => {
