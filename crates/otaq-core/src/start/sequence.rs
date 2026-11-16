@@ -1190,6 +1190,13 @@ impl Starter {
         start: Start,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
+        // A resume on a model its tool no longer runs goes on another one, said in History (decision 117).
+        let resumed_note = resume.as_ref().and_then(|_| {
+            inner
+                .adapters
+                .of_session(runs_on.tool)
+                .resume_note(runs_on.model.as_deref())
+        });
         // Otaq writes no skill into the worktree: the tool loads Otaq's own from its plugin and the user's itself (T2).
         let launched = inner
             .adapters
@@ -1236,6 +1243,15 @@ impl Starter {
             })
             .await
             .map_err(|e| StartError::Other(e.to_string()))?;
+        if let Some(message) = resumed_note {
+            self.note(
+                ticket,
+                &Actor::current_user(),
+                "resumed_on_another_model",
+                json!({ "message": message }),
+            )
+            .await;
+        }
         Ok(session)
     }
 

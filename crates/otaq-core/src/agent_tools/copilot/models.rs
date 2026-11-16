@@ -12,10 +12,15 @@
 //! …"}`. Either is a [`ModelListError`]: the copy keeps the last list and the picker says "Couldn't load Copilot's
 //! models · Retry".
 //!
-//! The entries: `auto` becomes three follow entries, one per Auto tier (`auto@efficiency`, `auto@balance`,
-//! `auto@intelligence`, "Auto · efficiency" …, [`FollowChoice::Auto`]); plain `auto` is not a fourth (Q107). Every
-//! other id is an exact model, passed to `--model` as it is. "Tool default" (Copilot's own default, `auto` on Free)
-//! is the picker's own first row on every tool, so the list has no entry for it.
+//! The entries: `auto` becomes a follow entry per Auto tier Copilot still runs ([`OFFERED_TIERS`]: `auto@balance`,
+//! `auto@intelligence`, "Auto · balance" …, [`FollowChoice::Auto`]); plain `auto` is not another (Q107). Every other
+//! id is an exact model, passed to `--model` as it is. Copilot's answer names no tier, so the tiers are Otaq's own
+//! copy: Copilot 1.0.112 removed "efficiency" ("The `efficiency` Auto profile is no longer available", refused before
+//! any model call), so it is no longer offered (decision 117). A stored copy read before that still has
+//! `auto@efficiency`; [`drop_retired`] takes it out when the copy is loaded, so an agent saved on it is held "Model
+//! unavailable" on a new start even before Copilot's list is read again (offline, signed out). "Tool default"
+//! (Copilot's own default, `auto` on Free) is the picker's own first row on every tool, so the list has no entry for
+//! it.
 //!
 //! Started only by the service ([`crate::agent_tools::models::ModelLists`]); tests parse saved answers
 //! (`tests/fixtures/copilot/acp/`).
@@ -45,7 +50,21 @@ const SESSION_ID: u64 = 2;
 /// The ACP version Otaq speaks.
 const PROTOCOL_VERSION: u64 = 1;
 
-/// Each Auto tier's description, as Copilot's own `/model` picker words it (1.0.98).
+/// The Auto tiers Copilot runs (1.0.112), in the picker's order. [`CopilotTier::Efficiency`] stays a tier so a
+/// stored `auto@efficiency` still reads (an agent saved on it shows "no longer listed"), but it isn't offered.
+pub const OFFERED_TIERS: [CopilotTier; 2] = [CopilotTier::Balance, CopilotTier::Intelligence];
+
+/// Takes out of `list` (a copy stored by an earlier Otaq) the Auto tiers Copilot no longer runs, so the check before
+/// a launch holds them at once, not only after Copilot's list is read again.
+pub fn drop_retired(list: &mut ModelList) {
+    list.entries
+        .retain(|entry| match FollowChoice::parse(&entry.id) {
+            Some(FollowChoice::Auto { tier }) => OFFERED_TIERS.contains(&tier),
+            _ => true,
+        });
+}
+
+/// Each Auto tier's description, as Copilot's own `/model` picker words it (1.0.98; efficiency is no longer offered).
 fn tier_description(tier: CopilotTier) -> &'static str {
     match tier {
         CopilotTier::Efficiency => {
@@ -135,7 +154,7 @@ pub fn parse_answer(answer: &Value) -> Result<ModelList, ModelListError> {
         }
         seen.push(id);
         if id == AUTO {
-            entries.extend(CopilotTier::ALL.iter().map(|&tier| auto_entry(tier)));
+            entries.extend(OFFERED_TIERS.iter().map(|&tier| auto_entry(tier)));
         } else {
             entries.push(ModelEntry {
                 id: id.to_owned(),
@@ -305,18 +324,14 @@ mod tests {
             .collect()
     }
 
-    /// Copilot Free: `auto` (listed twice) gives the three Auto tiers once, and nothing else.
+    /// Copilot Free: `auto` (listed twice) gives the Auto tiers Copilot still runs once, and nothing else: no
+    /// "efficiency", which Copilot 1.0.112 refuses (decision 117).
     #[test]
-    fn free_lists_the_three_auto_tiers() {
+    fn free_lists_the_two_auto_tiers() {
         let list = parse_answer(&fixture("session_new-free.json")).unwrap();
         assert_eq!(
             rows(&list),
             [
-                (
-                    "auto@efficiency",
-                    "Auto \u{b7} efficiency",
-                    ModelKind::Follow
-                ),
                 ("auto@balance", "Auto \u{b7} balance", ModelKind::Follow),
                 (
                     "auto@intelligence",
@@ -326,6 +341,7 @@ mod tests {
             ]
         );
         assert!(!list.contains("auto"));
+        assert!(!list.contains("auto@efficiency"));
         assert_eq!(list.tool_default(), None);
         assert_eq!(
             list.entry("auto@balance").unwrap().description.as_deref(),
@@ -344,11 +360,6 @@ mod tests {
         assert_eq!(
             rows(&list),
             [
-                (
-                    "auto@efficiency",
-                    "Auto \u{b7} efficiency",
-                    ModelKind::Follow
-                ),
                 ("auto@balance", "Auto \u{b7} balance", ModelKind::Follow),
                 (
                     "auto@intelligence",
@@ -361,6 +372,26 @@ mod tests {
             ]
         );
         assert_eq!(list.entry("gpt-5.5").unwrap().passed(), Some("gpt-5.5"));
+    }
+
+    /// A copy stored before decision 117 loses `auto@efficiency` and keeps everything else, in order; a stored
+    /// `auto@efficiency` still reads as Auto · efficiency (an agent saved on it is "no longer listed", not unknown).
+    #[test]
+    fn a_stored_copy_drops_the_retired_tier() {
+        let mut list = parse_answer(&fixture("session_new-paid.json")).unwrap();
+        let fresh = list.clone();
+        list.entries.insert(0, auto_entry(CopilotTier::Efficiency));
+        assert!(list.contains("auto@efficiency"));
+        drop_retired(&mut list);
+        assert_eq!(list, fresh);
+        drop_retired(&mut list);
+        assert_eq!(list, fresh);
+        assert_eq!(
+            FollowChoice::parse("auto@efficiency"),
+            Some(FollowChoice::Auto {
+                tier: CopilotTier::Efficiency
+            })
+        );
     }
 
     /// Signed out and offline: the error with Copilot's reason; an answer without models is an error too.
@@ -428,7 +459,7 @@ mod tests {
         ));
         let path = std::env::var_os("PATH").unwrap_or_default();
         let list = run(good.as_os_str(), &path, dir.path()).await.unwrap();
-        assert_eq!(list.entries.len(), 3);
+        assert_eq!(list.entries.len(), 2);
         assert_eq!(
             std::fs::read_to_string(&requests).unwrap(),
             list_command(dir.path()).stdin.concat()

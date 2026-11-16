@@ -3,8 +3,8 @@
 //! plain text, from its own list; the two forms here are Otaq's:
 //! - **newest in a family** (Codex, OpenCode): `newest:<family>` (`newest:gpt-sol`), resolved at session start to the
 //!   newest model of that family that is also in the tool's own list (T-0356);
-//! - **Copilot's Auto** with a tier: `auto@efficiency`, `auto@balance`, `auto@intelligence` (its adapter turns it
-//!   into its flags, T-0352).
+//! - **Copilot's Auto** with a tier: `auto@balance`, `auto@intelligence` (its adapter turns it into its flags,
+//!   T-0352); `auto@efficiency` still reads, but Copilot 1.0.112 removed it and it is no longer offered (decision 117).
 //!
 //! The model picker offers them as entries of the tool's list, so M22's model kinds ([`crate::agents::ToolModel`]) reads them
 //! as `Follow`.

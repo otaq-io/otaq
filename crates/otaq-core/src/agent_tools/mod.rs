@@ -895,6 +895,13 @@ pub trait AgentTool: Send + Sync {
     /// ID: …".
     fn conversation_not_found(&self, output: &[u8]) -> bool;
 
+    /// A History note for a resume on `model` (the model the conversation ran on) that runs on another one because
+    /// the tool no longer runs it; `None` for a resume as it ran. Copilot: a conversation on Auto · efficiency,
+    /// removed in Copilot 1.0.112, resumes on Auto · balance (decision 117). The others: never.
+    fn resume_note(&self, _model: Option<&str>) -> Option<String> {
+        None
+    }
+
     /// How the user resumes the conversation by hand, for the recovery texts: "claude --resume 3be94c10",
     /// "codex resume …", "copilot --resume …", "opencode --session …". `tool_id` may be shortened.
     fn resume_hint(&self, tool_id: &str) -> String;

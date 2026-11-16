@@ -268,7 +268,12 @@ impl ModelLists {
         let mut copies = HashMap::new();
         for &tool in Tool::ALL {
             match stored(&store, tool).await {
-                Ok(Some(copy)) => {
+                Ok(Some(mut copy)) => {
+                    // A copy stored by an earlier Otaq may hold an Auto tier Copilot no longer runs (decision 117):
+                    // it goes now, so the check before a launch holds it before the next read (offline too).
+                    if tool == Tool::Copilot {
+                        super::copilot::models::drop_retired(&mut copy.list);
+                    }
                     copies.insert(tool, copy);
                 }
                 Ok(None) => {}
@@ -695,6 +700,52 @@ mod tests {
             replaced
         );
         assert_eq!(lists(home.path()).await.copy(Tool::Claude), replaced);
+    }
+
+    /// Decision 117: Copilot's copy stored by an earlier Otaq still has `auto@efficiency`. Loaded, it has it no
+    /// more, before any read of Copilot's list (offline), so the check before a new start holds an agent saved on it
+    /// "Model unavailable"; the tiers Copilot runs still pass, and another tool's copy is left as stored.
+    #[tokio::test]
+    async fn copilots_stored_copy_loses_the_retired_tier_on_load() {
+        let home = tempfile::tempdir().unwrap();
+        let stale = list(&[
+            ("auto@efficiency", ModelKind::Follow),
+            ("auto@balance", ModelKind::Follow),
+            ("auto@intelligence", ModelKind::Follow),
+            ("gpt-5.5", ModelKind::Exact),
+        ]);
+        let first = lists(home.path()).await;
+        first.record(Tool::Copilot, Ok(stale.clone()), 1_000).await;
+        first.record(Tool::Codex, Ok(stale.clone()), 1_000).await;
+
+        let again = lists(home.path()).await;
+        let copy = again.copy(Tool::Copilot).unwrap();
+        let ids: Vec<&str> = copy.list.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, ["auto@balance", "auto@intelligence", "gpt-5.5"]);
+        assert_eq!(copy.read_at, 1_000);
+        use crate::agents::ModelRef;
+        use crate::agents::gate::{Blocked, Facts, check};
+        let mut facts = Facts::default();
+        facts.lists.insert(Tool::Copilot, copy);
+        let on = |model: &str| ModelRef {
+            tool: Tool::Copilot,
+            model: Some(model.to_owned()),
+        };
+        assert_eq!(
+            check(&on("auto@efficiency"), &facts),
+            Err(Blocked::ModelUnlisted)
+        );
+        assert_eq!(
+            check(&on("auto@balance"), &facts),
+            Ok(Some("auto@balance".to_owned()))
+        );
+        assert!(
+            again
+                .copy(Tool::Codex)
+                .unwrap()
+                .list
+                .contains("auto@efficiency")
+        );
     }
 
     /// A service that doesn't read tools (every test's) refreshes nothing and answers the copy it has.

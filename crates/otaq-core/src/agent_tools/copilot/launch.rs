@@ -26,7 +26,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{COMMAND_NAME, Copilot, CopilotContext, NO_AUTO_UPDATE};
-use crate::agent_tools::follow::FollowChoice;
+use crate::agent_tools::follow::{CopilotTier, FollowChoice};
 use crate::agent_tools::{
     FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
 };
@@ -86,7 +86,10 @@ pub(super) fn launch(
             (vec!["--session-id".to_owned(), id.clone()], id)
         }
     };
-    args.extend(model_flags(request.model.as_deref()));
+    args.extend(model_flags(
+        request.model.as_deref(),
+        request.resume.is_some(),
+    ));
     if let Some(effort) = &request.effort {
         args.extend(["--reasoning-effort".to_owned(), effort.clone()]);
     }
@@ -115,8 +118,10 @@ pub(super) fn launch(
 
 /// The model as Copilot takes it (d0088: unchanged): an exact id → `--model <id>`; Auto with a tier →
 /// `--model auto --auto-tier <tier>` (a tier without `--model auto` stops the launch, the models report, row 3);
-/// none → nothing, Copilot's own default.
-pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
+/// none → nothing, Copilot's own default. One exception, for a `resume` only (decision 117): a conversation that ran
+/// on Auto · efficiency, which Copilot 1.0.112 refuses, resumes on balance ([`resumed_tier`]); a new start on it
+/// is held before it gets here (its copy of the list no longer has it).
+pub(super) fn model_flags(model: Option<&str>, resume: bool) -> Vec<String> {
     let Some(model) = model.map(str::trim).filter(|m| !m.is_empty()) else {
         return Vec::new();
     };
@@ -125,10 +130,37 @@ pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
             "--model".to_owned(),
             super::events_file::AUTO.to_owned(),
             "--auto-tier".to_owned(),
-            tier.to_string(),
+            if resume { resumed_tier(tier) } else { tier }.to_string(),
         ],
         _ => vec!["--model".to_owned(), model.to_owned()],
     }
+}
+
+/// The tier a resumed conversation on `tier` runs on: balance for efficiency, which Copilot no longer runs
+/// (decision 117: the conversation keeps its history rather than stopping); any other tier as it is.
+fn resumed_tier(tier: CopilotTier) -> CopilotTier {
+    if crate::agent_tools::copilot::models::OFFERED_TIERS.contains(&tier) {
+        tier
+    } else {
+        CopilotTier::Balance
+    }
+}
+
+/// The History note of a resume whose stored `model` Copilot no longer runs ([`model_flags`]), or `None`.
+pub(super) fn resume_note(model: Option<&str>) -> Option<String> {
+    let model = model.map(str::trim)?;
+    let Some(FollowChoice::Auto { tier }) = FollowChoice::parse(model) else {
+        return None;
+    };
+    let resumed = resumed_tier(tier);
+    (resumed != tier).then(|| {
+        format!(
+            "{} no longer runs {}: the conversation resumed on {}",
+            super::DISPLAY_NAME,
+            tier.label(),
+            resumed.label()
+        )
+    })
 }
 
 /// The first prompt as typed: `/otaq:otaq-noyan <message>`, or the text.
@@ -426,6 +458,52 @@ mod tests {
         req.resume = None;
         req.first_prompt = None;
         assert!(launch(&i.copilot, &req).is_err());
+    }
+
+    /// Decision 117: a conversation that ran on Auto · efficiency (which Copilot 1.0.112 refuses) resumes on
+    /// balance, with a History note; a new start on it keeps its own tier (the check before it holds it), and a
+    /// resume on a tier Copilot runs keeps that tier, with no note.
+    #[test]
+    fn a_resume_on_efficiency_goes_on_as_balance() {
+        let i = install();
+        let tier_of = |req: &LaunchRequest| {
+            let args = launch(&i.copilot, req).unwrap().args;
+            let at = args.iter().position(|a| a == "--auto-tier").unwrap();
+            assert_eq!(args[at - 2..at], ["--model", "auto"]);
+            args[at + 1].clone()
+        };
+        let mut req = request(LaunchRole::TicketAgent);
+        req.model = Some("auto@efficiency".into());
+        req.resume = Some("5f1c0a2e-0000-7000-8000-000000000000".into());
+        req.first_prompt = None;
+        assert_eq!(tier_of(&req), "balance");
+        assert_eq!(
+            resume_note(req.model.as_deref()).as_deref(),
+            Some(
+                "GitHub Copilot no longer runs Auto \u{b7} efficiency: the conversation resumed on Auto \u{b7} balance"
+            )
+        );
+        for role in [LaunchRole::Answer, LaunchRole::Validator] {
+            req.role = role;
+            assert_eq!(tier_of(&req), "balance", "{role:?}");
+        }
+        for tier in ["balance", "intelligence"] {
+            req.model = Some(format!("auto@{tier}"));
+            assert_eq!(tier_of(&req), tier);
+            assert_eq!(resume_note(req.model.as_deref()), None);
+        }
+        for model in [None, Some("gpt-5.5"), Some("auto")] {
+            assert_eq!(resume_note(model), None, "{model:?}");
+        }
+
+        let mut new = request(LaunchRole::TicketAgent);
+        new.model = Some("auto@efficiency".into());
+        assert_eq!(tier_of(&new), "efficiency");
+        // A one-off question is never a resume.
+        assert_eq!(
+            model_flags(Some("auto@efficiency"), false),
+            ["--model", "auto", "--auto-tier", "efficiency"]
+        );
     }
 
     /// d0011: never a permission or bypass flag, nor `COPILOT_ALLOW_ALL`, on any role.
