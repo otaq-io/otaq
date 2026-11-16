@@ -10,8 +10,13 @@ export type ActivityAgents = { title: string, count: string,
 /**
  * One row per ticket with an agent at work; a click opens it.
  */
-tickets: Array<ActivityTicketRow>, rows: Array<ActivityToolCount>, 
+tickets: Array<ActivityTicketRow>, 
 /**
- * [`NOTHING_RUNNING`] at 0.
+ * With the agent limit on, one row per ticket holding a slot that isn't in `tickets` (decision 114): "waits for
+ * you · decide", "starting", "held · waiting for limit reset". A click opens it. Empty with the limit off.
+ */
+holders: Array<ActivityTicketRow>, rows: Array<ActivityToolCount>, 
+/**
+ * [`NOTHING_RUNNING`] while neither `tickets` nor `holders` has a row and no agent runs.
  */
 empty: string | null, };

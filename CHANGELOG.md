@@ -14,6 +14,10 @@ before Publish (`scripts/README.md`, "Making a release").
   Review, any stage that waits for you), a later check (Validate, Code review, your own check) judges only the
   changes made after that approval; what you approved stays readable as context and is never failed as out of scope.
   With no approval yet, a check judges the whole branch as before.
+- **With the agent limit on, Running shows what holds each slot.** An agent waiting for you keeps its slot, as it
+  always has; the Running popover now lists it under the working agents ("SHOP-6 · waits for you · decide"), as it
+  does a start in progress, so "1/1 agents" no longer sits over "Nothing running". Settings → Limits says "Right
+  now: 1 of 1 slot taken", and "Run at most" says a waiting agent keeps its slot.
 
 ## 0.2.0
 

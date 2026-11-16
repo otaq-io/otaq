@@ -7,6 +7,6 @@ export type SettingsSection<Id> = { id: Id,
  */
 title: string | null, intro: string | null, rows: Array<SettingsRow>, 
 /**
- * A line under the rows ("Right now: 3 running · …").
+ * A line under the rows ("Right now: 3 of 5 slots taken · …").
  */
 note: string | null, };

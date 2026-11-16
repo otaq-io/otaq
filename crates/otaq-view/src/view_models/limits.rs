@@ -188,9 +188,9 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
         LimitRow {
             label: "Run at most",
             description: if on {
-                "Agents at once, across all projects. Running shows “3/5 agents”."
+                "Agents at once, across all projects. Running shows “3/5 agents”. An agent waiting for you keeps its slot until you answer or move its ticket on."
             } else {
-                "Agents at once, across all projects. Suggested 5."
+                "Agents at once, across all projects. Suggested 5. An agent waiting for you keeps its slot until you answer or move its ticket on."
             },
             enabled: on,
         },
@@ -206,8 +206,8 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
     ]
 }
 
-/// The "Right now" line under the ON section: "Right now: 3 running · 2 queued tickets waiting for a slot ·
-/// needs you 7 (no new starts)".
+/// The "Right now" line under the ON section: "Right now: 3 of 5 slots taken · 2 tickets waiting for a slot · needs
+/// you 7 (no new starts)". Slots, not "running": an agent waiting for you keeps its slot (decision 114).
 pub fn right_now(status: &SchedulerStatus) -> String {
     let waiting = match status.waiting_for_slot {
         1 => "1 ticket waiting for a slot".to_owned(),
@@ -219,8 +219,10 @@ pub fn right_now(status: &SchedulerStatus) -> String {
     } else {
         ""
     };
+    let max = status.limits.max_concurrency.max(1);
+    let taken = if max == 1 { "slot" } else { "slots" };
     format!(
-        "Right now: {} running · {waiting} · needs you {}{paused}",
+        "Right now: {} of {max} {taken} taken · {waiting} · needs you {}{paused}",
         status.holding, status.needs_you
     )
 }
@@ -335,7 +337,8 @@ mod tests {
         );
         assert_eq!(
             off[1].description,
-            "Agents at once, across all projects. Suggested 5."
+            "Agents at once, across all projects. Suggested 5. An agent waiting for you keeps its slot until you \
+             answer or move its ticket on."
         );
         assert_eq!(
             off[2].label, "Don\u{2019}t start new tickets while Needs you has",
@@ -344,6 +347,12 @@ mod tests {
         let on_rows = settings_rows(&on(5, 3));
         assert!(on_rows.iter().all(|r| r.enabled));
         assert_eq!(on_rows[2].description, "Running agents are never stopped.");
+        assert!(
+            on_rows[1].description.ends_with(
+                "An agent waiting for you keeps its slot until you answer or move its ticket on."
+            ),
+            "decision 114"
+        );
     }
 
     #[test]
@@ -354,10 +363,11 @@ mod tests {
             waiting_for_slot: 2,
             needs_you: 7,
             starts_paused: true,
+            ..Default::default()
         };
         assert_eq!(
             right_now(&status),
-            "Right now: 3 running · 2 tickets waiting for a slot · needs you 7 (no new starts)"
+            "Right now: 3 of 5 slots taken · 2 tickets waiting for a slot · needs you 7 (no new starts)"
         );
         let calm = SchedulerStatus {
             waiting_for_slot: 1,
@@ -367,7 +377,17 @@ mod tests {
         };
         assert_eq!(
             right_now(&calm),
-            "Right now: 3 running · 1 ticket waiting for a slot · needs you 0"
+            "Right now: 3 of 5 slots taken · 1 ticket waiting for a slot · needs you 0"
+        );
+        // F-B-2: one agent waiting for you under "Run at most 1" takes the only slot; the line says so.
+        let one = SchedulerStatus {
+            limits: on(1, 3),
+            holding: 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            right_now(&one),
+            "Right now: 1 of 1 slot taken · 0 tickets waiting for a slot · needs you 0"
         );
     }
 

@@ -13,7 +13,8 @@
 
 use otaq_core::agent_tools::LimitWindow;
 use otaq_core::board::settings::AgentLimits;
-use otaq_core::scheduler::SchedulerStatus;
+use otaq_core::domain::Status;
+use otaq_core::scheduler::{Busy, SchedulerStatus, SlotHolder};
 use otaq_core::terminals::run::RunInfo;
 use otaq_core::usage::activity::{Activity, ToolActivity, ToolLimits, WorkingAgent};
 use otaq_core::usage::limit::LimitKind;
@@ -368,8 +369,11 @@ pub struct Agents {
     pub count: String,
     /// One row per ticket with an agent at work; a click opens it.
     pub tickets: Vec<TicketRow>,
+    /// With the agent limit on, one row per ticket holding a slot that isn't in `tickets` (decision 114): "waits for
+    /// you · decide", "starting", "held · waiting for limit reset". A click opens it. Empty with the limit off.
+    pub holders: Vec<TicketRow>,
     pub rows: Vec<ToolCount>,
-    /// [`NOTHING_RUNNING`] at 0.
+    /// [`NOTHING_RUNNING`] while neither `tickets` nor `holders` has a row and no agent runs.
     pub empty: Option<String>,
 }
 
@@ -390,6 +394,57 @@ fn ticket_line(agent: &WorkingAgent, now: i64) -> String {
         Some(name) => format!("{name} \u{b7} {age}"),
         None => age,
     }
+}
+
+/// What a ticket holding a slot of the agent limit, but not at work, is doing (decision 114): "waits for you ·
+/// decide" for the needs-you family (the reasons the Needs you strip gives), "starting" while its start runs,
+/// "delivering" for a PR Delivery session, else "held · " and its status ("held · waiting for limit reset").
+fn holder_line(holder: &SlotHolder) -> String {
+    match holder.busy {
+        Some(Busy::Starting) => return "starting".to_owned(),
+        Some(Busy::Delivering) => return "delivering".to_owned(),
+        None => {}
+    }
+    let waits = match holder.status {
+        Status::NeedsYou | Status::CheckerNeedsYou => Some("allow a command"),
+        Status::AsksYou => Some("a question"),
+        Status::Idle => Some("idle"),
+        Status::CheckFailed | Status::CheckNoResult => Some("decide"),
+        Status::DeliveryStopped => Some("merge stopped"),
+        _ => None,
+    };
+    match waits {
+        Some(what) => format!("waits for you \u{b7} {what}"),
+        None => {
+            let label = holder.status.label();
+            let mut chars = label.chars();
+            let lower: String = chars
+                .next()
+                .map(|c| c.to_lowercase().chain(chars).collect())
+                .unwrap_or_default();
+            format!("held \u{b7} {lower}")
+        }
+    }
+}
+
+/// With the agent limit on, the tickets holding a slot that aren't among the working ones, as rows (decision 114).
+fn holder_rows(inputs: &Inputs<'_>) -> Vec<TicketRow> {
+    let Some(status) = inputs.scheduler.filter(|_| inputs.limits.enabled) else {
+        return Vec::new();
+    };
+    status
+        .holders
+        .iter()
+        .filter(|h| {
+            let key = h.key.to_string();
+            !inputs.working.iter().any(|w| w.key == key)
+        })
+        .map(|h| TicketRow {
+            key: h.key.to_string(),
+            title: h.title.clone(),
+            line: holder_line(h),
+        })
+        .collect()
 }
 
 /// One tool's running agents.
@@ -486,6 +541,7 @@ pub fn popover(inputs: &Inputs<'_>, keys: &KeyLabels) -> Popover {
     let shown = tool_avatar::shown_with(&inputs.tools.iter().map(|(t, _)| *t).collect::<Vec<_>>());
     let avatar = |tool: AvatarTool| shown.then(|| ToolAvatarView::of(tool, None));
     let running = inputs.running();
+    let holders = holder_rows(inputs);
     let agents = Agents {
         title: "AGENTS RUNNING",
         count: running.to_string(),
@@ -511,7 +567,8 @@ pub fn popover(inputs: &Inputs<'_>, keys: &KeyLabels) -> Popover {
         } else {
             Vec::new()
         },
-        empty: (running == 0).then(|| NOTHING_RUNNING.to_owned()),
+        empty: (running == 0 && holders.is_empty()).then(|| NOTHING_RUNNING.to_owned()),
+        holders,
     };
     let tools = inputs
         .tools
@@ -1371,5 +1428,151 @@ mod tests {
         assert_eq!(names, ["Claude Code"]);
         // A tool that isn't connected and has nothing at work isn't among the others.
         assert!(others_running(&activity, &[AvatarTool::Codex]).is_empty());
+    }
+
+    fn holder(key: &str, status: Status, busy: Option<Busy>) -> SlotHolder {
+        SlotHolder {
+            key: key.parse().unwrap(),
+            title: format!("{key} title"),
+            status,
+            busy,
+        }
+    }
+
+    fn working_agent(key: &str) -> WorkingAgent {
+        WorkingAgent {
+            project: "SHOP".into(),
+            project_name: "shop".into(),
+            key: key.into(),
+            title: format!("{key} title"),
+            status: Status::Working,
+            tool: None,
+            agent: Some("Developer".into()),
+            since: NOW - 26 * 60_000,
+        }
+    }
+
+    /// One limit-on state with nothing at work: "Run at most 1".
+    fn one_slot(limits_on: bool) -> State {
+        State::new(
+            vec![(
+                AvatarTool::ClaudeCode,
+                fixtures::tool(&[], 0, fixtures::claude_windows(10., 10.)),
+            )],
+            AgentLimits {
+                enabled: limits_on,
+                max_concurrency: 1,
+                ..AgentLimits::default()
+            },
+            Vec::new(),
+        )
+    }
+
+    /// F-B-2 (decision 114): "Run at most 1" held by a check that gave no result; Running lists it, so "1/1" never
+    /// sits over "Nothing running". The count of agents running stays 0: a waiting agent isn't running.
+    #[test]
+    fn with_the_limit_on_a_waiting_holder_is_listed_instead_of_nothing_running() {
+        let s = one_slot(true);
+        let status = SchedulerStatus {
+            limits: s.limits,
+            holding: 1,
+            holders: vec![holder("SHOP-6", Status::CheckNoResult, None)],
+            ..SchedulerStatus::default()
+        };
+        let mut inputs = s.inputs();
+        inputs.scheduler = Some(&status);
+        let keys = KeyLabels::base(Platform::Mac);
+        assert_eq!(button(&inputs, &keys).agents.count, "1/1");
+        let p = popover(&inputs, &keys);
+        assert_eq!(p.agents.count, "0");
+        assert!(p.agents.tickets.is_empty());
+        assert_eq!(
+            p.agents.holders,
+            [TicketRow {
+                key: "SHOP-6".into(),
+                title: "SHOP-6 title".into(),
+                line: "waits for you \u{b7} decide".into(),
+            }]
+        );
+        assert_eq!(p.agents.empty, None);
+    }
+
+    /// The review's three cases: a start in progress, a limit wait with no session, a holder whose session is gone;
+    /// each is listed, and a holder already among the working agents isn't listed twice.
+    #[test]
+    fn every_holder_not_at_work_is_listed_with_why() {
+        let s = one_slot(true);
+        let status = SchedulerStatus {
+            limits: s.limits,
+            holding: 6,
+            holders: vec![
+                holder("SHOP-1", Status::Working, None),
+                holder("SHOP-2", Status::WaitingForSlot, Some(Busy::Starting)),
+                holder("SHOP-3", Status::WaitingForLimitReset, None),
+                holder("SHOP-4", Status::Idle, None),
+                holder("SHOP-5", Status::WaitingForYou, Some(Busy::Delivering)),
+                holder("SHOP-7", Status::NeedsYou, None),
+            ],
+            ..SchedulerStatus::default()
+        };
+        let working = [working_agent("SHOP-1")];
+        let mut inputs = s.inputs();
+        inputs.scheduler = Some(&status);
+        inputs.working = &working;
+        let p = popover(&inputs, &KeyLabels::base(Platform::Mac));
+        assert_eq!(p.agents.tickets.len(), 1);
+        assert_eq!(p.agents.tickets[0].key, "SHOP-1");
+        let lines: Vec<(&str, &str)> = p
+            .agents
+            .holders
+            .iter()
+            .map(|r| (r.key.as_str(), r.line.as_str()))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("SHOP-2", "starting"),
+                ("SHOP-3", "held \u{b7} waiting for limit reset"),
+                ("SHOP-4", "waits for you \u{b7} idle"),
+                ("SHOP-5", "delivering"),
+                ("SHOP-7", "waits for you \u{b7} allow a command"),
+            ]
+        );
+        // Working rows and holder rows together are exactly what the chip counts.
+        assert_eq!(
+            p.agents.tickets.len() + p.agents.holders.len(),
+            status.holding as usize
+        );
+        // A start in progress alone still isn't "Nothing running".
+        let starting = SchedulerStatus {
+            holding: 1,
+            holders: vec![holder("SHOP-2", Status::Queued, Some(Busy::Starting))],
+            ..status.clone()
+        };
+        let mut inputs = s.inputs();
+        inputs.scheduler = Some(&starting);
+        let p = popover(&inputs, &KeyLabels::base(Platform::Mac));
+        assert_eq!(p.agents.holders.len(), 1);
+        assert_eq!(p.agents.empty, None);
+    }
+
+    /// With the limit off nothing changes: Running counts and lists the agents at work only.
+    #[test]
+    fn with_the_limit_off_holders_are_not_listed() {
+        let s = one_slot(false);
+        let status = SchedulerStatus {
+            limits: s.limits,
+            holding: 1,
+            holders: vec![holder("SHOP-6", Status::CheckNoResult, None)],
+            ..SchedulerStatus::default()
+        };
+        let mut inputs = s.inputs();
+        inputs.scheduler = Some(&status);
+        let keys = KeyLabels::base(Platform::Mac);
+        let p = popover(&inputs, &keys);
+        assert!(p.agents.holders.is_empty());
+        assert_eq!(p.agents.empty.as_deref(), Some(NOTHING_RUNNING));
+        assert_eq!(p, popover(&s.inputs(), &keys), "as without the scheduler");
+        assert_eq!(button(&inputs, &keys).agents.count, "0");
     }
 }
