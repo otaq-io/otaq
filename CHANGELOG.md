@@ -3,6 +3,13 @@
 What changed for you in each release. The maintainer copies a version's section into its GitHub release notes
 before Publish (`scripts/README.md`, "Making a release").
 
+## Unreleased
+
+- **A check judges only what changed since you approved.** Once you pass a ticket at a review step (Spec review,
+  Review, any stage that waits for you), a later check (Validate, Code review, your own check) judges only the
+  changes made after that approval; what you approved stays readable as context and is never failed as out of scope.
+  With no approval yet, a check judges the whole branch as before.
+
 ## 0.2.0
 
 - **A shorter first run.** It is Welcome (your board's columns are your process, in one picture) → Tools (the agent

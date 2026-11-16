@@ -696,6 +696,7 @@ impl Board {
                         choose: None,
                         start_check: false,
                         automatic: false,
+                        approved: None,
                     },
                     reset: true,
                     marks: Vec::new(),

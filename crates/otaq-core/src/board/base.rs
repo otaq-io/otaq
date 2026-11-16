@@ -28,17 +28,8 @@ impl Board {
         if ticket.place.is_done() {
             return Ok(Some(stored.clone()));
         }
-        // Where the readers count: the worktree's HEAD when it's there, else the branch in the repository.
-        let (cwd, head) = match (
-            work.worktree.as_deref().filter(|w| Path::new(w).is_dir()),
-            &work.branch,
-        ) {
-            (Some(worktree), _) => (worktree.to_owned(), "HEAD".to_owned()),
-            (None, Some(branch)) => (
-                self.project(ticket.key.project.as_str()).await?.repo_path,
-                format!("refs/heads/{branch}"),
-            ),
-            (None, None) => return Ok(Some(stored.clone())),
+        let Some((cwd, head)) = self.head_ref(ticket).await? else {
+            return Ok(Some(stored.clone()));
         };
         let fresh = match newer_base(
             self.git()?,
@@ -67,6 +58,42 @@ impl Board {
             .map_err(crate::store::StoreError::from)?;
         tracing::info!(key = %ticket.key, from = %stored, to = %fresh, "the ticket's base moved");
         Ok(Some(fresh))
+    }
+
+    /// Where the readers count a ticket's commits: the worktree's `HEAD` when it's there, else its branch in the
+    /// repository; `None` with neither. The folder to run git in, and the ref.
+    async fn head_ref(&self, ticket: &Ticket) -> Result<Option<(String, String)>, BoardError> {
+        let Some(work) = &ticket.work else {
+            return Ok(None);
+        };
+        Ok(
+            match (
+                work.worktree.as_deref().filter(|w| Path::new(w).is_dir()),
+                &work.branch,
+            ) {
+                (Some(worktree), _) => Some((worktree.to_owned(), "HEAD".to_owned())),
+                (None, Some(branch)) => Some((
+                    self.project(ticket.key.project.as_str()).await?.repo_path,
+                    format!("refs/heads/{branch}"),
+                )),
+                (None, None) => None,
+            },
+        )
+    }
+
+    /// The commit the ticket's work stands at now ([`Self::head_ref`]), committed files only: uncommitted ones never
+    /// refuse it. `None` without a worktree or branch, or when git can't say.
+    pub(crate) async fn ticket_head(&self, ticket: &Ticket) -> Result<Option<String>, BoardError> {
+        let Some((cwd, head)) = self.head_ref(ticket).await? else {
+            return Ok(None);
+        };
+        match self.git()?.resolve(Path::new(&cwd), &head).await {
+            Ok(sha) => Ok(sha),
+            Err(e) => {
+                tracing::warn!(key = %ticket.key, error = %e, "can't read the ticket's head");
+                Ok(None)
+            }
+        }
     }
 }
 
