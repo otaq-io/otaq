@@ -164,7 +164,7 @@ describe("the sheet", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
       slots: ["sheet"],
-      overlays: ["close_ticket", "submit_for_review", "change_agent"],
+      overlays: ["close_ticket", "submit_for_review"],
       sheetTabs: [],
     });
   });

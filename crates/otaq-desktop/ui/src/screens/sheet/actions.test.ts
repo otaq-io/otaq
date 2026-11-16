@@ -17,7 +17,7 @@ import { request } from "../../tauri";
 import { sheet } from ".";
 import {
   actionRoute,
-  agentSettings,
+  editFlowAt,
   canSend,
   cardRoute,
   initialPicks,
@@ -53,14 +53,13 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });
     // Send again (d0118): `sheet.send_again`, which may ask about unsent text first.
     expect(actionRoute("send_again")).toEqual({ kind: "send_again" });
-    expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
-    expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
+    expect(actionRoute("open_agent")).toEqual({ kind: "edit_flow" });
+    expect(cardRoute("edit_flow")).toEqual({ kind: "edit_flow" });
     // No PR provider for an automatic PR: Set up… opens app Settings where providers are set up.
     expect(cardRoute("set_up_provider")).toEqual({ kind: "provider_settings" });
-    // Change agent… on a held card: the dialog picking another agent for the waiting stage.
-    expect(cardRoute("change_agent")).toEqual({ kind: "overlay", id: "change_agent" });
-    expect(agentSettings("spec-writer")).toEqual({ section: "agents", agent: "spec-writer" });
-    expect(agentSettings(null)).toEqual({ section: "agents" });
+    // Edit flow… on a held card: the project's flow, at the waiting stage when known.
+    expect(editFlowAt("SHOP-30", "dev")).toEqual({ project: "SHOP", select: "dev" });
+    expect(editFlowAt("SHOP-30", null)).toEqual({ project: "SHOP" });
     expect(actionRoute("approve")).toEqual({ kind: "overlay", id: "local_merge" });
     // A hook refused Approve & merge: its confirmation again, on the kept edit.
     expect(actionRoute("edit_message")).toEqual({ kind: "overlay", id: "local_merge" });
@@ -426,7 +425,7 @@ describe("what it needs from you, at the top of Overview", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
       slots: ["sheet"],
-      overlays: ["close_ticket", "submit_for_review", "change_agent"],
+      overlays: ["close_ticket", "submit_for_review"],
     });
   });
 });
@@ -450,11 +449,9 @@ describe("the held roles' callouts (M23)", () => {
           tone: "amber",
           avatar: null,
           heading: "Model unavailable",
-          text: "Codex no longer lists gpt-5.4, the model of Old GPT. Give Old GPT another model in Settings → Agents.",
+          text: "Codex no longer lists gpt-5.4, Dev's model. Give Dev another model in Edit flow.",
           model: "gpt-5.4",
-          buttons: [
-            { label: "Open agent…", action: { kind: "open_agent", agent: "old-gpt" }, primary: true },
-          ],
+          buttons: [{ label: "Edit flow…", action: { kind: "edit_flow", stage: "dev" }, primary: true }],
         },
       ],
     });
@@ -463,7 +460,7 @@ describe("the held roles' callouts (M23)", () => {
     expect(holds).toBeLessThan(html.indexOf("sheet-bar"));
     expect(html).toContain('data-tone="amber"');
     expect(html).toContain("Codex no longer lists gpt-5.4");
-    expect(html).toContain("Open agent…");
+    expect(html).toContain("Edit flow…");
   });
 
   it("nothing held: no callouts", () => {
@@ -540,34 +537,5 @@ describe("the action bar's fit (T-0572)", () => {
     const bar = /\n\.sheet-bar \{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(bar).toContain("flex-wrap: wrap;");
     expect(bar).toContain("min-width: 0;");
-  });
-});
-
-describe("Change agent…", () => {
-  it("opens on the agent Rust marks picked, else the first; with none, nothing", async () => {
-    const { firstPick } = await import("./Dialogs");
-    const item = (id: string, checked: boolean) => ({
-      id,
-      label: id,
-      icon: null,
-      shortcut: null,
-      danger: false,
-      disabled: false,
-      hint: null,
-      separated: false,
-      checked,
-      header: false,
-    });
-    const view = {
-      title: "Change Dev’s agent",
-      stage_id: "dev",
-      intro: "",
-      empty: null,
-      confirm: "Change agent",
-      items: [item("Light", false), item("Codex developer", true)],
-    };
-    expect(firstPick(view)).toBe("Codex developer");
-    expect(firstPick({ ...view, items: [item("Light", false)] })).toBe("Light");
-    expect(firstPick({ ...view, items: [] })).toBeNull();
   });
 });

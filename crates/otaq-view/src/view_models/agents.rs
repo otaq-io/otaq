@@ -559,3 +559,112 @@ mod tests {
         assert_eq!(model_text_line(None, None, &tools, None), NOTHING);
     }
 }
+/// One choice of a tool-and-model dropdown (the default model): a tool's heading, a model, or a note in place of a
+/// tool's models (loading, couldn't load).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsModelChoice")]
+pub struct ModelChoice {
+    /// Unique in the list: what the page sends back is `tool` and `model`.
+    pub id: String,
+    pub kind: ChoiceKind,
+    #[ts(type = "string | null")]
+    pub tool: Option<Tool>,
+    /// `None`: the tool's default.
+    pub model: Option<String>,
+    pub label: String,
+    /// The muted part: "now claude-opus-5-5".
+    pub detail: Option<String>,
+    pub mono: bool,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "AgentsChoiceKind")]
+pub enum ChoiceKind {
+    Heading,
+    Option,
+    Note,
+}
+
+/// A dropdown of a tool and a model from that tool's list (AGM-03): every connected tool under its name, each with
+/// its own list as the model picker has it. Read-only while no tool is connected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsModelDropdown")]
+pub struct ModelDropdown {
+    /// The field's text: "Claude Code · sonnet".
+    pub value: String,
+    pub choices: Vec<ModelChoice>,
+    pub read_only: bool,
+}
+
+/// The dropdown over `tools` (in d0086's order), `picked` selected; `empty` while nothing is picked.
+pub fn dropdown(
+    on: &[Tool],
+    tools: &AgentTools,
+    picked: Option<&ModelRef>,
+    empty: &str,
+) -> ModelDropdown {
+    let mut choices = Vec::new();
+    for &tool in on {
+        choices.push(ModelChoice {
+            id: format!("heading:{tool}"),
+            kind: ChoiceKind::Heading,
+            tool: Some(tool),
+            model: None,
+            label: tool_name(tool).to_owned(),
+            detail: None,
+            mono: false,
+            selected: false,
+        });
+        let mine = picked.filter(|p| p.tool == tool);
+        let picker = super::model_picker::picker(
+            tool,
+            tools.state(tool),
+            mine.and_then(|p| p.model.as_deref()),
+            false,
+            None,
+        );
+        for item in picker.groups.iter().flat_map(|g| &g.items) {
+            choices.push(ModelChoice {
+                id: format!("{tool}:{}", item.value.as_deref().unwrap_or_default()),
+                kind: ChoiceKind::Option,
+                tool: Some(tool),
+                model: item.value.clone(),
+                label: item.label.clone(),
+                detail: item.detail.clone(),
+                mono: item.mono,
+                selected: mine.is_some() && item.selected,
+            });
+        }
+        if let Some(status) = &picker.status {
+            choices.push(ModelChoice {
+                id: format!("status:{tool}"),
+                kind: ChoiceKind::Note,
+                tool: Some(tool),
+                model: None,
+                label: status.text.clone(),
+                detail: None,
+                mono: false,
+                selected: false,
+            });
+        }
+    }
+    ModelDropdown {
+        value: match picked {
+            Some(model) => tool_model(model, tools),
+            None => empty.to_owned(),
+        },
+        read_only: on.is_empty(),
+        choices,
+    }
+}
+
+/// The connected tools, in d0086's order.
+pub fn connected(tools: &AgentTools) -> Vec<Tool> {
+    Tool::ALL
+        .iter()
+        .copied()
+        .filter(|t| tools.is_connected(*t))
+        .collect()
+}

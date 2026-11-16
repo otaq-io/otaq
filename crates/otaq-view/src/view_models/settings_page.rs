@@ -70,12 +70,9 @@ use crate::view_models::warm_build;
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "GlobalSectionId")]
 pub enum GlobalSection {
-    /// M23, T-0360: the agent tools, drawn from `agent_tools.view` ([`super::agent_tools_page`]). The Agents topic's
-    /// first section.
+    /// M23, T-0360: the agent tools, drawn from `agent_tools.view` ([`super::agent_tools_page`]): the Agents topic
+    /// (there are no named agents to list under it, UX-65).
     AgentTools,
-    /// T-0405: the agents, the default model and the agent Noyan uses, drawn from `settings.agents`
-    /// ([`super::agents::section`]).
-    Agents,
     /// Git and the pull request providers on this machine, drawn from `settings.git` ([`super::git_settings`]).
     /// Other screens open Settings at this topic by its id, `git`.
     Git,
@@ -584,9 +581,8 @@ pub struct WarmInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 10] = [
+const DRAWN: [GlobalSection; 9] = [
     GlobalSection::AgentTools,
-    GlobalSection::Agents,
     GlobalSection::Git,
     GlobalSection::AgentLimits,
     GlobalSection::Usage,
@@ -597,11 +593,10 @@ const DRAWN: [GlobalSection; 10] = [
     GlobalSection::About,
 ];
 
-/// The nav row a global section is drawn under. App settings has eight topics: the agent tools sit on the Agents
-/// page above the agents, and usage on one page with the agent limit; every other section is a topic of its own.
+/// The nav row a global section is drawn under. App settings has eight topics: usage sits on one page with the agent
+/// limit; every other section is a topic of its own.
 pub fn topic_of(id: GlobalSection) -> GlobalSection {
     match id {
-        GlobalSection::AgentTools => GlobalSection::Agents,
         GlobalSection::Usage => GlobalSection::AgentLimits,
         other => other,
     }
@@ -634,7 +629,7 @@ pub fn nav(sections: &[GlobalSection]) -> Vec<NavRow> {
 /// A topic's nav label and icon; the sections inside a topic have none of their own.
 fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
     match id {
-        GlobalSection::AgentTools | GlobalSection::Agents => ("Agents", IconName::Bot),
+        GlobalSection::AgentTools => ("Agents", IconName::Bot),
         GlobalSection::Git => ("Git & pull requests", IconName::GitPullRequest),
         GlobalSection::AgentLimits | GlobalSection::Usage => ("Limits & usage", IconName::Gauge),
         GlobalSection::Notifications => ("Notifications", IconName::Bell),
@@ -1004,8 +999,6 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         sections: vec![
             // Its own view: the four tools' rows ([`super::agent_tools_page`]).
             section(GlobalSection::AgentTools, Some("Tools"), Vec::new()),
-            // Its own view: the list, the default model and Noyan's agent ([`super::agents::section`]).
-            section(GlobalSection::Agents, Some("Your agents"), Vec::new()),
             // Its own view: git and the PR providers ([`super::git_settings`]).
             section(GlobalSection::Git, None, Vec::new()),
             agent_limits,
@@ -2423,15 +2416,12 @@ mod tests {
             v.footnote,
             "Project settings live in each project\u{2019}s Settings tab."
         );
-        // The agent tools sit above the agents; usage with the agent limit.
+        // The agent tools are the Agents topic; usage sits with the agent limit.
         let sections_of = |i: usize| {
             let Target::Global { sections, .. } = &v.nav[i].target;
             sections.clone()
         };
-        assert_eq!(
-            sections_of(0),
-            [GlobalSection::AgentTools, GlobalSection::Agents]
-        );
+        assert_eq!(sections_of(0), [GlobalSection::AgentTools]);
         assert_eq!(sections_of(1), [GlobalSection::Git]);
         assert_eq!(
             sections_of(2),
@@ -2775,7 +2765,7 @@ mod tests {
             unreachable!()
         };
         assert!(
-            sections[3]
+            sections[2]
                 .note
                 .as_deref()
                 .is_some_and(|n| n.starts_with("Right now:"))
@@ -3162,16 +3152,15 @@ mod tests {
         .unwrap();
         assert_eq!(json["page"]["page"], "global");
         assert_eq!(json["page"]["sections"][0]["id"], "agent_tools");
-        assert_eq!(json["page"]["sections"][1]["id"], "agents");
-        assert_eq!(json["page"]["sections"][2]["id"], "git");
-        assert_eq!(json["page"]["sections"][3]["id"], "agent_limits");
+        assert_eq!(json["page"]["sections"][1]["id"], "git");
+        assert_eq!(json["page"]["sections"][2]["id"], "agent_limits");
         assert_eq!(
-            json["page"]["sections"][3]["rows"][0]["control"]["kind"],
+            json["page"]["sections"][2]["rows"][0]["control"]["kind"],
             "toggle"
         );
         assert_eq!(
             json["nav"][0]["target"],
-            serde_json::json!({ "page": "global", "section": "agents", "sections": ["agent_tools", "agents"] })
+            serde_json::json!({ "page": "global", "section": "agent_tools", "sections": ["agent_tools"] })
         );
         let v: Value = serde_json::from_value(serde_json::json!(true)).unwrap();
         assert_eq!(v, Value::Flag(true));

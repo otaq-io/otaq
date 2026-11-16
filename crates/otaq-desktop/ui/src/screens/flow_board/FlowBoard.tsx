@@ -35,7 +35,6 @@ import type { FlowBoardDeliverySkill } from "../../generated/FlowBoardDeliverySk
 import type { FlowBoardDetails } from "../../generated/FlowBoardDetails";
 import type { FlowBoardParams } from "../../generated/FlowBoardParams";
 import type { FlowBoardView } from "../../generated/FlowBoardView";
-import type { FlowEditorChoices } from "../../generated/FlowEditorChoices";
 import type { FlowEditorPick } from "../../generated/FlowEditorPick";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
 import type { MenuItem } from "../../generated/MenuItem";
@@ -45,15 +44,8 @@ import { pickFlowFile, request, saveFlowFile } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { cardsOf } from "../board/Column";
 import { showAgentInPanel } from "../agent_panel/logic";
-import { type EditorActions, FixLine, SkillField } from "../flow_editor/FlowEditor";
-import {
-  editorAgents,
-  editStage,
-  NO_CHOICES,
-  pickEntry,
-  skillButton,
-  writeSkill,
-} from "../flow_editor/logic";
+import { type EditorActions, ModelLineField, SkillField } from "../flow_editor/FlowEditor";
+import { editorAgents, editStage, pickEntry, skillButton, writeSkill } from "../flow_editor/logic";
 import {
   askForChanges,
   clampStep,
@@ -116,7 +108,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   const [focusSkill, setFocusSkill] = useState<string | null>(
     open.focusSkill === true ? (open.select ?? null) : null,
   );
-  const [choices, setChoices] = useState<FlowEditorChoices>(NO_CHOICES);
   const [history, setHistory] = useState<string[]>([]);
   const [palette, setPalette] = useState<PaletteAt | null>(null);
   const [startFrom, setStartFrom] = useState(false);
@@ -137,10 +128,9 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
       project,
       ...(selected !== null && { selected }),
       ...(agent !== null && { agent }),
-      choices,
     };
     return request("flow_board.view", p) as Promise<FlowBoardView>;
-  }, [project, selected, agent, choices]);
+  }, [project, selected, agent]);
   const state = useServiceView(load, FLOW_BOARD_EVENTS);
   const view = state.view;
   // ⤢ opens Noyan's question larger; it stays so for that question only, until ⤡, Esc or its answer is sent.
@@ -235,7 +225,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
       skill: (stage, button) => {
         skillButton(project, stage, button).catch(ignore);
       },
-      fix: setChoices,
     }),
     [edit, project],
   );
@@ -1016,33 +1005,7 @@ function StagePanel({
           onEdit({ edit: "description", stage, description });
         }}
       />
-      {details.agent !== null && (
-        <div className="fe-field">
-          <span className="fe-label">{details.agent.label}</span>
-          <div className="fe-agent-row">
-            {details.agent.avatar !== null && <ToolAvatar avatar={details.agent.avatar} />}
-            <Select
-              label={details.agent.label}
-              value={details.agent.name}
-              items={details.agent.items}
-              onChange={(agent) => {
-                if (agent !== details.agent?.name) onEdit({ edit: "agent", stage, agent });
-              }}
-            />
-          </div>
-          {details.agent.warning !== null && (
-            <div className="fe-fix" data-tone="amber">
-              <Icon name="triangle-alert" size={14} />
-              <span className="fe-fix-text">
-                <span>
-                  <CodeText text={details.agent.warning} />
-                </span>
-              </span>
-            </div>
-          )}
-          <span className="fe-hint">{details.agent.hint}</span>
-        </div>
-      )}
+      {details.model !== null && <ModelLineField line={details.model} />}
       {details.skill !== null && (
         <>
           <SkillField field={details.skill} stage={stage} actions={actions} focus={focusSkill} />
@@ -1112,9 +1075,6 @@ function StagePanel({
           }}
         />
       </div>
-      {details.fixes.map((fix) => (
-        <FixLine key={fix.text} fix={fix} actions={actions} />
-      ))}
       {details.problem !== null && (
         <p className="fe-problem" role="alert">
           {details.problem}
@@ -1220,18 +1180,7 @@ function DeliveryPanel({
         ))}
         {delivery.mode_note !== null && <span className="fe-hint">{delivery.mode_note}</span>}
       </div>
-      <div className="fe-field">
-        <span className="fe-label">{delivery.agent.label}</span>
-        <Select
-          label={delivery.agent.label}
-          value={delivery.agent.value}
-          items={delivery.agent.items}
-          onChange={(agent) => {
-            onEdit({ edit: "delivery", field: delivery.agent.field, value: agent });
-          }}
-        />
-        <span className="fe-hint">{delivery.agent.hint}</span>
-      </div>
+      {delivery.model !== null && <ModelLineField line={delivery.model} />}
       {skill !== null && (
         <DeliverySkillField key={skill.value} skill={skill} focus={focusSkill} onEdit={onEdit} />
       )}

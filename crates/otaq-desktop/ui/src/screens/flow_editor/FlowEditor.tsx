@@ -1,36 +1,26 @@
 // The flow editor's parts Edit flow on the board (`flow_board/`) draws a stage's details with (T-0471, T-0472; FED-04…
 // FED-06; d0115): the Skill field (Pick a skill…, Ask the agent to write it, which only asks for the user's words,
-// Q441; being written with Stop; written with Open and Undo) and a problem's fix line, with FLW-04's controls for an
-// import clash or a model to pick (Q426). What they say is Rust's (`flow_board.view`, `otaq-view`'s `flow_editor.rs`).
-import { useEffect, useId, useRef, useState } from "react";
+// Q441; being written with Stop; written with Open and Undo) and who does a stage, read-only (UX-65: its model, effort
+// and instructions are the flow file's). What they say is Rust's (`flow_board.view`, `otaq-view`'s `flow_editor.rs`).
+import { useEffect, useRef, useState } from "react";
 
 import "./flow_editor.css";
 
-import { AnchoredMenu, Button, Radio, Select, Tooltip } from "../../components";
+import { AnchoredMenu, Button, Tooltip, ToolAvatar } from "../../components";
 import { CodeText } from "../../components/CodeText";
-import type { FlowEditorChoices } from "../../generated/FlowEditorChoices";
-import type { FlowEditorClashPick } from "../../generated/FlowEditorClashPick";
-import type { FlowEditorFix } from "../../generated/FlowEditorFix";
+import type { FlowEditorModelLine } from "../../generated/FlowEditorModelLine";
 import type { FlowEditorSkillField } from "../../generated/FlowEditorSkillField";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
-import type { IconName } from "../../generated/IconName";
-import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { optionItems } from "../settings/Agents";
-import { ModelPicker } from "../settings/ModelPicker";
-import { type SkillButton, typedItem, withClash, withModel } from "./logic";
+import { type SkillButton, typedItem } from "./logic";
 
-const ignore = () => undefined;
-
-/** What the Skill field's and a fix line's clicks do: the board's editor's calls. */
+/** What the Skill field's clicks do: the board's editor's calls. */
 export interface EditorActions {
   edit: (edit: FlowEditorStageEdit) => void;
   /** Ask the agent to write it: `prefill` starts the user's words; nothing is sent. */
   write: (stage: string, prefill: string) => void;
   /** The Skill field's other buttons on a stage: Stop, Undo, Open. */
   skill: (stage: string, button: SkillButton) => void;
-  /** A pick for a problem (Q426): the picks so far, changed. */
-  fix: (change: (choices: FlowEditorChoices) => FlowEditorChoices) => void;
 }
 
 /**
@@ -238,74 +228,29 @@ export function SkillField({
 }
 
 /**
- * A problem's fix, or an import clash (Q426; FLW-04's controls): Keep mine · Take theirs · Add as; the model menu (the
- * default model or a connected tool, then that tool's models).
+ * Who does a stage (or the delivery), read-only (UX-65): its tool's avatar and model · effort, its instructions, an
+ * amber warning when its tool lacks the stage's skill, and where to change it.
  */
-export function FixLine({ fix, actions }: { fix: FlowEditorFix; actions: EditorActions }) {
-  const name = useId();
-  const control = fix.control;
-  let below: React.ReactNode = null;
-  let tone: "red" | "amber" | "ok" = fix.fixed ? "ok" : "red";
-  let icon: IconName = fix.fixed ? "circle-check" : "circle-x";
-  switch (control.kind) {
-    case "clash":
-      tone = "amber";
-      icon = "git-compare";
-      below = (
-        <div className="fe-fix-clash" role="radiogroup" aria-label={fix.text}>
-          {control.options.map((o) => (
-            <Radio
-              key={o.id}
-              name={name}
-              checked={o.selected}
-              label={o.label}
-              onChange={(checked) => {
-                if (checked) actions.fix((c) => withClash(c, control.agent, o.id as FlowEditorClashPick));
-              }}
-            />
-          ))}
-        </div>
-      );
-      break;
-    case "model": {
-      const model = control.fix;
-      const chosen = model.tools.find((t) => t.selected);
-      below = (
-        <span className="fe-fix-model">
-          <Select
-            label={model.tool_label}
-            value={chosen?.label ?? model.tool_label}
-            items={optionItems(model.tools)}
-            onChange={(id) => {
-              actions.fix((c) => withModel(c, model.agent, id));
-            }}
-          />
-          {model.picker !== null && chosen !== undefined && (
-            <ModelPicker
-              label={model.model_label}
-              picker={model.picker}
-              onPick={(picked) => {
-                actions.fix((c) => withModel(c, model.agent, chosen.id, picked));
-              }}
-              onRetry={(t) => {
-                request("settings.agents_models_retry", { tool: t }).catch(ignore);
-              }}
-            />
-          )}
-        </span>
-      );
-      break;
-    }
-  }
+export function ModelLineField({ line }: { line: FlowEditorModelLine }) {
   return (
-    <div className="fe-fix" data-tone={tone}>
-      <Icon name={icon} size={14} />
-      <div className="fe-fix-text">
-        <div className="fe-fix-line">
-          <span>{fix.text}</span>
-        </div>
-        {below}
+    <div className="fe-field">
+      <span className="fe-label">{line.label}</span>
+      <div className="fe-agent-row">
+        {line.avatar !== null && <ToolAvatar avatar={line.avatar} />}
+        <span className="fe-model-value">{line.value}</span>
       </div>
+      {line.instructions !== null && <p className="fe-model-instructions">{line.instructions}</p>}
+      {line.warning !== null && (
+        <div className="fe-fix" data-tone="amber">
+          <Icon name="triangle-alert" size={14} />
+          <span className="fe-fix-text">
+            <span>
+              <CodeText text={line.warning} />
+            </span>
+          </span>
+        </div>
+      )}
+      <span className="fe-hint">{line.hint}</span>
     </div>
   );
 }

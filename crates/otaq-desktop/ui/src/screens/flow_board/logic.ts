@@ -111,12 +111,11 @@ export function clampStep(at: number, steps: readonly FlowBoardWatchStep[]): num
   return Math.max(0, Math.min(at, steps.length - 1));
 }
 
-/** Save flow: the draft applies (with the picks its problems got); the toast says whether it applied or waits. */
+/** Save flow: the draft applies; the toast says whether it applied or waits. */
 export async function saveDraft(view: FlowBoardView, ask: Ask = request): Promise<void> {
   await ask("flow_editor.apply", {
     project: view.project,
     proposal: view.proposal,
-    choices: view.choices,
   });
   const toast: NewToast = {
     level: "success",

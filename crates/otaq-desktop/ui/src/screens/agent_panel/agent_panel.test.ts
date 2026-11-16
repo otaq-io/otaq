@@ -90,7 +90,6 @@ const EMPTY: AgentPanelView = {
     hint: "Enter starts Claude Code",
     send: "Send",
     notice: null,
-    starts_on: null,
     pick: null,
   },
   running: null,
@@ -835,34 +834,34 @@ describe("a tool problem's notice (M23)", () => {
     expect(labels).toEqual(["Sign in…"]);
   });
 
-  it("a new conversation picks its own agent, and its first message starts it there", async () => {
+  it("a new conversation picks its own model and effort, and its first message starts on them", async () => {
     show({
       ...EMPTY,
       empty: EMPTY.empty && {
         ...EMPTY.empty,
         pick: {
-          label: "Agent",
-          usual: "noyan",
-          options: [
-            { id: "noyan", label: "Noyan", selected: true },
-            { id: "sonnet", label: "Sonnet", selected: false },
+          label: "Model",
+          model: "default",
+          models: [
+            { id: "default", label: "default", selected: true },
+            { id: "claude:sonnet", label: "Claude Code · Sonnet", selected: false },
           ],
+          effort_label: "Effort",
+          effort: null,
+          efforts: [],
+          own: false,
         },
       },
     });
-    expect(box.querySelector('.agent-panel-input-row button[aria-label="Agent"]')?.textContent).toContain(
-      "Noyan",
+    expect(box.querySelector('.agent-panel-input-row button[aria-label="Model"]')?.textContent).toContain(
+      "default",
     );
-    pickStartOn("NOTE", "sonnet", "noyan");
+    pickStartOn("NOTE", { model: "claude:sonnet" });
     expect(ask).not.toHaveBeenCalled();
-    expect(startOn.get()).toEqual({ NOTE: "sonnet" });
-    // Picking the agent Noyan uses again drops the pick.
-    pickStartOn("NOTE", "noyan", "noyan");
-    expect(startOn.get()).toEqual({});
-    pickStartOn("NOTE", "sonnet", "noyan");
+    expect(startOn.get()).toEqual({ NOTE: { model: "claude:sonnet" } });
 
     ask.mockResolvedValue("a2");
-    show({ ...EMPTY, empty: EMPTY.empty && { ...EMPTY.empty, starts_on: "sonnet" } });
+    show(EMPTY);
     type("Why is checkout slow?");
     await act(async () => {
       enter();
@@ -871,14 +870,14 @@ describe("a tool problem's notice (M23)", () => {
     expect(ask).toHaveBeenCalledWith("agent_panel.send", {
       project: "NOTE",
       message: "Why is checkout slow?",
-      agent: "sonnet",
+      on: { model: "claude:sonnet" },
     });
     expect(startOn.get()).toEqual({});
     expect(shownAgents.get()).toEqual({ NOTE: "a2" });
   });
 
-  it("+ drops the choice: the empty agent panel starts on the agent Noyan uses again", () => {
-    pickStartOn("NOTE", "sonnet", "noyan");
+  it("+ drops the choice: the empty agent panel starts on Noyan's setting again", () => {
+    pickStartOn("NOTE", { model: "claude:sonnet" });
     selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
     newProjectAgent();
     expect(startOn.get()).toEqual({});
@@ -893,15 +892,9 @@ describe("a tool problem's notice (M23)", () => {
           ...CODEX_OUT,
           role: "project_agent",
           heading: "Model unavailable",
-          text: "Codex no longer lists gpt-5.4, the model of Old GPT.",
+          text: "Codex no longer lists gpt-5.4, the model Noyan starts on.",
           model: "gpt-5.4",
-          buttons: [
-            {
-              label: "Change agent",
-              action: { kind: "agent_settings", project: "NOTE", agent: "old-gpt" },
-              primary: true,
-            },
-          ],
+          buttons: [{ label: "Show in Agent tools", action: { kind: "show_in_agent_tools" }, primary: true }],
         },
       },
     });

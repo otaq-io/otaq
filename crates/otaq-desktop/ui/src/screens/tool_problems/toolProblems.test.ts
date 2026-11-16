@@ -1,5 +1,5 @@
-// Where a tool problem's buttons go (T-0367, T-0411): Open agent… opens Settings →
-// Agents on the agent, Sign in… opens the tool's login in its terminal's dialog, Show in Agent tools opens Settings. Nothing starts
+// Where a tool problem's buttons go (T-0367, T-0411, UX-65): Edit flow… opens the project's flow at the waiting stage,
+// Sign in… opens the tool's login in its terminal's dialog, Show in Agent tools opens Settings. Nothing starts
 // by itself, and no other agent is offered in a waiting one's place (d0018, d0087).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -14,7 +14,7 @@ function runner(answer: unknown = null) {
     request: vi.fn((): Promise<unknown> => Promise.resolve(answer)),
     openSettings: vi.fn(),
     showSignIn: vi.fn(),
-    changeAgent: vi.fn(),
+    editFlow: vi.fn(),
   } satisfies ToolProblemRunner;
 }
 
@@ -27,39 +27,20 @@ const HIDDEN: CalloutView = {
   text: "Nothing started and nothing is locked. Standard starts once Codex is available again.",
   model: null,
   buttons: [
-    { label: "Open agent…", action: { kind: "open_agent", agent: "standard" }, primary: true },
+    { label: "Edit flow…", action: { kind: "edit_flow", stage: "dev" }, primary: true },
     { label: "Show in Agent tools", action: { kind: "show_in_agent_tools" }, primary: false },
   ],
 };
 
-describe("Open agent…", () => {
-  it("opens Settings → Agents on the held agent's page (AGM-03)", () => {
+describe("Edit flow…", () => {
+  it("opens the ticket's project's flow at the waiting stage (UX-65)", () => {
     const run = runner();
-    runToolProblemAction({ kind: "open_agent", agent: "verifier" }, { ticket: "SHOP-30" }, run);
-    expect(run.openSettings).toHaveBeenCalledWith({ section: "agents", agent: "verifier" });
-    runToolProblemAction({ kind: "open_agent", agent: null }, { ticket: "SHOP-40" }, run);
-    expect(run.openSettings).toHaveBeenLastCalledWith({ section: "agents" });
-    expect(run.request).not.toHaveBeenCalled();
-  });
-
-  it("for a held first message opens Settings → Agents of the project (Q-O)", () => {
-    const run = runner();
-    runToolProblemAction(
-      { kind: "agent_settings", project: "SHOP", agent: "old-gpt" },
-      { project: "SHOP" },
-      run,
-    );
-    expect(run.openSettings).toHaveBeenCalledWith({ section: "agents", agent: "old-gpt" });
-  });
-});
-
-describe("Change agent…", () => {
-  it("opens the ticket's Change agent… dialog, and nothing outside a ticket", () => {
-    const run = runner();
-    runToolProblemAction({ kind: "change_agent" }, { ticket: "SHOP-30" }, run);
-    expect(run.changeAgent).toHaveBeenCalledWith("SHOP-30");
-    runToolProblemAction({ kind: "change_agent" }, { project: "SHOP" }, run);
-    expect(run.changeAgent).toHaveBeenCalledTimes(1);
+    runToolProblemAction({ kind: "edit_flow", stage: "validate" }, { ticket: "SHOP-30" }, run);
+    expect(run.editFlow).toHaveBeenCalledWith({ project: "SHOP", select: "validate" });
+    runToolProblemAction({ kind: "edit_flow", stage: null }, { project: "NOTE" }, run);
+    expect(run.editFlow).toHaveBeenLastCalledWith({ project: "NOTE" });
+    runToolProblemAction({ kind: "edit_flow", stage: null }, {}, run);
+    expect(run.editFlow).toHaveBeenCalledTimes(2);
     expect(run.request).not.toHaveBeenCalled();
   });
 });
@@ -101,7 +82,7 @@ describe("the callout", () => {
       createElement(ToolProblemCallout, { callout: HIDDEN, look: "edge", onAction: () => undefined }),
     );
     expect(html).toContain('data-tone="amber"');
-    for (const text of ["hidden in Settings", "Open agent…", "Show in Agent tools"]) {
+    for (const text of ["hidden in Settings", "Edit flow…", "Show in Agent tools"]) {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("attn");

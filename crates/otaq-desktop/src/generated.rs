@@ -31,6 +31,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::events::PageEvent::export_all(&cfg)?;
     crate::api::RequestError::export_all(&cfg)?;
     otaq_view::icons::IconName::export_all(&cfg)?;
+    // The model picker (kept for Edit flow's Who does it, UX-65): the dropdown and the picker's view.
+    otaq_view::view_models::agents::ModelDropdown::export_all(&cfg)?;
+    otaq_view::view_models::model_picker::Picker::export_all(&cfg)?;
     crate::api::ThemeParams::export_all(&cfg)?;
     crate::api::ActiveTheme::export_all(&cfg)?;
     crate::window::Chrome::export_all(&cfg)?;

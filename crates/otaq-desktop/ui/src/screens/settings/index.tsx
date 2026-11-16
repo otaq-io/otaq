@@ -8,7 +8,6 @@ import { openOverlay } from "../../app/overlays";
 import type { OverlayProps, Screen } from "../../app/registry";
 import type { GlobalSection } from "../../app/registry";
 import { AboutSection } from "./About";
-import { AgentsSection } from "./Agents";
 import { AgentToolsSection, SignInDialog } from "./AgentTools";
 import { GitSection } from "./Git";
 import { KeyboardSection } from "./Keyboard";
@@ -20,7 +19,6 @@ import "./settings.css";
 /** The sections this screen draws (all of them since T-0343 added Agents, from their own requests). */
 export const GLOBAL: readonly GlobalSection[] = [
   "agent_tools",
-  "agents",
   "git",
   "agent_limits",
   "usage",
@@ -34,7 +32,6 @@ export const GLOBAL: readonly GlobalSection[] = [
 /** The sections drawn from their own requests; the rest are rows of the Settings view. */
 const OWN: Partial<Record<GlobalSection, ComponentType>> = {
   about: AboutSection,
-  agents: AgentsSection,
   agent_tools: AgentToolsSection,
   git: GitSection,
   keyboard_shortcuts: KeyboardSection,
