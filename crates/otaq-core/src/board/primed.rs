@@ -74,14 +74,7 @@ impl Board {
         key: &str,
         session: &str,
     ) -> Result<Option<Option<String>>, BoardError> {
-        let waiting: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM pending_deliveries WHERE session_id = ? AND kind = ? LIMIT 1",
-        )
-        .bind(session)
-        .bind(crate::session::deliveries::DeliveryKind::TaskSkill.as_str())
-        .fetch_optional(self.store.pool())
-        .await?;
-        if waiting.is_none() {
+        if !self.task_skill_queued(session).await? {
             return Ok(None);
         }
         let ticket = self.ticket(key).await?;
@@ -93,6 +86,20 @@ impl Board {
             .and_then(|stage| crate::skills::task_skill(stage.skill.as_deref()))
             .map(str::to_owned);
         Ok(Some(named))
+    }
+
+    /// Whether a stage's task skill still waits to be typed into `session` (a [`DeliveryKind::TaskSkill`] delivery).
+    ///
+    /// [`DeliveryKind::TaskSkill`]: crate::session::deliveries::DeliveryKind::TaskSkill
+    pub async fn task_skill_queued(&self, session: &str) -> Result<bool, BoardError> {
+        let waiting: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM pending_deliveries WHERE session_id = ? AND kind = ? LIMIT 1",
+        )
+        .bind(session)
+        .bind(crate::session::deliveries::DeliveryKind::TaskSkill.as_str())
+        .fetch_optional(self.store.pool())
+        .await?;
+        Ok(waiting.is_some())
     }
 
     /// The ticket's open run that `session` works in; else the ticket's open run (a session the run hasn't taken).

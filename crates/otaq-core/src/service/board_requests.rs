@@ -936,7 +936,8 @@ pub(super) async fn handle(
                     crate::policy::ONLY_A_VALIDATOR,
                 ));
             };
-            board.refuse_unprimed(&p.key, session).await?;
+            // Its check's task skill typed first (decision 113), then the read gate.
+            refuse_unprimed(shared, board, caller, &p.key).await?;
             let project = project_of(&p.key);
             // The verdict is the checker's comment (CMT-05), refused whole when too long or its report is missing.
             let ticket = board.ticket(&p.key).await?;
@@ -2347,17 +2348,17 @@ async fn record_prime(board: &Board, caller: &Caller, ticket_id: &str) -> Result
     }
 }
 
-/// The gates on an agent's `stage next` / `stage done`: its stage's task skill typed first (tuq decision 081: an
-/// agent that ends its stage in `work-ticket`'s first turn would never run it; it is told to end its turn), then the
-/// read gate (CMT-08). The user's own moves (a terminal of theirs, a drag, Move…, Skip) aren't gated, nor a checker's,
-/// a helper's or a Project agent's.
+/// The gates on an agent's `stage next` / `stage done` and a checker's verdict: its stage's task skill typed first
+/// (tuq decision 081, 113: an agent that ends its stage in `work-ticket`'s first turn, or a checker that gives its
+/// verdict in `check-ticket`'s, would never run it; it is told to end its turn), then the read gate (CMT-08). The
+/// user's own moves (a terminal of theirs, a drag, Move…, Skip) aren't gated, nor a helper's or a Project agent's.
 async fn refuse_unprimed(
     shared: &Shared,
     board: &Board,
     caller: &Caller,
     key: &str,
 ) -> Result<(), BoardError> {
-    let Caller::Agent { session, .. } = caller else {
+    let (Caller::Agent { session, .. } | Caller::Validator { session, .. }) = caller else {
         return Ok(());
     };
     if let Some(named) = board.task_skill_waiting(key, session).await? {

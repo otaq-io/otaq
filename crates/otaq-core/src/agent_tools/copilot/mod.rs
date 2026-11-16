@@ -217,12 +217,25 @@ impl AgentTool for Copilot {
         launch::can_resume(&self.context, tool_id, cwd)
     }
 
+    /// Copilot refuses a bad argument before it makes `session-state/<id>/` (F-E2-1).
+    fn checks_new_conversation(&self) -> bool {
+        true
+    }
+
     fn conversation_not_found(&self, output: &[u8]) -> bool {
         launch::conversation_not_found(output)
     }
 
+    fn resume_note(&self, model: Option<&str>) -> Option<String> {
+        launch::resume_note(model)
+    }
+
     fn resume_hint(&self, tool_id: &str) -> String {
         launch::resume_hint(tool_id)
+    }
+
+    fn drop_retired_models(&self, list: &mut ModelList) {
+        models::drop_retired(list);
     }
 
     fn list_models(&self) -> BoxFuture<'_, Result<ModelList, ModelListError>> {

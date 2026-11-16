@@ -71,6 +71,10 @@ const SHIPPED_TEXTS: &[(&str, &str)] = &[
         include_str!("../../../../plugin/skills/skills/answer-question/SKILL.md"),
     ),
     (
+        "check-ticket",
+        include_str!("../../../../plugin/skills/skills/check-ticket/SKILL.md"),
+    ),
+    (
         "commit",
         include_str!("../../../../plugin/skills/skills/commit/SKILL.md"),
     ),

@@ -458,17 +458,7 @@ impl Starter {
         let now = now_ms();
         let actor = Actor::Agent(ticket.key.clone());
         // Not started: waiting again before the Agent stage it was starting (waiting to begin, before the first).
-        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-        let skips = board.ticket_skips(&ticket, &flow).await?;
-        let waits_before = ticket
-            .place
-            .stage()
-            .filter(|id| {
-                first_stage(&flow, &skips)
-                    .1
-                    .is_none_or(|first| first.id != *id)
-            })
-            .map(str::to_owned);
+        let waits_before = waits_before(board, &ticket).await?;
         let mut tx = board.store().begin_write().await?;
         end_open(&mut tx, &ticket.id, RunResult::Cancelled, None).await?;
         sqlx::query(concat!(
@@ -1200,6 +1190,13 @@ impl Starter {
         start: Start,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
+        // A resume on a model its tool no longer runs goes on another one, said in History (decision 117).
+        let resumed_note = resume.as_ref().and_then(|_| {
+            inner
+                .adapters
+                .of_session(runs_on.tool)
+                .resume_note(runs_on.model.as_deref())
+        });
         // Otaq writes no skill into the worktree: the tool loads Otaq's own from its plugin and the user's itself (T2).
         let launched = inner
             .adapters
@@ -1246,6 +1243,15 @@ impl Starter {
             })
             .await
             .map_err(|e| StartError::Other(e.to_string()))?;
+        if let Some(message) = resumed_note {
+            self.note(
+                ticket,
+                &Actor::current_user(),
+                "resumed_on_another_model",
+                json!({ "message": message }),
+            )
+            .await;
+        }
         Ok(session)
     }
 
@@ -1597,6 +1603,22 @@ impl Returning {
             parked: row.parked,
         }))
     }
+}
+
+/// Where a ticket whose Agent stage didn't start waits again (Start failed): before the stage it was starting, or
+/// waiting to begin (no stage) when that is the flow's first stage, as [`Starter::model_refused`] places it.
+pub async fn waits_before(board: &Board, ticket: &Ticket) -> Result<Option<String>, BoardError> {
+    let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+    let skips = board.ticket_skips(ticket, &flow).await?;
+    Ok(ticket
+        .place
+        .stage()
+        .filter(|id| {
+            first_stage(&flow, &skips)
+                .1
+                .is_none_or(|first| first.id != *id)
+        })
+        .map(str::to_owned))
 }
 
 /// The ticket's live agent session when it is the Agent stage `stage`'s own ([`crate::session::own_stage`]; one that

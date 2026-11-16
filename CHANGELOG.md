@@ -3,6 +3,18 @@
 What changed for you in each release. The maintainer copies a version's section into its GitHub release notes
 before Publish (`scripts/README.md`, "Making a release").
 
+## Unreleased
+
+- **GitHub Copilot removed its "Auto · efficiency" profile** (Copilot CLI 1.0.112 refuses it), so Otaq no longer
+  offers it: Copilot's Auto is balance or intelligence. An agent saved on efficiency shows "no longer listed" and
+  its new starts, Start from scratch included, wait "Model unavailable" until you pick another model for it. A
+  ticket whose conversation ran on efficiency resumes on Auto · balance, keeping its conversation, and its History
+  says so.
+- **A check judges only what changed since you approved.** Once you pass a ticket at a review step (Spec review,
+  Review, any stage that waits for you), a later check (Validate, Code review, your own check) judges only the
+  changes made after that approval; what you approved stays readable as context and is never failed as out of scope.
+  With no approval yet, a check judges the whole branch as before.
+
 ## 0.2.0
 
 - **A shorter first run.** It is Welcome (your board's columns are your process, in one picture) → Tools (the agent

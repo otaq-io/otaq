@@ -253,3 +253,98 @@ async fn a_ticket_dragged_back_from_parked_carries_on_on_each_tool() {
     }
     w.stop().await;
 }
+
+/// Decision 117, Copilot's removed "Auto · efficiency": a conversation that ran on it resumes on balance, with a
+/// History note; Start from scratch (a new conversation) on the agent still saved on it is held "Model unavailable",
+/// even when the only copy of Copilot's list is one an earlier Otaq stored (it still has efficiency) and the list
+/// wasn't read since (offline).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copilot_conversation_on_efficiency_resumes_on_balance_and_a_new_one_is_held() {
+    use otaq_core::agent_tools::models::{ModelEntry, ModelKind, ModelList};
+    use otaq_core::board::tickets::EventKind;
+    use otaq_core::domain::StartStep;
+
+    let dir = TempDir::new().unwrap();
+    let (w, launch) = world(&dir).await;
+    // An agent saved on efficiency, started before Copilot's list was ever read (as an earlier Otaq did).
+    w.set_agent_model(
+        "Developer",
+        AgentModel::Tool {
+            tool: Tool::Copilot,
+            model: Some("auto@efficiency".into()),
+        },
+    )
+    .await;
+    let t = w.create("SHOP", "Login redirect").await;
+    let key = t.key.to_string();
+    w.board
+        .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter.start(&key, &me(), Start::Auto).await.unwrap();
+    let first = running(&w, &t).await;
+    let a = args(&w, &first).await;
+    assert!(a.contains("--model auto --auto-tier efficiency"), "{a}");
+    let conversation = first.tool_session_id.clone().unwrap();
+    // The copy an earlier Otaq stored: its three tiers.
+    let tier = |id: &str| ModelEntry {
+        id: id.into(),
+        display_name: id.into(),
+        description: None,
+        resolves_to: None,
+        kind: ModelKind::Follow,
+        family: None,
+        released_at: None,
+    };
+    let stale = ModelList {
+        entries: vec![
+            tier("auto@efficiency"),
+            tier("auto@balance"),
+            tier("auto@intelligence"),
+        ],
+    };
+    w.models
+        .record(Tool::Copilot, Ok(stale), otaq_core::store::now_ms())
+        .await;
+
+    let w = w.restart_with(with(&launch)).await;
+    assert_eq!(w.status(&key).await, Status::Interrupted);
+    let copy = w.models.copy(Tool::Copilot).expect("the stored copy");
+    assert!(!copy.list.contains("auto@efficiency"), "{copy:?}");
+
+    // Resume: the same conversation, on balance, said in History.
+    w.review.resume(&key, &me()).await.unwrap();
+    let resumed = running(&w, &t).await;
+    let a = args(&w, &resumed).await;
+    assert!(a.contains(&format!("--resume {conversation}")), "{a}");
+    assert!(a.contains("--model auto --auto-tier balance"), "{a}");
+    assert!(!a.contains("efficiency"), "{a}");
+    let history = w.board.history(&key).await.unwrap();
+    let note = history
+        .iter()
+        .find(|e| e.kind == EventKind::StartNote && e.payload["note"] == "resumed_on_another_model")
+        .expect("a History note");
+    assert_eq!(
+        note.payload["message"],
+        "GitHub Copilot no longer runs Auto \u{b7} efficiency: the conversation resumed on Auto \u{b7} balance"
+    );
+
+    // Start from scratch is a new conversation on the agent's saved model: held, nothing launched.
+    w.sessions.stop(&resumed.id).await.unwrap();
+    w.force_status(&t, Status::ResumeFailed).await;
+    w.review
+        .start_from_scratch(&key, true, &me())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while w.status(&key).await != Status::Held {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("held");
+    let problem = w.board.ticket(&key).await.unwrap().start_problem.unwrap();
+    assert_eq!(problem.step, StartStep::ModelUnavailable);
+    assert!(w.sessions.running_of(&t.id, SessionKind::Agent).is_none());
+    w.stop().await;
+}

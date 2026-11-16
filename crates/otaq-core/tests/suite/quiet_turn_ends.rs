@@ -1446,3 +1446,114 @@ async fn feedback_being_typed_is_no_needs_you() {
     until(&w, "Needs you", (Status::NeedsYou, None)).await;
     w.stop().await;
 }
+
+/// Copilot idle in a terminal that has lost focus (`ESC[O`): its screen as before, then the frame it draws on
+/// focus-out, its logo redrawn with the cursor hidden and left there
+/// (`tests/fixtures/input-line/copilot-idle-unfocused.bin`).
+fn unfocused(above: &str) -> String {
+    format!(
+        "{}\x1b[?25l\x1b[2;60H\u{2588} \u{2598}\u{259d} \u{2588}",
+        idle(above)
+    )
+}
+
+/// The release run's case (F-E2-2): the user clicked into an idle Copilot's terminal and out again. Its screen is no
+/// dialog: Deliver now and an answer are typed, not held over "Choose one of the options in its terminal".
+#[tokio::test(flavor = "multi_thread")]
+async fn an_idle_copilot_in_an_unfocused_terminal_takes_clicks() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    event(&w, &agent, Tool::Copilot, new_turn()).await;
+    w.deliveries
+        .queue_task_skill(&session, "/tuq:tuq-tech-spec")
+        .await
+        .unwrap();
+    draw(&w, &session, &unfocused("Done")).await;
+    assert!(!w.sessions.shows_dialog(&session));
+    assert_eq!(w.sessions.dialog_prompt(&session), None);
+    assert_eq!(
+        w.deliveries.deliver_now(&session).await.unwrap(),
+        Delivery::Sent { count: 1 }
+    );
+    w.wait_for_output(&session, "/tuq:tuq-tech-spec").await;
+    draw(&w, &session, &unfocused("Done")).await;
+    assert_eq!(
+        w.deliveries
+            .deliver_from_click(&session, "beta")
+            .await
+            .unwrap(),
+        Delivery::Sent { count: 1 }
+    );
+    w.wait_for_output(&session, "beta").await;
+    w.stop().await;
+}
+
+/// A message waiting for the turn's end reaches an idle Copilot whose terminal isn't focused: typed at once, with no
+/// wait behind a dialog.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_delivery_reaches_an_idle_copilot_in_an_unfocused_terminal() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    event(&w, &agent, Tool::Copilot, new_turn()).await;
+    draw(&w, &session, &unfocused("Done")).await;
+    event(&w, &agent, Tool::Copilot, quiet_end()).await;
+    w.deliveries
+        .queue_task_skill(&session, "/tuq:tuq-tech-spec")
+        .await
+        .unwrap();
+    assert!(!w.deliveries.waits_behind_dialog(&session));
+    w.wait_for_output(&session, "/tuq:tuq-tech-spec").await;
+    nothing_waits(&w, &session).await;
+    w.stop().await;
+}
+
+/// Esc at Copilot's prompt, then the user leaves its terminal before the answer wait is over: no Needs you is made
+/// up from the idle screen ("Choose one of the options in its terminal"). The turn end then waits for Copilot's own
+/// signal or for focus to come back (with the cursor hidden its input line can't be read).
+#[tokio::test(flavor = "multi_thread")]
+async fn no_needs_you_when_the_user_leaves_copilots_terminal_after_answering() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    needs_you(&w, &agent, Tool::Copilot).await;
+    draw(&w, &session, PROMPT).await;
+    key(&client, &agent, b"\x1b").await;
+    draw(&w, &session, &unfocused("Cancelled")).await;
+    tokio::time::sleep(SCREEN_TIMING.answer_wait * 3).await;
+    assert_ne!(card(&w).await.0, Status::NeedsYou);
+    assert_eq!(w.signals.open_prompt(&session), None);
+    w.stop().await;
+}
+
+/// A dialog on screen with nothing waiting: a look (what a hook's turn end does) is no reason to keep looking. The
+/// recheck stops after its first round instead of starting itself again every half second.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dialog_with_nothing_waiting_isnt_looked_at_again_and_again() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    event(&w, &agent, Tool::Copilot, new_turn()).await;
+    draw(&w, &session, PROMPT).await;
+    event(&w, &agent, Tool::Copilot, quiet_end()).await;
+    assert!(w.deliveries.pending(&session).await.unwrap().is_empty());
+    w.deliveries.deliver_if_ready(&session).await.unwrap();
+    // The recheck is every 500 ms: a few rounds' time later it has stopped, and stays stopped.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    for _ in 0..10 {
+        assert!(!w.deliveries.waits_behind_dialog(&session), "still looking");
+        tokio::time::sleep(Duration::from_millis(60)).await;
+    }
+    // Something queued later still waits behind the dialog, and goes once it has left.
+    w.deliveries
+        .queue_task_skill(&session, "/tuq:tuq-tech-spec")
+        .await
+        .unwrap();
+    assert!(w.deliveries.waits_behind_dialog(&session));
+    draw(&w, &session, &idle("Done")).await;
+    w.wait_for_output(&session, "/tuq:tuq-tech-spec").await;
+    nothing_waits(&w, &session).await;
+    w.stop().await;
+}

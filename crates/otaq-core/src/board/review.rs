@@ -459,8 +459,9 @@ impl Board {
 
     /// What `head` is compared with: the reviewed head, or, when target commits were merged into the branch after
     /// the review, the tree of the reviewed head with those same commits merged in (and the newest of them). A merge
-    /// that wouldn't be clean compares with the reviewed head as it is.
-    async fn reviewed_with_target(
+    /// that wouldn't be clean compares with the reviewed head as it is. A check's scope after an approval starts here
+    /// too (tuq decision 116), with the approved commit as `reviewed` and the ticket's base branch as `target`.
+    pub(crate) async fn reviewed_with_target(
         &self,
         repo: &Path,
         reviewed: &str,
@@ -515,6 +516,9 @@ impl Board {
     ///   the reviewed head stays, and [`Board::approve_check`] leaves out what the merge brought in;
     /// - otherwise (the same commits rewritten one for one): the commit as many first-parent commits below the new
     ///   head as were added after the review.
+    ///
+    /// The commit the user last approved at (tuq decision 116) follows the same way, so a later check still judges
+    /// only what changed since the approval.
     pub async fn record_otaq_update(
         &self,
         ticket_id: &str,
@@ -527,9 +531,14 @@ impl Board {
         let Some(row) = self.store.ticket(ticket_id).await? else {
             return Ok(());
         };
-        let Some(reviewed) = row.review_head_sha else {
+        let approved: Option<String> =
+            sqlx::query_scalar("SELECT approved_sha FROM tickets WHERE id = ?")
+                .bind(ticket_id)
+                .fetch_one(self.store.pool())
+                .await?;
+        if row.review_head_sha.is_none() && approved.is_none() {
             return Ok(());
-        };
+        }
         let project_key: String = sqlx::query_scalar(
             "SELECT p.key FROM projects p JOIN tickets t ON t.project_id = p.id WHERE t.id = ?",
         )
@@ -539,35 +548,61 @@ impl Board {
         let project = self.project(&project_key).await?;
         let repo = Path::new(&project.repo_path);
         let git = self.git()?;
-        let moved_to = if reviewed == old_head {
-            new_head.to_owned()
-        } else {
-            let parents = git
-                .run(repo, &["rev-list", "--parents", "-n", "1", new_head])
+        if let Some(reviewed) = row.review_head_sha
+            && let Some(moved_to) = followed(git, repo, &reviewed, old_head, new_head).await?
+        {
+            sqlx::query("UPDATE tickets SET review_head_sha = ? WHERE id = ?")
+                .bind(moved_to)
+                .bind(ticket_id)
+                .execute(self.store.pool())
                 .await?;
-            let parents: Vec<&str> = parents.split_whitespace().skip(1).collect();
-            if parents.len() > 1 && parents[0] == old_head {
-                return Ok(());
-            }
-            let range = format!("{reviewed}..{old_head}");
-            let added: u32 = match git
-                .run(repo, &["rev-list", "--first-parent", "--count", &range])
-                .await
-            {
-                Ok(n) => n.trim().parse().unwrap_or(0),
-                // The reviewed head isn't on the branch any more: leave it, the check reports the change.
-                Err(_) => return Ok(()),
-            };
-            git.run(repo, &["rev-parse", &format!("{new_head}~{added}")])
-                .await?
-                .trim()
-                .to_owned()
-        };
-        sqlx::query("UPDATE tickets SET review_head_sha = ? WHERE id = ?")
-            .bind(moved_to)
-            .bind(ticket_id)
-            .execute(self.store.pool())
-            .await?;
+        }
+        if let Some(approved) = approved
+            && let Some(moved_to) = followed(git, repo, &approved, old_head, new_head).await?
+        {
+            sqlx::query("UPDATE tickets SET approved_sha = ? WHERE id = ? AND approved_sha = ?")
+                .bind(moved_to)
+                .bind(ticket_id)
+                .bind(&approved)
+                .execute(self.store.pool())
+                .await?;
+        }
         Ok(())
     }
+}
+
+/// Where `seen` (a commit the user looked at on the branch: the reviewed head, the approved one) went when Otaq moved
+/// the branch from `old_head` to `new_head` ([`Board::record_otaq_update`]); `None` when it stays as it is.
+async fn followed(
+    git: &crate::git::Git,
+    repo: &Path,
+    seen: &str,
+    old_head: &str,
+    new_head: &str,
+) -> Result<Option<String>, BoardError> {
+    if seen == old_head {
+        return Ok(Some(new_head.to_owned()));
+    }
+    let parents = git
+        .run(repo, &["rev-list", "--parents", "-n", "1", new_head])
+        .await?;
+    let parents: Vec<&str> = parents.split_whitespace().skip(1).collect();
+    if parents.len() > 1 && parents[0] == old_head {
+        return Ok(None);
+    }
+    let range = format!("{seen}..{old_head}");
+    let added: u32 = match git
+        .run(repo, &["rev-list", "--first-parent", "--count", &range])
+        .await
+    {
+        Ok(n) => n.trim().parse().unwrap_or(0),
+        // The commit isn't on the branch any more: leave it, its readers notice.
+        Err(_) => return Ok(None),
+    };
+    Ok(Some(
+        git.run(repo, &["rev-parse", &format!("{new_head}~{added}")])
+            .await?
+            .trim()
+            .to_owned(),
+    ))
 }

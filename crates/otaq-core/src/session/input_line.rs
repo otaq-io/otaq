@@ -29,7 +29,9 @@
 //! so (Copilot's, after "No, and tell Copilot…"), or never say it. A dialog is one of
 //!
 //! - a hidden cursor (Codex's "Would you like to run the following command?", Copilot's permission prompt, folder
-//!   trust and `/model` picker, captured on Copilot 1.0.112);
+//!   trust and `/model` picker, captured on Copilot 1.0.112), unless the screen draws the tool's own input row and
+//!   neither a numbered menu below it nor a picker's keys: Copilot hides its cursor whenever its terminal loses
+//!   focus, idle or not, and draws its prompts the same either way (`hidden_cursor_dialog`);
 //! - the cursor on a menu's pointed option, with another option next to it (Copilot's `│ ❯ 2. No, and tell Copilot
 //!   what to do differently`, which becomes a text field for the user's feedback);
 //! - with no input line under the cursor, a numbered menu inside a box (`│ ❯ 1. Yes`) among the screen's last rows.
@@ -136,7 +138,11 @@ pub fn read_all(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> Rea
             .then(|| boxed_menu(&texts, &options, menu_next_to))
             .flatten()
     });
-    let dialog = screen.hide_cursor() || pointed.is_some();
+    let dialog = if screen.hide_cursor() {
+        hidden_cursor_dialog(&texts, &options, menu_next_to)
+    } else {
+        pointed.is_some()
+    };
     let field = in_field.is_some();
     let question = dialog
         .then(|| {
@@ -156,6 +162,88 @@ pub fn read_all(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> Rea
         question,
         busy,
     }
+}
+
+/// Whether a screen with the cursor hidden shows a dialog of the tool's own. There is no row under the cursor to go
+/// by: Copilot hides it whenever its terminal loses focus (`ESC[O`, which Otaq's terminal passes on) and leaves it
+/// wherever it last drew, over its idle input line too. So the drawn text decides, among the screen's last
+/// [`DIALOG_ROWS`] non-empty rows:
+///
+/// 1. a pointed numbered option with another option next to it and no input row below it is a dialog (Copilot's
+///    permission prompt and folder trust, Codex's command question), focused or not;
+/// 2. a picker's keys below the input row (`enter to select`, `Esc to cancel`, `⇆ select  enter confirm`) are a
+///    dialog (Copilot's `/model`, Claude Code's `/resume`, OpenCode's permission prompt);
+/// 3. otherwise the tool's input row ([`input_row`]) is no dialog: the tool is idle, or holds a draft, in a terminal
+///    that isn't focused;
+/// 4. anything else is a dialog, as a hidden cursor always was.
+fn hidden_cursor_dialog(
+    texts: &[String],
+    options: &[Option<MenuOption>],
+    menu_next_to: impl Fn(usize) -> bool,
+) -> bool {
+    let shown: Vec<usize> = (0..texts.len())
+        .filter(|&i| !texts[i].trim().is_empty())
+        .collect();
+    let last = &shown[shown.len().saturating_sub(DIALOG_ROWS)..];
+    let input = input_row(texts, last);
+    let menu = last
+        .iter()
+        .rev()
+        .copied()
+        .find(|&i| options[i].is_some_and(|o| o.pointed) && menu_next_to(i));
+    if menu.is_some_and(|m| input.is_none_or(|i| i < m)) {
+        return true;
+    }
+    match input {
+        Some(i) => texts[i + 1..].iter().any(|r| picker_keys(r)),
+        None => true,
+    }
+}
+
+/// The tool's input row among `rows` (the screen's last non-empty ones), with the cursor hidden: the lowest row that
+/// starts with an input marker (`┃`, `❯`, `›`, `>`) in its first two columns and isn't a menu's numbered option, if
+/// that row is no item of a list (a row under it starts where its text does: Claude Code's `> No, exit` over `Yes, I
+/// trust this folder`) and no row below it starts with a pointer (Claude Code's `/resume` list under its `> /resume`).
+/// The column limit leaves out Copilot's transcript scrollbar (a `┃` at its last column, a row of its own where the
+/// transcript is empty) and OpenCode's bars (`┃` further in); the marker list leaves out a box's corners.
+fn input_row(texts: &[String], rows: &[usize]) -> Option<usize> {
+    let lead = |row: &str| row.chars().take_while(|c| c.is_whitespace()).count();
+    let at = rows.iter().rev().copied().find(|&i| {
+        let row = &texts[i];
+        lead(row) <= 1
+            && row.trim_start().starts_with(['┃', '❯', '›', '>'])
+            && menu_option(row).is_none()
+    })?;
+    let row = &texts[at];
+    let after = row.trim_start().chars().skip(1).collect::<String>();
+    let text_at = lead(row) + 1 + lead(&after);
+    let listed = !after.trim().is_empty()
+        && texts
+            .get(at + 1)
+            .is_some_and(|next| !next.trim().is_empty() && lead(next) == text_at);
+    let pointer_below = texts[at + 1..].iter().any(|r| {
+        r.trim_start_matches(|c: char| c.is_whitespace() || "│┃║".contains(c))
+            .starts_with(['❯', '›', '>', '▶', '►', '➤'])
+    });
+    (!listed && !pointer_below).then_some(at)
+}
+
+/// Whether the row tells a picker's keys: `↑/↓ to navigate · enter to select · esc to cancel` (Copilot), `Enter to
+/// confirm · Esc to cancel` (Claude Code), `⇆ select  enter confirm` (OpenCode). An input line's footer tells none
+/// (`← open sidebar · Interactive · …`, `shift+tab to cycle`, `esc to interrupt`).
+fn picker_keys(row: &str) -> bool {
+    let row = row.to_lowercase();
+    [
+        "to select",
+        "to confirm",
+        "to cancel",
+        "to navigate",
+        "enter select",
+        "enter confirm",
+        "\u{21c6} select",
+    ]
+    .iter()
+    .any(|keys| row.contains(keys))
 }
 
 /// How many rows a boxed menu's pointed option may run over (its text field wrapping the user's feedback).
@@ -706,6 +794,114 @@ mod tests {
         assert!(!reading(list).dialog);
         // A user's own draft that starts like an option, alone on the input line.
         assert!(!reading("\x1b[9;1H\u{276f} 1. Read the spec").dialog);
+    }
+
+    /// Copilot 1.0.112 hides its cursor when its terminal loses focus (`ESC[O`) and leaves it on its logo or at the
+    /// screen's end, its idle input line still drawn: no dialog, in its fresh layout (`❯` between two rules) and in
+    /// its `┃` layout (replayed through `otaq attach`). Focus back (`ESC[I`) shows the cursor on the line again.
+    #[test]
+    fn copilots_idle_screen_in_an_unfocused_terminal_is_no_dialog() {
+        for name in ["copilot-idle-unfocused", "copilot-idle-unfocused-attach"] {
+            assert_eq!(
+                reading_of(name),
+                (InputLine::Unknown, false, false),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            reading_of("copilot-idle-refocused"),
+            (InputLine::Blank, false, false)
+        );
+    }
+
+    /// Copilot's prompts read as dialogs with its terminal unfocused (cursor hidden, drawn as when focused): its
+    /// permission prompt, raw and replayed through `otaq attach`, its folder trust, its `/model` picker (no numbers),
+    /// and "No, and tell Copilot…" once focus leaves its field.
+    #[test]
+    fn copilots_prompt_in_an_unfocused_terminal_is_still_a_dialog() {
+        for name in [
+            "copilot-approval-unfocused",
+            "copilot-approval-unfocused-attach",
+        ] {
+            let r = read_all(&capture(name), SIZE, DARK);
+            assert!(r.dialog, "{name}: {r:?}");
+            assert_eq!(
+                r.question.as_deref(),
+                Some("Do you want to run this command?"),
+                "{name}"
+            );
+        }
+        let trust = read_all(&capture("copilot-trust"), SIZE, DARK);
+        assert!(trust.dialog, "{trust:?}");
+        assert_eq!(
+            trust.question.as_deref(),
+            Some("Do you trust the files in this folder?")
+        );
+        assert!(reading_of("copilot-model-unfocused").1);
+        let mut no = capture("copilot-approval-no");
+        no.extend_from_slice(b"\x1b[?25l");
+        assert!(read_all(&no, SIZE, DARK).dialog);
+    }
+
+    /// The other tools' pickers and prompts with the cursor hidden, their terminal unfocused: Claude Code's folder
+    /// trust (`> No, exit` over `Yes, I trust this folder`, no numbers) and `/resume` (its list under the `> /resume`
+    /// echo), OpenCode's permission prompt (`Allow once   Allow always   Reject` buttons inside its `┃` bar).
+    #[test]
+    fn other_tools_pickers_in_an_unfocused_terminal_are_dialogs() {
+        for name in [
+            "claude-trust-unfocused",
+            "claude-resume-unfocused",
+            "opencode-permission-unfocused",
+        ] {
+            assert_eq!(
+                reading_of(name),
+                (InputLine::Unknown, true, false),
+                "{name}"
+            );
+        }
+    }
+
+    /// With the cursor hidden (a terminal that isn't focused), the input row decides: a numbered echo or a draft over
+    /// it isn't a dialog; a menu with no input row below it, an unnumbered list, or a picker's keys are.
+    #[test]
+    fn a_hidden_cursor_over_the_input_row_is_no_dialog() {
+        const HIDE: &str = "\x1b[?25l";
+        let echo = "\x1b[6;3H\u{276f} 1. Fix the coupon field\x1b[7;5H2. Fix the gift card total\x1b[9;1H\u{2503} ";
+        let boxed =
+            "\x1b[6;1H\u{2502} \u{276f} 1. Fix it\x1b[7;1H\u{2502}   2. Test it\x1b[9;1H\u{2503} ";
+        let footer = "\x1b[11;2H\u{2190} open sidebar \u{b7} Interactive \u{b7} / commands";
+        for screen in [echo, boxed, "\x1b[9;1H\u{2503} draft text"] {
+            let r = reading(&format!("{screen}{footer}\x1b[2;5H{HIDE}"));
+            assert!(!r.dialog, "{screen:?}: {r:?}");
+            assert_eq!(r.line, InputLine::Unknown);
+        }
+        // A boxed menu with the transcript's scrollbar (`┃` at the last column) beside it.
+        let scrollbar = format!(
+            "\x1b[2;60H\u{2503}\x1b[3;60H\u{2503}\x1b[4;60H\u{2503}\
+             \x1b[6;1H\u{2502} Do you want to run this command?\
+             \x1b[7;1H\u{2502} \u{276f} 1. Yes\x1b[8;1H\u{2502}   2. No\x1b[9;1H\u{2570}\u{2500}\u{2500}{HIDE}"
+        );
+        assert!(reading(&scrollbar).dialog);
+        // An unnumbered list, its pointer on the first item, and the same with a picker's keys under a search field.
+        assert!(
+            reading(&format!(
+                "\x1b[5;2H> Sonnet\x1b[6;4HOpus\x1b[7;4HHaiku{HIDE}"
+            ))
+            .dialog
+        );
+        assert!(
+            reading(&format!(
+                "\x1b[5;2H\u{276f} Fusion\x1b[8;2H\u{276f}  Search models\x1b[10;2H\u{2191}/\u{2193} to navigate \u{b7} enter to select{HIDE}"
+            ))
+            .dialog
+        );
+        // A list under the echo of the command that opened it.
+        assert!(
+            reading(&format!(
+                "\x1b[3;1H> /resume\x1b[7;3H> Fix the build\x1b[8;5H2 days ago{HIDE}"
+            ))
+            .dialog
+        );
     }
 
     /// The footer says it: `◉ Working · …` below the cursor is the tool at work; the same words above it (the

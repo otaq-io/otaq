@@ -113,6 +113,33 @@ pub(crate) struct Moved {
     pub start_check: bool,
     /// It entered an automatic Delivery: it delivers with no click ([`Step::automatic`]).
     pub automatic: bool,
+    /// The move is the user's approval at a human check (tuq decision 116): the ticket's work as it stands is
+    /// approved, and a later agent check judges only what changes after it ([`Board::moved`] sets it).
+    pub approved: Option<Approval>,
+}
+
+/// The user approved the ticket's work at `sha` in the human check `stage_id` (tuq decision 116).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Approval {
+    pub stage_id: String,
+    pub sha: String,
+}
+
+/// The human check whose run a move ends `Passed`: the user's approval of the ticket's work (tuq decision 116), at a
+/// Pass, a Pass into an agent check, a drag that counts as a Pass, or an approval that delivers (merged, PR opened,
+/// merged into another ticket). Every approval step is the same kind of step, so no stage is named; a Fail, Send
+/// back, skip, drag back or past, and an agent check's Pass never end a human check's run `Passed`.
+pub(crate) fn approves<'f>(
+    flow: &'f crate::flow::Flow,
+    from: &Place,
+    ended: Option<RunResult>,
+) -> Option<&'f crate::flow::Stage> {
+    if ended != Some(RunResult::Passed) {
+        return None;
+    }
+    from.stage()
+        .and_then(|id| flow.stage(id))
+        .filter(|s| s.is_human_check())
 }
 
 impl Moved {
@@ -129,11 +156,13 @@ impl Moved {
             choose: step.choose,
             start_check: step.start_check,
             automatic: step.automatic,
+            approved: None,
         }
     }
 
     /// The move's runs, before the move is written in the same transaction: the open run ends as the move says (with
-    /// the hand-over `comment` it ended with), and the stages it walked over get theirs.
+    /// the hand-over `comment` it ended with), and the stages it walked over get theirs. An approval replaces the
+    /// ticket's earlier one (tuq decision 116: the latest counts).
     pub(crate) async fn record(
         &self,
         tx: &mut Transaction<'_, Sqlite>,
@@ -145,6 +174,17 @@ impl Moved {
         }
         for (stage, kind, result) in &self.through {
             record_kind(tx, ticket_id, stage, *kind, *result).await?;
+        }
+        if let Some(approval) = &self.approved {
+            sqlx::query(
+                "UPDATE tickets SET approved_sha = ?, approved_stage_id = ?, approved_at = ? WHERE id = ?",
+            )
+            .bind(&approval.sha)
+            .bind(&approval.stage_id)
+            .bind(now_ms())
+            .bind(ticket_id)
+            .execute(&mut **tx)
+            .await?;
         }
         Ok(())
     }
@@ -177,7 +217,8 @@ pub(crate) async fn record_kind(
 
 impl Board {
     /// Where `mv` takes the ticket in its project's flow (the flow engine's step, STG-06), as if its status were
-    /// `status` (the caller checked the status it accepts). Refused with the engine's reason.
+    /// `status` (the caller checked the status it accepts). Refused with the engine's reason. The user's approval at a
+    /// human check ([`approves`]) carries the commit the ticket's work stands at now.
     pub(crate) async fn moved(
         &self,
         ticket: &Ticket,
@@ -191,9 +232,18 @@ impl Board {
             skips: &skips,
             ..At::new(&flow, &ticket.place, status)
         };
-        engine::step(at, mv)
+        let mut moved = engine::step(at, mv)
             .map(|step| Moved::of(&step))
-            .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))
+            .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
+        if let Some(stage) = approves(&flow, &ticket.place, moved.ended)
+            && let Some(sha) = self.ticket_head(ticket).await?
+        {
+            moved.approved = Some(Approval {
+                stage_id: stage.id.clone(),
+                sha,
+            });
+        }
+        Ok(moved)
     }
 
     /// Every stage run of the ticket, in the order they opened.
@@ -251,5 +301,84 @@ impl Board {
                 },
             )
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flow::Flow;
+    use crate::flow::engine::dragged;
+
+    /// The test flow (Product spec, Dev, Validate, Security, QA by you) with its Delivery in click mode, so QA is the
+    /// last stage, the one whose approval delivers.
+    fn every_kind() -> Flow {
+        let yaml = include_str!("../../tests/flows/every-kind.yaml");
+        let mut flow = crate::flow::yaml::read(yaml).unwrap().flow;
+        flow.delivery.mode = crate::flow::DeliveryMode::Click;
+        flow
+    }
+
+    fn approved_at(flow: &Flow, stage: &str, status: Status, mv: Move) -> Option<String> {
+        let place = Place::stage_of(stage);
+        let step = engine::step(At::new(flow, &place, status), mv).ok()?;
+        approves(flow, &place, step.ended).map(|s| s.id.clone())
+    }
+
+    /// Tuq decision 116: only a human check's run ending Passed is an approval: its Pass and the approvals that
+    /// deliver; never its Fail, an agent check's Pass, an Agent stage's end or a drag.
+    #[test]
+    fn only_a_human_checks_pass_approves() {
+        let flow = every_kind();
+        let qa = Some("qa".to_owned());
+        for mv in [Move::Delivered, Move::PrOpened, Move::MergedInto] {
+            assert_eq!(
+                approved_at(&flow, "qa", Status::WaitingForYou, mv),
+                qa,
+                "{mv:?}"
+            );
+        }
+        assert_eq!(
+            approved_at(&flow, "qa", Status::WaitingForYou, Move::HumanFail),
+            None
+        );
+        // The last stage's Pass only offers the delivery choices: the approval is the delivery's.
+        assert_eq!(
+            approved_at(&flow, "qa", Status::WaitingForYou, Move::HumanPass),
+            None
+        );
+        assert_eq!(
+            approved_at(&flow, "validate", Status::Checking, Move::Pass),
+            None,
+            "an agent check's Pass"
+        );
+        assert_eq!(
+            approved_at(&flow, "dev", Status::Working, Move::NextStage),
+            None
+        );
+
+        // QA in the middle (before Security): its Pass moves on and approves.
+        let mut mid = every_kind();
+        let qa_stage = mid.stages.remove(mid.position("qa").unwrap());
+        let security = mid.position("security").unwrap();
+        mid.stages.insert(security, qa_stage);
+        assert_eq!(
+            approved_at(&mid, "qa", Status::WaitingForYou, Move::HumanPass),
+            qa
+        );
+
+        // A drag on from, or back from, a human check ends its run Skipped or Cancelled.
+        let place = Place::stage_of("qa");
+        for to in ["security", "dev"] {
+            let step = dragged(
+                At::new(&mid, &place, Status::WaitingForYou),
+                mid.stage(to).unwrap(),
+            );
+            assert_eq!(
+                approves(&mid, &place, step.ended).map(|s| s.id.as_str()),
+                None,
+                "{to}"
+            );
+        }
     }
 }

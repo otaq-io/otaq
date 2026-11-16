@@ -494,6 +494,7 @@ pub struct Prepared<'a> {
     project_agent: Option<String>,
     acting_for: Option<ActingFor>,
     id: Option<String>,
+    task_skill: Option<String>,
 }
 
 impl Prepared<'_> {
@@ -518,18 +519,39 @@ impl Prepared<'_> {
         self
     }
 
+    /// The stage's task skill (`text`, as the session's tool types it), waiting for the session from its first
+    /// instant: stored with the session's row, before the program can end a turn (a checker's first turn end with
+    /// nothing waiting ends its check, decision 113). [`deliveries::Deliveries::task_skill_stored`] takes it on once
+    /// the session runs.
+    pub fn with_task_skill(mut self, text: String) -> Self {
+        self.task_skill = Some(text);
+        self
+    }
+
     /// Runs the step, if any, then [`Sessions::spawn`].
     pub async fn spawn(self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
         self.sessions
             .spawn_with(
                 self.step.as_ref(),
-                self.project_agent,
-                self.acting_for,
-                self.id,
+                Ahead {
+                    project_agent: self.project_agent,
+                    acting_for: self.acting_for,
+                    id: self.id,
+                    task_skill: self.task_skill,
+                },
                 spec,
             )
             .await
     }
+}
+
+/// What [`Prepared`] settles for a session before its program starts.
+#[derive(Default)]
+struct Ahead {
+    project_agent: Option<String>,
+    acting_for: Option<ActingFor>,
+    id: Option<String>,
+    task_skill: Option<String>,
 }
 
 /// How long a [`Sessions::prepared`] step may take.
@@ -842,6 +864,7 @@ impl Sessions {
             project_agent: None,
             acting_for: None,
             id: None,
+            task_skill: None,
         }
     }
 
@@ -849,17 +872,21 @@ impl Sessions {
     /// the same ticket is refused, and so is an automatic start ([`Start::Auto`]) in a paused project (the backstop of
     /// PAU-04: its caller keeps the start for Resume).
     pub async fn spawn(&self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
-        self.spawn_with(None, None, None, None, spec).await
+        self.spawn_with(None, Ahead::default(), spec).await
     }
 
     async fn spawn_with(
         &self,
         prepare: Option<&PrepareStep>,
-        project_agent: Option<String>,
-        acting_for: Option<ActingFor>,
-        id: Option<String>,
+        ahead: Ahead,
         spec: SpawnSpec,
     ) -> Result<SessionInfo, SessionError> {
+        let Ahead {
+            project_agent,
+            acting_for,
+            id,
+            task_skill,
+        } = ahead;
         if self.is_closed() {
             return Err(SessionError::Spawn(crate::uninstall::uninstalling_refusal()));
         }
@@ -1017,6 +1044,20 @@ impl Sessions {
             .execute(self.inner.store.pool())
             .await
             .map_err(|e| SessionError::Store(e.into()))?;
+            if let Some(text) = &task_skill {
+                // Removed with the session's row if the program can't start (the row cascades).
+                sqlx::query(
+                    "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at) VALUES (?, ?, ?, ?, ?)",
+                )
+                .bind(crate::store::new_id())
+                .bind(&info.id)
+                .bind(deliveries::DeliveryKind::TaskSkill.as_str())
+                .bind(text)
+                .bind(now_ms())
+                .execute(self.inner.store.pool())
+                .await
+                .map_err(|e| SessionError::Store(e.into()))?;
+            }
         }
         let started = (|| {
             let child = pty

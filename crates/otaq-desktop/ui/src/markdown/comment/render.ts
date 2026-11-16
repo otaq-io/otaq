@@ -167,3 +167,40 @@ export function renderCommentMarkdown(markdown: string, doc: Document): Document
   }
   return fragment;
 }
+
+/**
+ * A line that would start a block (`# …`, `> …`, `1. …`, `---`) with that mark escaped, so it reads as the paragraph
+ * it is; `null` when nothing at its start could.
+ */
+function escapeBlockStart(line: string): string | null {
+  const number = /^\d{1,9}(?=[.)])/.exec(line)?.[0];
+  if (number !== undefined) return `${number}\\${line.slice(number.length)}`;
+  return /^[#>+\-*_=`~|]/.test(line) ? `\\${line}` : null;
+}
+
+/** The inline nodes of `markdown` drawn as one paragraph, or `null` when it draws anything else. */
+function inlineNodes(markdown: string, doc: Document): DocumentFragment | null {
+  const drawn = renderCommentMarkdown(markdown, doc);
+  const only = drawn.childNodes.length === 1 ? drawn.firstChild : null;
+  if (!(only instanceof Element) || only.nodeName !== "P" || only.classList.contains("md-comment-plain"))
+    return null;
+  const fragment = doc.createDocumentFragment();
+  fragment.append(...only.childNodes);
+  return fragment;
+}
+
+/**
+ * One line drawn as inline Markdown (tuq 110), for a text that keeps its own structure around its lines (a validation
+ * report): bold, italic, inline code, struck text and web links, under the comment's rules (HTML is text, web links
+ * only). A line that would read as a block (a heading, a numbered item, a quote) keeps that mark as text; one that still
+ * can't be read as a single paragraph comes back as its plain text.
+ */
+export function renderInlineMarkdown(line: string, doc: Document): DocumentFragment {
+  const text = line.replace(/\s*\n\s*/g, " ").trim();
+  const escaped = escapeBlockStart(text);
+  const drawn = inlineNodes(text, doc) ?? (escaped === null ? null : inlineNodes(escaped, doc));
+  if (drawn !== null) return drawn;
+  const fragment = doc.createDocumentFragment();
+  if (text !== "") fragment.append(doc.createTextNode(text));
+  return fragment;
+}

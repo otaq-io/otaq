@@ -251,6 +251,10 @@ pub struct Detection {
 /// The skill an Agent stage without a skill of its own starts with.
 pub const WORK_TICKET_SKILL: &str = crate::own_skill!("work-ticket");
 
+/// The skill a check stage whose skill isn't Otaq's starts with (decision 113): it gets the context, keeps the checker
+/// read-only and ends with a verdict; the stage's task skill (the user's `team-validate`) is typed after its first turn.
+pub const CHECK_TICKET_SKILL: &str = crate::own_skill!("check-ticket");
+
 /// The skill every Project agent starts with (d0068).
 pub const PROJECT_AGENT_SKILL: &str = crate::own_skill!("noyan");
 
@@ -882,14 +886,34 @@ pub trait AgentTool: Send + Sync {
     /// `session-state/<id>/`. OpenCode: the session in its database (`opencode session list`). May read files.
     fn can_resume(&self, tool_id: &str, cwd: &Path) -> bool;
 
+    /// Whether a new conversation whose tool exited on its own is asked [`Self::can_resume`] for having come to
+    /// exist at all, so an exit before it did is Start failed (F-E2-1): only where the id is chosen up front and the
+    /// answer is a quick file check (Claude Code, Copilot). Codex reports its id after start (an end before it is
+    /// Start failed already); OpenCode makes its conversation before launch, and its check runs `opencode`.
+    fn checks_new_conversation(&self) -> bool {
+        false
+    }
+
     /// Whether a resumed session's terminal output says the tool couldn't find the conversation (REC-03: Resume
     /// failed, never a fallback). Claude Code: `claude --resume <id>` prints "No conversation found with session
     /// ID: …".
     fn conversation_not_found(&self, output: &[u8]) -> bool;
 
+    /// A History note for a resume on `model` (the model the conversation ran on) that runs on another one because
+    /// the tool no longer runs it; `None` for a resume as it ran. Copilot: a conversation on Auto · efficiency,
+    /// removed in Copilot 1.0.112, resumes on Auto · balance (decision 117). The others: never.
+    fn resume_note(&self, _model: Option<&str>) -> Option<String> {
+        None
+    }
+
     /// How the user resumes the conversation by hand, for the recovery texts: "claude --resume 3be94c10",
     /// "codex resume …", "copilot --resume …", "opencode --session …". `tool_id` may be shortened.
     fn resume_hint(&self, tool_id: &str) -> String;
+
+    /// Takes out of a model list stored by an earlier Otaq the entries the tool no longer runs, so the check before a
+    /// launch holds them before the next read (offline too). Copilot: Auto · efficiency (decision 117). The others:
+    /// nothing.
+    fn drop_retired_models(&self, _list: &mut ModelList) {}
 
     /// The models the tool says it can run, read from the tool itself (AGT-02, d0086): the picker offers only
     /// these. Started only by the service ([`models::ModelLists`]), never by a test; makes no model call.

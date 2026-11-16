@@ -547,9 +547,9 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
 }
 
 /// A stage's `skill:` is the only place a skill is picked. The validator of a Validate stage that names no skill of
-/// its own runs Otaq's (`/otaq:validate`); one whose stage names the user's `team-validate` runs it by its own name
-/// (`/team-validate`), which the tool finds itself (here in `~/.claude/skills`). Nothing is written into the
-/// worktree, so the verdict counts (VAL-02, d0063).
+/// its own runs Otaq's (`/otaq:validate`); one whose stage names the user's `team-validate` starts Otaq's
+/// `check-ticket` and then has it typed by its own name (`/team-validate`, decision 113), which the tool finds itself
+/// (here in `~/.claude/skills`). Nothing is written into the worktree, so the verdict counts (VAL-02, d0063).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stage_names_the_users_skill_by_its_own_name() {
@@ -581,7 +581,18 @@ async fn a_stage_names_the_users_skill_by_its_own_name() {
         };
         assert_eq!(typed, claude_skill(named.unwrap_or("otaq:validate")));
         let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-        assert!(args.ends_with(&typed), "{args}");
+        // The user's skill is the check's task skill, typed after Otaq's `check-ticket` (decision 113); Otaq's
+        // `validate` starts alone.
+        let first = match named {
+            Some(_) => claude_skill(otaq_core::agent_tools::CHECK_TICKET_SKILL),
+            None => typed.clone(),
+        };
+        assert!(args.ends_with(&first), "{args}");
+        let waiting: Vec<String> = named.map(|_| typed.clone()).into_iter().collect();
+        assert_eq!(
+            crate::common::waiting_texts(&w.deliveries, &validator.id).await,
+            waiting
+        );
         assert!(out.contains("AGENTS ."), "{out}");
         nothing_written(&worktree);
         let after = w
@@ -813,7 +824,7 @@ async fn needs_you_line(w: &TestService, t: &Ticket) -> Option<String> {
 /// the skill only in `~/.claude/skills` (Claude Code's, not Codex's), doesn't start. Its hold says why, the ticket waits
 /// in Needs you with "Codex doesn't have the skill `$team-validate`", and nothing is typed into any session. Check
 /// again before the skill reaches Codex keeps it held; once it is linked into `~/.codex/skills`, Check again starts
-/// the check on Codex with the skill by its own name.
+/// the check on Codex, its skill waiting to be typed by its own name after Otaq's `check-ticket`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_check_whose_tool_lacks_its_skill_waits_until_check_again_finds_it() {
@@ -888,9 +899,18 @@ async fn a_check_whose_tool_lacks_its_skill_waits_until_check_again_finds_it() {
     .expect("the check started");
     assert_eq!(checker.tool, Some(Tool::Codex));
     let out = w.wait_for_output(&checker.id, "CLAUDE").await;
-    let typed = w.adapters.get(Tool::Codex).skill_reference("team-validate");
+    // Otaq's `check-ticket` first, then the check's task skill in Codex's form (decision 113).
+    let codex = w.adapters.get(Tool::Codex);
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.contains(&typed), "{args}");
+    assert!(
+        args.contains(&codex.skill_reference(otaq_core::agent_tools::CHECK_TICKET_SKILL)),
+        "{args}"
+    );
+    assert!(!args.contains("team-validate"), "{args}");
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &checker.id).await,
+        [codex.skill_prompt("team-validate")]
+    );
     assert_eq!(hold_of(&w, &t, SessionRole::Validator).await, None);
     let ticket = w.board.ticket(&key).await.unwrap();
     assert_eq!(ticket.flags.missing_skill, None);
@@ -1333,7 +1353,8 @@ async fn a_0_2_flow_is_renamed_once_and_back_and_import_give_the_same_names() {
 
 /// Tuq decision 063: a bare name is always the user's skill. A Validate stage naming `validate` while the user has no
 /// such skill doesn't run Otaq's: it is held as missing, "Claude Code doesn't have the skill `/validate`"; once the
-/// user's own `validate` is there, Check again starts it as `/validate`.
+/// user's own `validate` is there, Check again starts the check, which types it as `/validate` after Otaq's
+/// `check-ticket`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_bare_validate_with_no_such_user_skill_is_held_as_missing() {
@@ -1383,7 +1404,15 @@ async fn a_bare_validate_with_no_such_user_skill_is_held_as_missing() {
     .await
     .expect("the check started");
     let out = w.wait_for_output(&checker.id, "CLAUDE").await;
+    // The user's `validate` is the check's task skill, typed after Otaq's `check-ticket` (decision 113).
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with(" /validate"), "{args}");
+    assert!(
+        args.ends_with(&format!(" /{PLUGIN_NAMESPACE}:check-ticket")),
+        "{args}"
+    );
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &checker.id).await,
+        ["/validate"]
+    );
     w.stop().await;
 }

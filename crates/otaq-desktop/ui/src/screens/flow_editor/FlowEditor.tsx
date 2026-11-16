@@ -217,6 +217,9 @@ export function SkillField({
           label={field.picker.title}
           items={field.picker.items}
           list
+          // Wide enough to read its descriptions, each cut to two lines with the whole on hover (decision 108).
+          width={360}
+          hintLines={2}
           search={field.picker.search}
           typed={(text) => typedItem(field.picker.use_typed, text)}
           last={field.picker.ask}

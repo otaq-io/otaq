@@ -3,9 +3,11 @@
 //! merged parent), with "Let finished tickets answer questions" on: Otaq recreates the worktree **at the same
 //! path** on the ticket's kept branch, resumes the conversation answer-only on the tool it ran on, with the
 //! answer-question skill as its first prompt (session kind `answer`), and once `otaq answer` arrives ends the session and
-//! removes the worktree, unless files changed there (then it is kept and listed in Cleanup). While the plan limit is
-//! active the question waits, and so it does while the target's project is paused (PAU-04, d0112): the project's
-//! Resume routes it again. The user's **Resume SHOP-17** on it starts the answer session anyway (PAU-05).
+//! removes the worktree, unless files changed there (then it is kept and listed in Cleanup). While the tool the
+//! target's conversation ran on has an active usage limit the question waits, until that tool's Resume (USG-10;
+//! d0020: nothing resumes by itself, so not at the reset alone); another tool's limit doesn't hold it. It waits as
+//! well while the target's project is paused (PAU-04, d0112): the project's Resume routes it again. The user's
+//! **Resume SHOP-17** on it starts the answer session anyway (PAU-05).
 //!
 //! An answer session that ends without the answer (it crashed, was stopped, or ended its turn without `otaq answer`)
 //! puts its question in Needs you on the asking ticket and is never started again by itself; its worktree is tidied
@@ -18,7 +20,7 @@ use std::time::Duration;
 use tokio::sync::{broadcast, watch};
 
 use super::{Messages, PART_QUESTION, Route, question_text};
-use crate::agent_tools::{FirstPrompt, LaunchRequest, LaunchRole};
+use crate::agent_tools::{FirstPrompt, LaunchRequest, LaunchRole, Tool};
 use crate::agents::RunsOn;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
@@ -57,6 +59,22 @@ impl Messages {
         &self,
         target: &Ticket,
     ) -> Result<Option<StoredConversation>, BoardError> {
+        let Some(conversation) = self.recorded_conversation(target).await? else {
+            return Ok(None);
+        };
+        let cwd = self.worktree_path(target).await?;
+        let adapter = self.inner.adapters.get(conversation.tool);
+        Ok(adapter
+            .can_resume(&conversation.id, &cwd)
+            .then_some(conversation))
+    }
+
+    /// The target's newest agent session's conversation as its history records it, without asking its tool whether
+    /// it is still there (OpenCode's check runs `opencode`): enough to know the tool an answer session would run on.
+    async fn recorded_conversation(
+        &self,
+        target: &Ticket,
+    ) -> Result<Option<StoredConversation>, BoardError> {
         let history = self
             .inner
             .sessions
@@ -66,18 +84,10 @@ impl Messages {
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-        let Some(conversation) = history
+        Ok(history
             .iter()
             .filter(|s| s.kind == SessionKind::Agent)
-            .find_map(StoredConversation::of)
-        else {
-            return Ok(None);
-        };
-        let cwd = self.worktree_path(target).await?;
-        let adapter = self.inner.adapters.get(conversation.tool);
-        Ok(adapter
-            .can_resume(&conversation.id, &cwd)
-            .then_some(conversation))
+            .find_map(StoredConversation::of))
     }
 
     /// The ticket's worktree folder, where its conversation ran: `<data>/wt/<repo>/<KEY>`.
@@ -95,13 +105,23 @@ impl Messages {
             .map_err(|e| BoardError::refused(Refusal::NoWorktree, e.to_string()))
     }
 
-    /// Whether the plan limit holds new agent work (USG-03): the question waits.
-    async fn limit_active(&self) -> bool {
-        crate::usage::plan::latest(self.inner.board.store())
+    /// Whether `tool`'s usage limit holds an answer session on it (USG-10): its active limit, until that tool's Resume
+    /// (d0020), even once its reset was seen. Only that tool's: another tool's limit holds nothing here.
+    async fn limit_holds(&self, tool: Tool) -> bool {
+        crate::usage::plan::limit_of(self.inner.board.store(), tool)
             .await
             .ok()
             .flatten()
-            .is_some_and(|p| p.limit_active())
+            .is_some()
+    }
+
+    /// The tool whose limit holds `target`'s answer session: the one its recorded conversation ran on, read from
+    /// history only. `None` when nothing holds it (or there is no conversation, which fails the start its own way).
+    async fn held_by_limit(&self, target: &Ticket) -> Option<Tool> {
+        let conversation = self.recorded_conversation(target).await.ok().flatten()?;
+        self.limit_holds(conversation.tool)
+            .await
+            .then_some(conversation.tool)
     }
 
     /// Takes the questions that wait for a target without a live session: typed into a target that is live again,
@@ -145,7 +165,7 @@ impl Messages {
                 self.changed_message(&message).await;
                 continue;
             }
-            if self.limit_active().await {
+            if self.held_by_limit(&target).await.is_some() {
                 continue;
             }
             // Kept for the project's Resume, which routes the waiting questions again.
@@ -173,7 +193,8 @@ impl Messages {
     }
 
     /// **Resume SHOP-17** on a question sent to the user (MSG-05): the user's click lets the finished ticket answer
-    /// it itself, as MSG-03 would with the setting on. The plan limit still holds it.
+    /// it itself, as MSG-03 would with the setting on. The limit of the tool its conversation ran on still refuses a
+    /// start; a live target gets the question typed whatever the limits.
     pub async fn resume_target(&self, id: &str) -> Result<super::Message, BoardError> {
         // Never while an ended answer session's question is moved to Needs you.
         let _one = self.inner.routing.lock().await;
@@ -186,15 +207,6 @@ impl Messages {
             ));
         }
         let target = board.ticket(&message.to.to_string()).await?;
-        if self.limit_active().await {
-            return Err(BoardError::refused(
-                Refusal::NotAllowed,
-                format!(
-                    "The usage limit is active: {} answers once it resets",
-                    target.key
-                ),
-            ));
-        }
         if let Some(live) = self
             .inner
             .sessions
@@ -207,6 +219,17 @@ impl Messages {
                 .await
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         } else {
+            // Checked before the tool is asked whether the conversation is still there (OpenCode's check runs it).
+            if let Some(tool) = self.held_by_limit(&target).await {
+                return Err(BoardError::refused(
+                    Refusal::NotAllowed,
+                    format!(
+                        "{}'s usage limit is active: {} answers once it resets",
+                        tool.display_name(),
+                        target.key
+                    ),
+                ));
+            }
             if self.stored_conversation(&target).await?.is_none() {
                 return Err(BoardError::refused(
                     Refusal::NotAllowed,
@@ -242,6 +265,8 @@ impl Messages {
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
+        // Follow-up (investigate-3): this checks the new-session tool, not the conversation's; it should be
+        // `unavailable(Some(conversation.tool))` once the conversation is known.
         inner.adapters.unavailable(None)?;
         let conversation = self.stored_conversation(target).await?.ok_or_else(|| {
             BoardError::refused(Refusal::SessionEnded, no_longer_available(&target.key))

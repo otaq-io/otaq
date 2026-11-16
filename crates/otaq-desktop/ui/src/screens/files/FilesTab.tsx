@@ -40,6 +40,7 @@ import type { FilesSearchView } from "../../generated/FilesSearchView";
 import type { FilesTabView } from "../../generated/FilesTabView";
 import type { FilesTag } from "../../generated/FilesTag";
 import type { FilesTreeRow } from "../../generated/FilesTreeRow";
+import { CommentMarkdown } from "../../markdown";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -421,8 +422,8 @@ function Tree({
   );
 }
 
-/** "Agent summary" above All changes, folded by a click (d0017). */
-function Notes({
+/** "Agent summary" above All changes, folded by a click (d0017), its text drawn as Markdown (tuq 110). */
+export function Notes({
   ticket,
   notes,
   decisions,
@@ -464,7 +465,7 @@ function Notes({
             <span className="diff-spacer" />
             <span className="diff-muted">{summary.note}</span>
           </button>
-          {!folded && <p className="diff-summary-text">{summary.text}</p>}
+          {!folded && <CommentMarkdown className="diff-summary-text" markdown={summary.text} />}
         </div>
       )}
       {decisions && (

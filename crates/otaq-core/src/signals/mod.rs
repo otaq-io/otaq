@@ -351,8 +351,10 @@ impl Signals {
 
     /// Applies one signal of `caller` and returns it as applied.
     async fn apply_signal(&self, caller: &Caller, signal: Signal) -> Result<Signal, BoardError> {
-        // A validator's hook only says where its turn is; its effect on the ticket is the validation's.
-        if let Caller::Validator { .. } = caller {
+        // A validator's hook only says where its turn is; its effect on the ticket is the validation's. Its turn is
+        // tracked (its check's task skill waits for its first turn to end, decision 113).
+        if let Caller::Validator { session, .. } = caller {
+            self.track_turn(session, &signal);
             return Ok(signal);
         }
         // A Project agent has no ticket: its turn is tracked here (deliveries wait for its turn to end), its
