@@ -3,7 +3,7 @@
 What changed for you in each release. The maintainer copies a version's section into its GitHub release notes
 before Publish (`scripts/README.md`, "Making a release").
 
-## Unreleased
+## 0.3.0
 
 - **Each stage says who does it; named agents are gone.** A stage an agent works or checks now has its own **Model**
   (a tool and one of its models), **Effort** and optional **Instructions**, set in Edit flow's stage panel under
@@ -51,6 +51,9 @@ before Publish (`scripts/README.md`, "Making a release").
   dialog, and a prompt nobody reported shows Needs you with its question. An idle GitHub Copilot in a terminal you
   clicked out of is no longer mistaken for a dialog, so answers from the ticket reach it.
 - **An answer waits only for its own tool's limit.** Another tool's plan limit no longer holds every question.
+- **A waiting comment reaches an idle agent.** When a key you pressed closed a tool's own menu and the tool drew its
+  empty input line late (a busy machine), a comment waiting for the agent could stay waiting until your next key or
+  the agent's next turn; Otaq now looks at the line again while something waits and sends it once the line is empty.
 - **Starts that fail say why.** A Claude Code or Copilot that exits before its conversation exists is Start failed
   with the tool's last lines, not Interrupted. Codex waiting at its own sign-in screen shows Needs you "Codex needs
   you to sign in", and Settings reads it as not signed in until it gets past it. Codex 0.164+ API-key sign-ins read
