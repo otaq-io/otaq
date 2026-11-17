@@ -878,6 +878,20 @@ impl AgentShell {
     /// waits up to 5 s for it: the service closes the connection once it has answered, and under load (every test in
     /// its own process, in parallel) an answer can take more than a second.
     pub async fn send_raw(&self, socket: &Path, line: &str) -> Ran {
+        let command = self.raw_command(socket, line);
+        self.run(&command).await
+    }
+
+    /// Sends one raw protocol line as [`send_raw`](Self::send_raw) does, without waiting for it: for a request after
+    /// which the service ends the session (a checker's turn that ends without a verdict stops it), whose shell may be
+    /// gone before it writes the command's exit status.
+    pub fn post_raw(&self, socket: &Path, line: &str) {
+        let command = self.raw_command(socket, line);
+        self.type_command(&command);
+    }
+
+    /// The command [`send_raw`](Self::send_raw) and [`post_raw`](Self::post_raw) run.
+    fn raw_command(&self, socket: &Path, line: &str) -> String {
         if cfg!(windows) {
             let n = self.next.load(Ordering::SeqCst);
             let script = self.dir.path().join(format!("request.{n}.ps1"));
@@ -901,18 +915,32 @@ impl AgentShell {
                 ),
             )
             .expect("request script");
-            self.run(&format!(
+            format!(
                 "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '{}'",
                 script.display()
-            ))
-            .await
+            )
         } else {
-            self.run(&format!(
+            format!(
                 "printf '%s\\n' '{line}' | nc -U -w 5 '{}'",
                 socket.display()
-            ))
-            .await
+            )
         }
+    }
+
+    /// Types `command` (shell syntax) into the session, from a script as [`run`](Self::run) does, and doesn't wait
+    /// for it.
+    fn type_command(&self, command: &str) {
+        let n = self.next.fetch_add(1, Ordering::SeqCst);
+        let script = self.dir.path().join(format!("sh.{n}"));
+        std::fs::write(&script, format!("set +m; {command}\n")).expect("command script");
+        let line = format!(
+            ". '{}'{}",
+            script.display(),
+            if cfg!(windows) { "\r" } else { "\n" }
+        );
+        self.sessions
+            .write(&self.session, line.as_bytes())
+            .expect("typed into the shell");
     }
 
     /// Runs `command` with `stdin` as its standard input.
