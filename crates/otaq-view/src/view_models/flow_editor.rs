@@ -38,7 +38,7 @@
 //! fixed.
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::{AgentModel, NoyanStartsOn};
+use otaq_core::agents::{AgentModel, ModelMark, NoyanStartsOn};
 use otaq_core::flow::check::{VALIDATION_ROUNDS, fail_to_message};
 use otaq_core::flow::draft::{DraftApplies, Inside, Mark, SkillWriting, StageMark, WrittenSkill};
 use otaq_core::flow::model::{CheckBy, Flow, FlowFile, Stage, StageKind, StageOption, WhoDoesIt};
@@ -456,6 +456,9 @@ pub struct Facts<'a> {
     /// The draft (`flow.draft`).
     pub proposal: &'a Proposal,
     pub marks: &'a [StageMark],
+    /// The amber marks on the project's models (`flow.model_marks`, AGT-05): a stage's or the delivery's model the tool
+    /// refused, no longer lists or swapped.
+    pub model_marks: &'a [ModelMark],
     pub swap: bool,
     pub applies: &'a DraftApplies,
     /// The draft's document, read.
@@ -635,23 +638,61 @@ pub(crate) fn who(f: &Facts, stage: &Stage, uses: &[model_effort::Use]) -> Optio
     if !stage.runs_agent() {
         return None;
     }
+    let mut picker = model_effort::view(
+        stage.who.model.as_deref(),
+        stage.who.effort.as_deref(),
+        uses,
+        f.tools,
+        model_effort::Place {
+            hint: &model_effort::stage_hint(),
+            waits_at: Some(&stage.name),
+        },
+    );
+    picker.marked = stage_model_mark(f, stage).map(model_effort::marked);
     Some(Who {
         heading: WHO_HEADING,
-        picker: model_effort::view(
-            stage.who.model.as_deref(),
-            stage.who.effort.as_deref(),
-            uses,
-            f.tools,
-            model_effort::Place {
-                hint: &model_effort::stage_hint(),
-                waits_at: Some(&stage.name),
-            },
-        ),
+        picker,
         warning: missing_skill(f, stage),
         instructions_label: INSTRUCTIONS_LABEL,
         instructions: stage.who.instructions.clone().unwrap_or_default(),
         instructions_hint: INSTRUCTIONS_HINT,
     })
+}
+
+/// The amber mark on `stage`'s model (AGT-05; plan piece 1 "Marks": it moved from the agent row to the stage), while
+/// the draft keeps the model and effort the stage has in the flow in use: picking another one takes it off the panel,
+/// and saving it clears it.
+pub(crate) fn stage_model_mark<'a>(
+    f: &Facts<'a>,
+    stage: &Stage,
+) -> Option<&'a otaq_core::agents::Mark> {
+    let in_use = f.in_use.flow.stage(&stage.id)?;
+    unchanged(&in_use.who, &stage.who)
+        .then(|| {
+            f.model_marks.iter().find(|m| {
+                matches!(&m.about, otaq_core::agents::About::Stage { project, stage: id }
+                    if project == f.project && *id == stage.id)
+            })
+        })
+        .flatten()
+        .map(|m| &m.mark)
+}
+
+/// The amber mark on the delivery's model (AGT-05), as [`stage_model_mark`]'s.
+pub(crate) fn delivery_model_mark<'a>(f: &Facts<'a>) -> Option<&'a otaq_core::agents::Mark> {
+    unchanged(&f.in_use.flow.delivery.who, &f.file.flow.delivery.who)
+        .then(|| {
+            f.model_marks.iter().find(|m| {
+                matches!(&m.about, otaq_core::agents::About::Delivery { project } if project == f.project)
+            })
+        })
+        .flatten()
+        .map(|m| &m.mark)
+}
+
+/// The draft keeps the model and effort of the flow in use (what a mark is about; instructions don't count).
+fn unchanged(in_use: &WhoDoesIt, draft: &WhoDoesIt) -> bool {
+    in_use.model == draft.model && in_use.effort == draft.effort
 }
 
 /// Where a check's fails go, as the step and its field show it (d0131): the stage its `fail_to` names (even one that
@@ -1754,6 +1795,7 @@ mod tests {
             project_name: "shop-web",
             proposal: &d.proposal,
             marks: &d.marks,
+            model_marks: &[],
             swap: d.swap,
             applies: &d.applies,
             file,

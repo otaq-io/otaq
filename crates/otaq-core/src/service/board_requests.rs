@@ -1563,6 +1563,10 @@ pub(super) async fn handle(
                 board.draft(&p.project, &shared.models).await?,
             )))
         }),
+        Request::FlowModelMarks(p) => boxed(move || async move {
+            let marks = crate::agents::mark::of_project(board.store(), &p.project).await?;
+            Ok(Reply::ModelMarks(marks))
+        }),
         Request::FlowDraftUpdate(p) => boxed(move || async move {
             let draft = board
                 .update_draft(&p.project, &p.edit, &shared.models)

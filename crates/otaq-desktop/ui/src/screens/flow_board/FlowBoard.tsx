@@ -940,7 +940,8 @@ function ColumnHead({
             <span>{column.who}</span>
           </span>
         ) : (
-          // A-4: the model's tool isn't set up; tickets wait here.
+          // A-4: the model's tool isn't set up, tickets wait here; or the model's mark (AGT-05: refused, no longer listed,
+          // swapped).
           <Tooltip text={column.who_off}>
             <span className="fb-head-who" data-off>
               {column.avatar !== null && <ToolAvatar avatar={column.avatar} />}

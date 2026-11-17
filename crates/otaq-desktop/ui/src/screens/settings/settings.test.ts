@@ -30,6 +30,7 @@ import {
   stepOf,
 } from "./AgentTools";
 import type { NoyanSettingsPage } from "../../generated/NoyanSettingsPage";
+import { ModelEffortField } from "./ModelEffort";
 import { effortEdit, NoyanSettingsBody, noyanEdit } from "./NoyanSettings";
 
 const html = (element: ReactElement) => renderToStaticMarkup(element);
@@ -417,6 +418,7 @@ const NOYAN_PAGE: NoyanSettingsPage = {
     },
     hint: "For new conversations. Switch for one conversation in the Noyan panel.",
     not_set_up: null,
+    marked: null,
     effort: {
       label: "Effort",
       levels: [
@@ -502,6 +504,56 @@ describe("Settings → Noyan", () => {
     });
     expect(effortEdit(null)).toEqual({ edit: "effort" });
     expect(effortEdit("low")).toEqual({ edit: "effort", effort: "low" });
+  });
+});
+
+describe("Model and Effort: a marked model (AGT-05, C3b)", () => {
+  const field = (picker: NoyanSettingsPage["picker"]) =>
+    html(
+      createElement(ModelEffortField, {
+        view: picker,
+        onPick: () => undefined,
+        onEffort: () => undefined,
+        onSetUp: () => undefined,
+      }),
+    );
+  const marked = {
+    text: "Codex couldn't run gpt-5.5 on SHOP-3",
+    message: "“The model is not supported when using Codex with a ChatGPT account.”",
+    pick: "Pick another model",
+  };
+
+  it("a model the tool refused shows its mark, the tool's words and Pick another model in the hint's place", () => {
+    const drawn = field({ ...NOYAN_PAGE.picker, marked });
+    expect(drawn).toContain("data-off");
+    expect(drawn).toContain('data-tone="amber"');
+    expect(drawn).toContain("Codex couldn&#x27;t run gpt-5.5 on SHOP-3");
+    expect(drawn).toContain("The model is not supported when using Codex with a ChatGPT account.");
+    expect(drawn).toContain("Pick another model");
+    expect(drawn).not.toContain("Set up Codex");
+    expect(drawn).not.toContain(NOYAN_PAGE.picker.hint);
+  });
+
+  it("an unmarked model shows its hint, no warning", () => {
+    const drawn = field(NOYAN_PAGE.picker);
+    expect(drawn).not.toContain("data-off");
+    expect(drawn).not.toContain("Pick another model");
+    expect(drawn).toContain(NOYAN_PAGE.picker.hint);
+  });
+
+  it("a tool that isn't set up says so instead of the mark", () => {
+    const drawn = field({
+      ...NOYAN_PAGE.picker,
+      marked,
+      not_set_up: {
+        tool: "codex",
+        text: "Codex isn’t set up on this Mac. Set it up or pick another model.",
+        set_up: "Set up Codex",
+        pick: "Pick another model",
+      },
+    });
+    expect(drawn).toContain("Set up Codex");
+    expect(drawn).not.toContain("SHOP-3");
   });
 });
 

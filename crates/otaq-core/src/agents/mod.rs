@@ -234,6 +234,13 @@ pub struct Mark {
     pub at: i64,
 }
 
+/// A mark with what it is about, as `flow.model_marks` answers it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelMark {
+    pub about: About,
+    pub mark: Mark,
+}
+
 /// What a session's model came from, and so where a mark about it goes ([`mark`]): a stage of a project's flow, the
 /// project's delivery, or Noyan's setting. Stored on the session as [`Self::scope`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

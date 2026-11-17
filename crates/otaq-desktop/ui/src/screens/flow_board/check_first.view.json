@@ -175,10 +175,12 @@
           "groups": [],
           "missing": "Claude Code, Codex, Copilot and OpenCode aren’t set up",
           "set_up": "Set up…",
-          "foot": "A model name without a version always means that tool’s newest."
+          "foot": "A model name without a version always means that tool’s newest.",
+          "another": null
         },
         "hint": "Any model of a tool on this Mac. Every ticket at this stage uses it; it changes only here.",
         "not_set_up": null,
+        "marked": null,
         "effort": null
       },
       "warning": null,

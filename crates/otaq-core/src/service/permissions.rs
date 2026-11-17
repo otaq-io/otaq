@@ -266,6 +266,7 @@ async fn action_for(
         | R::FlowVersions(_)
         | R::FlowProposal(_)
         | R::FlowDraft(_)
+        | R::FlowModelMarks(_)
         | R::FlowWaiting(_)
         | R::SessionList(_)
         | R::SessionBeforeRestart(_)

@@ -4907,16 +4907,6 @@
         }
       }
     },
-    "Mark": {
-      "kind": "enum",
-      "variants": {
-        "added": {},
-        "changed": {},
-        "moved": {},
-        "new": {},
-        "removed": {}
-      }
-    },
     "MarkedMerged": {
       "kind": "struct",
       "fields": {
@@ -5208,6 +5198,19 @@
       "fields": {
         "entries": {
           "ty": "Vec<ModelEntry>",
+          "required": true
+        }
+      }
+    },
+    "ModelMark": {
+      "kind": "struct",
+      "fields": {
+        "about": {
+          "ty": "crate::agents::About",
+          "required": true
+        },
+        "mark": {
+          "ty": "crate::agents::Mark",
           "required": true
         }
       }
@@ -7837,6 +7840,9 @@
         "messages": {
           "newtype": "Vec<crate::messages::Message>"
         },
+        "model_marks": {
+          "newtype": "Vec<ModelMark>"
+        },
         "models": {
           "newtype": "Option<ModelCopy>"
         },
@@ -8248,6 +8254,9 @@
         },
         "flow.draft_update": {
           "newtype": "DraftUpdateParams"
+        },
+        "flow.model_marks": {
+          "newtype": "ProjectParams"
         },
         "flow.proposal": {
           "newtype": "ProjectParams"
@@ -10186,7 +10195,7 @@
           "required": true
         },
         "mark": {
-          "ty": "Mark",
+          "ty": "crate::flow::draft::Mark",
           "required": true
         },
         "stage": {
@@ -12544,6 +12553,28 @@
         }
       }
     },
+    "crate::agents::Mark": {
+      "kind": "struct",
+      "fields": {
+        "at": {
+          "ty": "i64",
+          "required": true
+        },
+        "message": {
+          "ty": "Option<String>"
+        },
+        "model": {
+          "ty": "Option<String>"
+        },
+        "text": {
+          "ty": "String",
+          "required": true
+        },
+        "ticket": {
+          "ty": "Option<String>"
+        }
+      }
+    },
     "crate::board::questions::Choice": {
       "kind": "enum",
       "variants": {
@@ -12576,6 +12607,16 @@
       "variants": {
         "skip": {},
         "usual": {}
+      }
+    },
+    "crate::flow::draft::Mark": {
+      "kind": "enum",
+      "variants": {
+        "added": {},
+        "changed": {},
+        "moved": {},
+        "new": {},
+        "removed": {}
       }
     },
     "crate::flow::proposal::About": {

@@ -903,6 +903,7 @@ describe("a tool problem's notice (M23)", () => {
     },
     hint: "For this conversation only.",
     not_set_up: null,
+    marked: null,
     effort: {
       label: "Effort",
       levels: [

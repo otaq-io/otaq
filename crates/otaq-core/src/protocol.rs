@@ -855,6 +855,11 @@ pub enum Request {
     FlowDraft(ProjectParams),
     #[serde(rename = "flow.draft_update")]
     FlowDraftUpdate(crate::flow::draft::DraftUpdateParams),
+    /// `{"project": "SHOP"}`: the amber marks on the models of the project's stages and its delivery (AGT-05, UX-65):
+    /// a model the tool refused, no longer listed, or swapped, on what it came from. Edit flow shows each on its stage's
+    /// tile and panel. Answered with [`Reply::ModelMarks`].
+    #[serde(rename = "flow.model_marks")]
+    FlowModelMarks(ProjectParams),
     /// `otaq flow write-skill <stage> [--done]` (FED-06): `{"project", "stage"}` gives the folder the Project agent
     /// writes the stage's skill in (the field: "Being written by Noyan…"); with `"done": true` the skill, left
     /// where it was written in the project, lands in the draft as the stage's skill. Answered with
@@ -2250,6 +2255,7 @@ impl Request {
             Self::FlowPropose(_) => "flow.propose",
             Self::FlowAskForChanges(_) => "flow.ask_for_changes",
             Self::FlowDraft(_) => "flow.draft",
+            Self::FlowModelMarks(_) => "flow.model_marks",
             Self::FlowDraftUpdate(_) => "flow.draft_update",
             Self::FlowWriteSkill(_) => "flow.write_skill",
             Self::SessionList(_) => "session.list",
@@ -2385,6 +2391,8 @@ pub enum Reply {
     FlowVersions(Vec<crate::flow::FlowVersion>),
     FlowProposal(Option<Box<crate::flow::proposal::Proposal>>),
     FlowDraft(Box<crate::flow::draft::Draft>),
+    /// The marks on a project's models (`flow.model_marks`), oldest first.
+    ModelMarks(Vec<crate::agents::ModelMark>),
     SkillWrite(Box<crate::flow::write_skill::SkillWrite>),
     FlowApplied(Box<crate::flow::apply::Applied>),
     FlowWaiting(Option<Box<crate::flow::apply::WaitingChange>>),

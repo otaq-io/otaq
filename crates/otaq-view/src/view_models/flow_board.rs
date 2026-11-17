@@ -105,8 +105,9 @@ pub struct Column {
     /// Who does it (A-1): its model and effort beside the tool's avatar ("gpt-5.5 · medium"), "You" for a check by
     /// you.
     pub who: Option<String>,
-    /// The model's tool isn't set up on this Mac (A-4): the who line in amber, this on hover ("Codex isn't set up on
-    /// this Mac. …").
+    /// The model's tool isn't set up on this Mac (A-4), or the model has its amber mark (AGT-05: refused, no longer
+    /// listed, swapped): the who line in amber with ⚠, this on hover ("Codex isn't set up on this Mac. …", "Codex
+    /// couldn't run gpt-5.5 on SHOP-3").
     pub who_off: Option<String>,
     pub skill: Option<String>,
     /// "3 rounds · fails go to Dev", "Fails go to Dev".
@@ -634,7 +635,11 @@ fn columns(f: &Facts) -> Vec<Column> {
                 stage.who.effort.as_deref(),
                 f.tools,
             ) {
-                Some((avatar, line, off)) => (avatar, Some(line), off),
+                Some((avatar, line, off)) => (
+                    avatar,
+                    Some(line),
+                    off.or_else(|| editor::stage_model_mark(f, stage).map(|m| m.text.clone())),
+                ),
                 None => (None, None, None),
             },
         };
@@ -672,7 +677,11 @@ fn columns(f: &Facts) -> Vec<Column> {
         flow.delivery.who.effort.as_deref(),
         f.tools,
     ) {
-        Some((avatar, line, off)) => (avatar, Some(line), off),
+        Some((avatar, line, off)) => (
+            avatar,
+            Some(line),
+            off.or_else(|| editor::delivery_model_mark(f).map(|m| m.text.clone())),
+        ),
         None => (None, None, None),
     };
     out.push(Column {
@@ -862,18 +871,20 @@ fn delivery_writes(flow: &Flow) -> String {
 /// Done panel's Who does it (UX-69, A-5): Model, Effort and Instructions · optional, the stage's field.
 fn delivery_who(f: &Facts, uses: &[model_effort::Use]) -> Who {
     let who = &f.file.flow.delivery.who;
+    let mut picker = model_effort::view(
+        who.model.as_deref(),
+        who.effort.as_deref(),
+        uses,
+        f.tools,
+        model_effort::Place {
+            hint: &delivery_hint(),
+            waits_at: None,
+        },
+    );
+    picker.marked = editor::delivery_model_mark(f).map(model_effort::marked);
     Who {
         heading: editor::WHO_HEADING,
-        picker: model_effort::view(
-            who.model.as_deref(),
-            who.effort.as_deref(),
-            uses,
-            f.tools,
-            model_effort::Place {
-                hint: &delivery_hint(),
-                waits_at: None,
-            },
-        ),
+        picker,
         warning: None,
         instructions_label: editor::INSTRUCTIONS_LABEL,
         instructions: who.instructions.clone().unwrap_or_default(),
@@ -1572,6 +1583,7 @@ mod tests {
             project_name: "shop",
             proposal: &draft,
             marks: &[],
+            model_marks: &[],
             swap: false,
             applies: &DraftApplies::Nothing,
             file: &file,
@@ -1650,6 +1662,7 @@ mod tests {
                     project_name: "shop-web",
                     proposal: &draft,
                     marks: &[],
+                    model_marks: &[],
                     swap: false,
                     applies: &DraftApplies::Nothing,
                     file: &file,
@@ -1729,6 +1742,135 @@ mod tests {
         assert_eq!(who.picker.menu.pairs.len(), 1);
     }
 
+    /// AGT-05, plan piece 1 "Marks" (C3b): a model the tool refused marks its stage, not an agent: the tile's who line
+    /// is amber with the mark on hover, and the panel says it under the field with Pick another model. Picking another
+    /// model in the draft takes it off; another stage, another project's or the delivery's mark doesn't show there.
+    #[test]
+    fn a_refused_model_marks_its_stage_with_pick_another_model() {
+        use crate::view_models::agents::fixtures::all_lists;
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
+        use crate::view_models::flow_editor::{StageEdit, edited};
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::{About, Mark, ModelMark};
+
+        let s = |t: &str| t.to_owned();
+        let apply = |file: &FlowFile, edit: StageEdit| edited(file, &edit).unwrap().0;
+        let in_use = apply(
+            &shop_web(),
+            StageEdit::Pair {
+                stage: s("validate"),
+                model: s("codex:gpt-5.5"),
+                effort: Some(s("low")),
+            },
+        );
+        let refused = |about: About| ModelMark {
+            about,
+            mark: Mark {
+                text: s("Codex couldn't run gpt-5.5 on SHOP-3"),
+                model: Some(s("gpt-5.5")),
+                ticket: Some(s("SHOP-3")),
+                message: Some(s(
+                    "The model is not supported when using Codex with a ChatGPT account.",
+                )),
+                at: 1,
+            },
+        };
+        let stage = |project: &str, id: &str| About::Stage {
+            project: s(project),
+            stage: s(id),
+        };
+        let tools = crate::view_models::tool_problems::Tools {
+            connected: vec![Tool::Claude, Tool::Codex],
+            lists: all_lists(),
+            ..Default::default()
+        };
+        let render = |file: &FlowFile, marks: &[ModelMark], selected: &str| {
+            let draft = proposal(file, true);
+            view(
+                &Facts {
+                    project: "SHOP",
+                    project_name: "shop-web",
+                    proposal: &draft,
+                    marks: &[],
+                    model_marks: marks,
+                    swap: false,
+                    applies: &DraftApplies::Nothing,
+                    file,
+                    in_use: &in_use,
+                    tools: &tools,
+                    skills: &[],
+                    writing: &[],
+                    written: &[],
+                    selected: Some(selected),
+                    agent: None,
+                    new_agent: None,
+                },
+                &board(&[]),
+            )
+        };
+        let off = |v: &View, id: &str| {
+            v.columns
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap()
+                .who_off
+                .clone()
+        };
+        let marked = |v: &View| {
+            v.details
+                .as_ref()
+                .and_then(|d| d.who.as_ref())
+                .and_then(|w| w.picker.marked.clone())
+        };
+
+        let marks = [refused(stage("SHOP", "validate"))];
+        let v = render(&in_use, &marks, "validate");
+        assert_eq!(
+            off(&v, "validate").as_deref(),
+            Some("Codex couldn't run gpt-5.5 on SHOP-3")
+        );
+        assert_eq!(off(&v, "dev"), None);
+        let m = marked(&v).expect("Validate's panel shows the mark");
+        assert_eq!(m.text, "Codex couldn't run gpt-5.5 on SHOP-3");
+        assert_eq!(
+            m.message.as_deref(),
+            Some(
+                "\u{201c}The model is not supported when using Codex with a ChatGPT account.\u{201d}"
+            )
+        );
+        assert_eq!(m.pick, "Pick another model");
+        let who = v.details.as_ref().unwrap().who.as_ref().unwrap();
+        assert_eq!(who.picker.not_set_up, None, "Codex is set up");
+        assert_eq!(
+            marked(&render(&in_use, &marks, "dev")),
+            None,
+            "Dev's panel has none"
+        );
+
+        // Another model picked in the draft: the mark goes from the tile and the panel (saving it clears it).
+        let picked = apply(
+            &in_use,
+            StageEdit::Pair {
+                stage: s("validate"),
+                model: s("claude:opus"),
+                effort: None,
+            },
+        );
+        let v = render(&picked, &marks, "validate");
+        assert_eq!((off(&v, "validate"), marked(&v)), (None, None));
+
+        // Another project's stage, and the delivery's mark: not Validate's.
+        let v = render(
+            &in_use,
+            &[
+                refused(stage("BILL", "validate")),
+                refused(About::Delivery { project: s("SHOP") }),
+            ],
+            "validate",
+        );
+        assert_eq!((off(&v, "validate"), marked(&v)), (None, None));
+    }
+
     /// A-5, UX-69: clicking Done shows, under Deliver as and When, the model, effort and instructions that write the
     /// pull request, with a stage's menu (the pairs the flows use on top) and Effort; the Done tile shows the model.
     /// Its text says it writes the pull request and when Dev's session writes it instead; never that it fixes
@@ -1774,6 +1916,7 @@ mod tests {
             project_name: "shop-web",
             proposal: &draft,
             marks: &[],
+            model_marks: &[],
             swap: false,
             applies: &DraftApplies::Nothing,
             file: &file,
@@ -1969,6 +2112,7 @@ mod tests {
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
@@ -2046,6 +2190,7 @@ mod tests {
                 project_name: "shop-web",
                 proposal: draft,
                 marks,
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
@@ -2114,6 +2259,7 @@ mod tests {
             project_name: "shop-web",
             proposal: &draft,
             marks: &marks,
+            model_marks: &[],
             swap: false,
             applies: &DraftApplies::Nothing,
             file: &file,
@@ -2177,6 +2323,7 @@ mod tests {
                 project_name: "shop-web",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
@@ -2279,6 +2426,7 @@ mod tests {
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
@@ -2337,6 +2485,7 @@ mod tests {
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::AtOnce,
                 file: &file,
@@ -2379,6 +2528,7 @@ mod tests {
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
@@ -2464,6 +2614,7 @@ mod tests {
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,

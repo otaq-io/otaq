@@ -210,6 +210,20 @@ async fn skills(app: &App, project: &str) -> Vec<FoundSkill> {
     }
 }
 
+/// The amber marks on the project's models (`flow.model_marks`, AGT-05): none when the service can't say.
+async fn model_marks(app: &App, project: &str) -> Vec<otaq_core::agents::ModelMark> {
+    let marks = app
+        .service
+        .send(Request::FlowModelMarks(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await;
+    match marks {
+        Ok(Reply::ModelMarks(marks)) => marks,
+        _ => Vec::new(),
+    }
+}
+
 /// Everything the board's editor reads for a project, owned.
 pub(super) struct Gathered {
     pub draft: Draft,
@@ -218,6 +232,7 @@ pub(super) struct Gathered {
     pub project_name: String,
     pub tools: otaq_view::view_models::tool_problems::Tools,
     pub skills: Vec<FoundSkill>,
+    pub model_marks: Vec<otaq_core::agents::ModelMark>,
     pub open: Vec<otaq_core::project_agents::ProjectAgent>,
     pub new_agent: Option<NoyanStartsOn>,
 }
@@ -233,6 +248,7 @@ pub(super) async fn gather(app: &App, project: &str) -> Result<Gathered, Request
         project_name: project_name(app, project).await,
         tools: super::agent_panel::tools(app).await,
         skills: skills(app, project).await,
+        model_marks: model_marks(app, project).await,
         open: super::agent_panel::agents(app, project).await?.open,
         new_agent: super::agent_panel::project_agent(app).await?,
     })
@@ -250,6 +266,7 @@ impl Gathered {
             project_name: &self.project_name,
             proposal: &self.draft.proposal,
             marks: &self.draft.marks,
+            model_marks: &self.model_marks,
             swap: self.draft.swap,
             applies: &self.draft.applies,
             file: &self.file,

@@ -308,3 +308,70 @@ async fn the_tools_list_carries_the_accounts_default_model() {
     let listed = default_model(client.request(Request::AgentToolsList).await.unwrap());
     assert_eq!(listed, Some(codex));
 }
+
+/// AGT-05, plan piece 1 "Marks" (C3b): `flow.model_marks` answers the marks on a project's stages and delivery (what
+/// Edit flow shows on their tiles and panels), not another project's or Noyan's.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_model_marks_are_the_projects_stages_and_delivery() {
+    use otaq_core::agents::{About, mark};
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let store = w.board.store();
+    let stage = |project: &str, id: &str| About::Stage {
+        project: project.into(),
+        stage: id.into(),
+    };
+    let refused = mark::mark(
+        "Codex",
+        "gpt-5.5",
+        "SHOP-3",
+        "not supported with a ChatGPT account",
+    );
+    mark::set(store, &stage("SHOP", "validate"), &refused)
+        .await
+        .unwrap();
+    mark::set(store, &stage("BILL", "dev"), &refused)
+        .await
+        .unwrap();
+    mark::set(store, &About::Noyan, &refused).await.unwrap();
+    let gone = mark::no_longer_lists("Codex", "gpt-5.4", "SHOP-4");
+    mark::set(
+        store,
+        &About::Delivery {
+            project: "SHOP".into(),
+        },
+        &gone,
+    )
+    .await
+    .unwrap();
+
+    let Reply::ModelMarks(marks) = ask(&client, "flow.model_marks", json!({"project": "SHOP"}))
+        .await
+        .unwrap()
+    else {
+        panic!("flow.model_marks")
+    };
+    let got: Vec<(String, &str)> = marks
+        .iter()
+        .map(|m| (m.about.scope(), m.mark.text.as_str()))
+        .collect();
+    assert_eq!(
+        got.len(),
+        2,
+        "SHOP's stage and delivery, not BILL's or Noyan's: {got:?}"
+    );
+    assert!(got.contains(&(
+        "stage/SHOP/validate".into(),
+        "Codex couldn't run gpt-5.5 on SHOP-3"
+    )));
+    assert!(got.contains(&("delivery/SHOP".into(), "Codex no longer lists gpt-5.4")));
+    let validate = marks
+        .iter()
+        .find(|m| m.about == stage("SHOP", "validate"))
+        .unwrap();
+    assert_eq!(
+        validate.mark.message.as_deref(),
+        Some("not supported with a ChatGPT account")
+    );
+}

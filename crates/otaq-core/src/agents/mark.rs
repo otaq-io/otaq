@@ -17,7 +17,7 @@
 //!   swaps_refused_model`]) ran another one than the exact model asked for ("Copilot ran auto instead of gpt-5.5 on
 //!   SHOP-29"). A follow choice (Copilot's Auto, a family) choosing a model is never a swap (Q-J).
 
-use super::{About, Mark, ModelCatalog, ToolModel};
+use super::{About, Mark, ModelCatalog, ModelMark, ToolModel};
 use crate::agent_tools::Tool;
 use crate::agent_tools::follow::FollowChoice;
 use crate::store::{Store, StoreError, now_ms};
@@ -128,6 +128,19 @@ pub async fn all(store: &Store) -> Result<Vec<(About, Mark)>, StoreError> {
     Ok(rows
         .into_iter()
         .filter_map(|MarkRow(scope, mark)| Some((About::parse(&scope)?, mark)))
+        .collect())
+}
+
+/// The marks on the models of `project`'s stages and its delivery (`flow.model_marks`), oldest first.
+pub async fn of_project(store: &Store, project: &str) -> Result<Vec<ModelMark>, StoreError> {
+    Ok(all(store)
+        .await?
+        .into_iter()
+        .filter(|(about, _)| match about {
+            About::Stage { project: p, .. } | About::Delivery { project: p } => p == project,
+            About::Noyan => false,
+        })
+        .map(|(about, mark)| ModelMark { about, mark })
         .collect())
 }
 

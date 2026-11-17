@@ -344,6 +344,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::FlowPropose(_)
         | Request::FlowAskForChanges(_)
         | Request::FlowDraft(_)
+        | Request::FlowModelMarks(_)
         | Request::FlowDraftUpdate(_)
         | Request::FlowWriteSkill(_)
         | Request::SessionList(_)

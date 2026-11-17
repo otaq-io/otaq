@@ -2,7 +2,8 @@
 // flow draws it; Done's model, Settings → Noyan's "Noyan starts on" and the Noyan panel's header draw the same field.
 // The field shows the tool's avatar and "Codex · gpt-5.5"; its menu has "As in your other flows" on top (one click sets
 // model and effort), then each tool set up on this Mac with `default` first, then the tools that aren't set up with
-// Set up…. A model whose tool isn't set up is marked in amber with Set up <Tool> and Pick another model (A-4). Effort
+// Set up…. A model whose tool isn't set up is marked in amber with Set up <Tool> and Pick another model (A-4); a model
+// the tool refused, no longer lists or swapped carries its mark (AGT-05) with Pick another model. Effort
 // is the tool's levels, hidden for a tool with none. Every word is `ModelEffortView`'s (`otaq-view`'s
 // `model_effort.rs`); this keeps only whether the menu is open. `ModelEffortButton` is the same menu behind a compact
 // button (the Noyan panel's header, A-6): a short menu of pairs and "Another model or effort…", which opens the whole
@@ -44,6 +45,8 @@ export function ModelEffortField({ view, onPick, onEffort, onSetUp }: ModelEffor
   };
   const value = view.value;
   const off = view.not_set_up;
+  // A-4's line, when the tool isn't set up, says more than the mark.
+  const marked = off === null ? view.marked : null;
   const effort = view.effort;
   const effortAt = effort?.levels.findIndex((l) => l.selected) ?? -1;
   return (
@@ -58,7 +61,7 @@ export function ModelEffortField({ view, onPick, onEffort, onSetUp }: ModelEffor
           aria-haspopup="listbox"
           aria-expanded={open}
           data-open={open || undefined}
-          data-off={off !== null || undefined}
+          data-off={off !== null || marked !== null || undefined}
           onMouseDown={(e) => {
             if (open) e.preventDefault();
           }}
@@ -79,7 +82,7 @@ export function ModelEffortField({ view, onPick, onEffort, onSetUp }: ModelEffor
           {value.no_longer_listed !== null && (
             <span className="settings-model-detail settings-model-gone">{value.no_longer_listed}</span>
           )}
-          {off !== null && <Icon name="triangle-alert" size={13} />}
+          {(off !== null || marked !== null) && <Icon name="triangle-alert" size={13} />}
           <Icon name="chevron-down" size={12} />
         </button>
         {off !== null ? (
@@ -97,6 +100,17 @@ export function ModelEffortField({ view, onPick, onEffort, onSetUp }: ModelEffor
                   }}
                 />
                 <Button compact variant="ghost" label={off.pick} onClick={show} />
+              </span>
+            </span>
+          </div>
+        ) : marked !== null ? (
+          <div className="fe-fix me-off" data-tone="amber" role="note">
+            <Icon name="triangle-alert" size={14} />
+            <span className="fe-fix-text">
+              <span>{marked.text}</span>
+              {marked.message !== null && <span className="me-off-message">{marked.message}</span>}
+              <span className="me-off-buttons">
+                <Button compact variant="ghost" label={marked.pick} onClick={show} />
               </span>
             </span>
           </div>

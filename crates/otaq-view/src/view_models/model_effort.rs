@@ -15,6 +15,10 @@
 //!
 //! **Not set up** (A-4): a model whose tool isn't set up stays as it is, marked: "<Tool> isn't set up on this Mac.
 //! Tickets wait at <stage> until you set it up or pick another model", with Set up <Tool> and Pick another model.
+//!
+//! **Marked** (AGT-05, UX-65; plan piece 1 "Marks"): a model the tool refused, no longer lists, or swapped carries the
+//! amber mark of what it came from ("Codex couldn't run gpt-5.5 on SHOP-3"), with Pick another model ([`marked`]).
+//! Only a saved model change or a later first turn that gets through clears it (`otaq_core::agents::mark`).
 
 use otaq_core::agent_tools::{ModelKind, Tool};
 use otaq_core::agents::{AgentModel, ModelRef};
@@ -181,6 +185,32 @@ pub struct NotSetUp {
     pub pick: &'static str,
 }
 
+/// The amber mark on a model (AGT-05): what the tool did with it, and the tool's own words. `ModelEffortMarked` on the
+/// page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ModelEffortMarked")]
+pub struct Marked {
+    /// "Codex couldn't run gpt-5.5 on SHOP-3", "Codex no longer lists gpt-5.4", "Copilot ran auto instead of
+    /// gpt-5.5 on SHOP-29".
+    pub text: String,
+    /// The tool's own message, in quotes; `None` when it gave none.
+    pub message: Option<String>,
+    /// "Pick another model": opens the menu.
+    pub pick: &'static str,
+}
+
+/// The field's [`Marked`] line for `mark`.
+pub fn marked(mark: &otaq_core::agents::Mark) -> Marked {
+    Marked {
+        text: mark.text.clone(),
+        message: mark
+            .message
+            .as_deref()
+            .map(|m| format!("\u{201c}{m}\u{201d}")),
+        pick: PICK_ANOTHER,
+    }
+}
+
 /// One level of the Effort control. `ModelEffortLevel` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ModelEffortLevel")]
@@ -211,6 +241,9 @@ pub struct View {
     /// Under the field; the [`NotSetUp`] line takes its place.
     pub hint: String,
     pub not_set_up: Option<NotSetUp>,
+    /// The model's amber mark (AGT-05), with Pick another model; under the field in the hint's place, unless
+    /// [`Self::not_set_up`] is there. Set by the caller that knows what the model came from.
+    pub marked: Option<Marked>,
     /// `None` for a tool with no effort levels, and while the tool isn't known.
     pub effort: Option<Effort>,
 }
@@ -545,6 +578,7 @@ pub fn view(
         menu: menu(model, effort, uses, tools),
         hint: place.hint.to_owned(),
         not_set_up,
+        marked: None,
         effort: on.and_then(|on| effort_control(on.tool, effort)),
     }
 }
