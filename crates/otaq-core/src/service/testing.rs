@@ -532,7 +532,13 @@ impl TestService {
         size: TerminalSize,
     ) -> AgentShell {
         let file = screen.display().to_string().replace('\\', "/");
-        let args = vec!["-c".to_owned(), format!("cat '{file}'; exec sh")];
+        // A capture of a Windows tool turns on win32-input-mode (`ESC[?9001h`, as Codex does). The ConPTY then hands
+        // the shell after it each key as an `ESC[…_` sequence, so the line a run types never ends ("…;28;13;1;0;1_"
+        // in place of Return): it is turned off again once the screen is drawn, which leaves the screen as it is.
+        let args = vec![
+            "-c".to_owned(),
+            format!("cat '{file}'; printf '\\033[?9001l'; exec sh"),
+        ];
         self.shell_spawn(ticket, kind, Some(tool), args, size).await
     }
 
