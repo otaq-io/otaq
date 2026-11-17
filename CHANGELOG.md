@@ -3,7 +3,7 @@
 What changed for you in each release. The maintainer copies a version's section into its GitHub release notes
 before Publish (`scripts/README.md`, "Making a release").
 
-## Unreleased
+## 0.3.0
 
 - **Each stage says who does it; named agents are gone.** A stage an agent works or checks now has its own **Model**
   (a tool and one of its models), **Effort** and optional **Instructions**, set in Edit flow's stage panel under
