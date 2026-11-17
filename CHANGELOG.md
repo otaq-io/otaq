@@ -34,6 +34,35 @@ before Publish (`scripts/README.md`, "Making a release").
 - **The box for new work steps aside while a ticket is open.** It used to shrink into a "+ Ctrl+N" pill half under
   the project rail; now it is hidden while any ticket's sheet is open, Ctrl+N opens the full New ticket form there,
   and the box is back at the bottom of the board once the sheet closes.
+- **Otaq's skills are `otaq:` and tuq's are `tuq:`.** A flow names Otaq's own skills `otaq:<name>` and tuq's
+  `tuq:<name>`; a bare name is always your own skill, so a repository's `validate` can't hide Otaq's. Your flows are
+  renamed once on update (History says so), and imported flows the same way. Product spec, Tech spec and Milestone
+  plan are tuq's now: a `tuq:` stage runs on your tuq, and when a tool doesn't have the skill Otaq installs tuq for
+  it and says so in History, or holds the stage with what went wrong (the download failed, or no tuq release has
+  that skill). About and History name the tuq version.
+- **A stage with a skill of its own starts with Otaq's.** Every agent stage that runs a task skill (tuq's, or your
+  own) runs `otaq:work-ticket` first, so questions come through the ticket and the work is committed at the end; a
+  check stage with your own skill runs `otaq:check-ticket` first, so its verdict reaches the card instead of "gave no
+  result". Pick a skill… is wider, lists your skills first and then an Otaq group, each with a short description.
+- **Comments are Markdown.** Every comment, agent summary, checker verdict and validation report is drawn as
+  Markdown (HTML shows as typed, only http(s) links are links, long ones fold behind Show more). The comment box has
+  Write and Preview, a toolbar and ⌘B/⌘I/⌘E/⌘K (Ctrl elsewhere), and your comments have no length limit.
+- **Otaq never types into a tool's own prompt.** A queued message or answer waits while a tool shows its own
+  dialog, and a prompt nobody reported shows Needs you with its question. An idle GitHub Copilot in a terminal you
+  clicked out of is no longer mistaken for a dialog, so answers from the ticket reach it.
+- **An answer waits only for its own tool's limit.** Another tool's plan limit no longer holds every question.
+- **Starts that fail say why.** A Claude Code or Copilot that exits before its conversation exists is Start failed
+  with the tool's last lines, not Interrupted. Codex waiting at its own sign-in screen shows Needs you "Codex needs
+  you to sign in", and Settings reads it as not signed in until it gets past it. Codex 0.164+ API-key sign-ins read
+  as signed in.
+- **Smaller fixes from the 0.3 Windows test.** A question stopped by a restart shows in the sheet with Answer &
+  resume; the restart dialog also shows after `otaq daemon stop`/`start` from a terminal; the PR dialog's background
+  git calls never ask for credentials, and its commit messages keep their line breaks and `Co-Authored-By:`;
+  Answer in terminal opens focused; Esc in a Settings picker closes only the picker; Noyan's created row names a
+  waiting ticket's title; `otaq stage next` names the next stage; installing over 0.2 removes its old skill folders.
+- **Smaller changes.** Menus, popovers and tooltips draw above the side panels; Project settings → Flow never
+  scrolls inside its card; every Settings page starts at the same height; warm builds keep only what your last five
+  tickets used, so each new ticket's copy stays small (your own checkout is never changed).
 
 ## 0.2.0
 
