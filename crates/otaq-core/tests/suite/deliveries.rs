@@ -782,14 +782,19 @@ async fn a_key_a_closing_prompt_took_leaves_no_unsent_text_and_the_note_goes() {
     };
     let pending = async || w.deliveries.pending(&agent.session).await.unwrap().len();
 
-    // A prompt that takes one key without showing it, then closes back to the empty line.
+    // A prompt that takes one key without showing it, then closes back to the empty line. It is open once it says so
+    // on a row of its own: the command line's echo shows earlier, and a key typed before `stty -echo` ran would be
+    // echoed into the line, which then holds text (`y> `) and the note rightly waits.
     w.sessions
         .write(
             &agent.session,
-            b"stty -echo -icanon min 1; dd bs=1 count=1 >/dev/null 2>&1; stty echo icanon\r",
+            b"stty -echo -icanon min 1; printf 'prompt %s\\n' open; dd bs=1 count=1 >/dev/null 2>&1; stty echo icanon\r",
         )
         .unwrap();
-    wait_until("the prompt is open", || input_row().trim_end().is_empty()).await;
+    wait_until("the prompt is open", || {
+        shown().contains("prompt open") && input_row().trim_end().is_empty()
+    })
+    .await;
     client.request(typing(b"y")).await.unwrap();
     // Just typed, the screen may not show what became of the key yet: a note waits.
     let note = "The user added comment 2. Run otaq prime to read it.";
