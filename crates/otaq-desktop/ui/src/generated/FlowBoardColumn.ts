@@ -19,9 +19,16 @@ id: string, kind: FlowBoardColumnKind, name: string, icon: IconName,
  */
 what: string, avatar: ToolAvatarView | null, 
 /**
- * Its agent ("Strong"), "You" for a check by you.
+ * Who does it (A-1): its model and effort beside the tool's avatar ("gpt-5.5 · medium"), "You" for a check by
+ * you.
  */
-who: string | null, skill: string | null, 
+who: string | null, 
+/**
+ * The model's tool isn't set up on this Mac (A-4), or the model has its amber mark (AGT-05: refused, no longer
+ * listed, swapped): the who line in amber with ⚠, this on hover ("Codex isn't set up on this Mac. …", "Codex
+ * couldn't run gpt-5.5 on SHOP-3").
+ */
+who_off: string | null, skill: string | null, 
 /**
  * "3 rounds · fails go to Dev", "Fails go to Dev".
  */

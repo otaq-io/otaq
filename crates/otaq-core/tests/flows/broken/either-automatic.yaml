@@ -2,9 +2,9 @@ flow:
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: default
     skill: otaq:work-ticket
 delivery:
   delivers: either
   mode: automatic
-  agent: Developer
+  model: default

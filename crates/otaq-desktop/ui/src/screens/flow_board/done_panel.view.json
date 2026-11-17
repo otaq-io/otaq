@@ -1,0 +1,481 @@
+{
+  "project": "SHOP",
+  "proposal": 1,
+  "yaml": "flow:\n  - id: dev\n    name: Dev\n    kind: agent\n    model: default\n    skill: otaq:work-ticket\n    description: \"Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it.\"\n  - id: validate\n    name: Validate\n    kind: check\n    by: agent\n    model: default\n    skill: otaq:validate\n    rounds: 3\n    description: \"Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.\"\n  - id: review\n    name: Review\n    kind: check\n    by: you\n    description: \"The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered.\"\ndelivery:\n  delivers: pr\n  mode: click\n  model: codex:gpt-5.5\n  effort: medium\n  instructions: Keep the title under 70 characters.\n",
+  "bar": {
+    "title": "Editing shop-web’s flow",
+    "line": "Drag to reorder · click a stage for details · + to add",
+    "changes": "1 change",
+    "change_words": "changed Delivery",
+    "undo": "Undo",
+    "start_from": "Start from…",
+    "more": "More",
+    "cancel": "Cancel",
+    "save": "Save flow",
+    "save_enabled": true,
+    "reason": null,
+    "applies": "This applies at once: tickets that haven’t reached a changed step follow it; tickets in it or past it finish as they are."
+  },
+  "columns": [
+    {
+      "id": "backlog",
+      "kind": "backlog",
+      "name": "Backlog",
+      "icon": "circle-dashed",
+      "what": "Every flow starts here",
+      "avatar": null,
+      "who": null,
+      "who_off": null,
+      "skill": null,
+      "check_line": null,
+      "delivery": null,
+      "description": "Every flow starts here. Start a ticket and it goes into the first stage.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": false,
+      "movable": false,
+      "index": null,
+      "add": {
+        "after": null,
+        "title": "Add a stage between Backlog and Dev"
+      }
+    },
+    {
+      "id": "dev",
+      "kind": "stage",
+      "name": "Dev",
+      "icon": "bot",
+      "what": "An agent does the work",
+      "avatar": null,
+      "who": "default",
+      "who_off": null,
+      "skill": "otaq:work-ticket",
+      "check_line": null,
+      "delivery": null,
+      "description": "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": false,
+      "movable": true,
+      "index": 0,
+      "add": {
+        "after": "dev",
+        "title": "Add a stage between Dev and Validate"
+      }
+    },
+    {
+      "id": "validate",
+      "kind": "stage",
+      "name": "Validate",
+      "icon": "shield-check",
+      "what": "An agent checks it",
+      "avatar": null,
+      "who": "default",
+      "who_off": null,
+      "skill": "otaq:validate",
+      "check_line": "3 rounds · fails go to Dev",
+      "delivery": null,
+      "description": "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": false,
+      "movable": true,
+      "index": 1,
+      "add": {
+        "after": "validate",
+        "title": "Add a stage between Validate and Review"
+      }
+    },
+    {
+      "id": "review",
+      "kind": "stage",
+      "name": "Review",
+      "icon": "user-check",
+      "what": "You check it",
+      "avatar": null,
+      "who": "You",
+      "who_off": null,
+      "skill": null,
+      "check_line": "Fails go to Dev",
+      "delivery": null,
+      "description": "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": false,
+      "movable": true,
+      "index": 2,
+      "add": {
+        "after": "review",
+        "title": "Add a stage between Review and Done"
+      }
+    },
+    {
+      "id": "done",
+      "kind": "done",
+      "name": "Done",
+      "icon": "circle-check",
+      "what": "Every flow ends here",
+      "avatar": {
+        "tool": "codex",
+        "letters": "CX",
+        "background": "tool-cx",
+        "foreground": "tool-cx-fg",
+        "hover": "Codex · gpt-5.5"
+      },
+      "who": "gpt-5.5 · medium",
+      "who_off": "Codex isn’t set up on this Mac. Set it up or pick another model.",
+      "skill": null,
+      "check_line": null,
+      "delivery": "Pull request · on Approve",
+      "description": "Part of the flow, so it travels in the flow file. The project’s Repository card shows the same setting.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": true,
+      "movable": false,
+      "index": null,
+      "add": null
+    }
+  ],
+  "details": null,
+  "delivery": {
+    "title": "How work leaves the flow",
+    "delivers_label": "Deliver as",
+    "delivers_field": "delivery.delivers",
+    "delivers": [
+      {
+        "id": "local",
+        "label": "Merge into main",
+        "selected": false
+      },
+      {
+        "id": "pr",
+        "label": "Pull request",
+        "selected": true
+      },
+      {
+        "id": "either",
+        "label": "Either",
+        "selected": false
+      }
+    ],
+    "delivers_note": null,
+    "mode_label": "When",
+    "mode_field": "delivery.mode",
+    "modes": [
+      {
+        "id": "click",
+        "label": "On Approve",
+        "selected": true
+      },
+      {
+        "id": "automatic",
+        "label": "Automatically",
+        "selected": false
+      }
+    ],
+    "modes_off": false,
+    "mode_note": null,
+    "who": {
+      "heading": "Who does it",
+      "picker": {
+        "model_label": "Model",
+        "value": {
+          "avatar": {
+            "tool": "codex",
+            "letters": "CX",
+            "background": "tool-cx",
+            "foreground": "tool-cx-fg",
+            "hover": "Codex · gpt-5.5"
+          },
+          "text": "Codex · gpt-5.5",
+          "no_longer_listed": null
+        },
+        "menu": {
+          "title": "Pick a model…",
+          "pairs_heading": null,
+          "pairs": [],
+          "groups": [],
+          "missing": "Claude Code, Codex, Copilot and OpenCode aren’t set up",
+          "set_up": "Set up…",
+          "foot": "A model name without a version always means that tool’s newest.",
+          "another": null
+        },
+        "hint": "Any model of a tool on this Mac. Every ticket’s delivery uses it; it changes only here.",
+        "not_set_up": {
+          "tool": "codex",
+          "text": "Codex isn’t set up on this Mac. Set it up or pick another model.",
+          "set_up": "Set up Codex",
+          "pick": "Pick another model"
+        },
+        "marked": null,
+        "effort": {
+          "label": "Effort",
+          "levels": [
+            {
+              "id": "",
+              "label": "Default",
+              "selected": false
+            },
+            {
+              "id": "minimal",
+              "label": "Minimal",
+              "selected": false
+            },
+            {
+              "id": "low",
+              "label": "Low",
+              "selected": false
+            },
+            {
+              "id": "medium",
+              "label": "Medium",
+              "selected": true
+            },
+            {
+              "id": "high",
+              "label": "High",
+              "selected": false
+            },
+            {
+              "id": "xhigh",
+              "label": "XHigh",
+              "selected": false
+            }
+          ],
+          "hint": "How hard the model thinks. Higher is slower and uses more of your plan."
+        }
+      },
+      "warning": null,
+      "instructions_label": "Instructions · optional",
+      "instructions": "Keep the title under 70 characters.",
+      "instructions_hint": "Added to its skill for every ticket it delivers."
+    },
+    "writes": "Writes the pull request: its title and description. With Dev’s model and effort and no instructions, Dev’s session writes it: it has the ticket’s context.",
+    "skill": {
+      "label": "PR skill",
+      "field": "delivery.skill",
+      "value": "",
+      "placeholder": "otaq:open-pr",
+      "hint": "Your own Open PR skill, by name. Empty: the built-in open-pr runs.",
+      "warning": null
+    },
+    "note": "Part of the flow, so it travels in the flow file. The project’s Repository card shows the same setting."
+  },
+  "palette": {
+    "templates": [
+      {
+        "id": "security-review",
+        "title": "Security review",
+        "line": "An agent checks for secrets, injection and risky packages",
+        "icon": "shield-check",
+        "warning": "You don't have the skill `security-check`"
+      },
+      {
+        "id": "update-docs",
+        "title": "Update the docs",
+        "line": "An agent updates the docs for what changed",
+        "icon": "bot",
+        "warning": "You don't have the skill `update-docs`"
+      },
+      {
+        "id": "design-review",
+        "title": "Design review",
+        "line": "You check how it looks before it's built further",
+        "icon": "user-check",
+        "warning": null
+      },
+      {
+        "id": "product-spec",
+        "title": "Product spec",
+        "line": "An agent writes what to build, before any code",
+        "icon": "bot",
+        "warning": null
+      },
+      {
+        "id": "tech-spec",
+        "title": "Tech spec",
+        "line": "An agent plans how to build it",
+        "icon": "bot",
+        "warning": null
+      },
+      {
+        "id": "new-stage",
+        "title": "Blank stage",
+        "line": "Name it and choose what happens",
+        "icon": "square-dashed",
+        "warning": null
+      }
+    ],
+    "foot": "Each comes with a description, an agent and a skill; change any of them after."
+  },
+  "start_from": {
+    "shipped_label": "SHIPPED WITH OTAQ",
+    "presets": [
+      {
+        "key": "otaq-default.yaml",
+        "name": "Otaq default",
+        "line": "Dev → Validate → Review, each on your tools’ default model · merge or PR on Approve",
+        "pick": {
+          "pick": "preset",
+          "file": "otaq-default.yaml"
+        }
+      },
+      {
+        "key": "solo-autopilot.yaml",
+        "name": "Solo autopilot",
+        "line": "Dev → Validate, each on your tools’ default model · merges by itself",
+        "pick": {
+          "pick": "preset",
+          "file": "solo-autopilot.yaml"
+        }
+      },
+      {
+        "key": "spec-first.yaml",
+        "name": "Spec first",
+        "line": "Product spec → Tech spec → Milestone plan → Spec review → Dev → Validate → Code review, each on your tools’ default model · merge or PR on Approve",
+        "pick": {
+          "pick": "preset",
+          "file": "spec-first.yaml"
+        }
+      },
+      {
+        "key": "team-pr.yaml",
+        "name": "Team PR",
+        "line": "Dev → Validate, each on your tools’ default model · opens a PR by itself",
+        "pick": {
+          "pick": "preset",
+          "file": "team-pr.yaml"
+        }
+      }
+    ],
+    "more_label": "MORE",
+    "others": [],
+    "import": "Import a flow file…",
+    "import_line": "A .flow.yaml someone shared",
+    "foot": "Replaces the stages between Backlog and Done, and how work is delivered. Shipped flows use the default model of the tools on this Mac: what your account is set to. Change any stage after. Nothing changes until you save."
+  },
+  "more": {
+    "export": "Export flow file…",
+    "export_line": "shop-web.flow.yaml · stages, models, skills, delivery",
+    "export_file": "shop-web.flow.yaml",
+    "export_title": "Export shop-web’s flow",
+    "import": "Import a flow file…",
+    "import_line": "Opens as a draft; nothing changes until you save",
+    "import_title": "Import a flow file",
+    "copy": "Copy from another project…",
+    "previous": null,
+    "previous_line": "Opens as a draft"
+  },
+  "ask": {
+    "placeholder": "Ask Noyan to change this flow…",
+    "whole": "Suggest a whole flow",
+    "off": null,
+    "agent": "Noyan · Claude Code",
+    "line": "Proposes a draft · nothing changes until you save",
+    "send": "Ask Noyan",
+    "keys": "↵",
+    "state": {
+      "kind": "change"
+    }
+  },
+  "suggestion": null,
+  "watch": {
+    "label": "Watch a ticket",
+    "title": "Watch a ticket go through",
+    "subtitle": "the draft, not the saved flow",
+    "passes_label": "It passes",
+    "fails_label": "A check fails",
+    "passes": [
+      {
+        "column": "backlog",
+        "name": "Backlog",
+        "state": "Not started",
+        "text": "It waits in Backlog until you start it; Start puts it into the first stage."
+      },
+      {
+        "column": "dev",
+        "name": "Dev",
+        "state": "Working · default",
+        "text": "default works on it in Dev with otaq:work-ticket."
+      },
+      {
+        "column": "validate",
+        "name": "Validate",
+        "state": "Checking · round 1 of 3",
+        "text": "default checks it in Validate and passes it."
+      },
+      {
+        "column": "review",
+        "name": "Review",
+        "state": "Ready for you",
+        "text": "It waits in Review for you: you pass it, or send it back to Dev with a note."
+      },
+      {
+        "column": "done",
+        "name": "Done",
+        "state": "PR open",
+        "text": "You approve it and a pull request opens; it is done once it is merged."
+      }
+    ],
+    "fails": [
+      {
+        "column": "backlog",
+        "name": "Backlog",
+        "state": "Not started",
+        "text": "It waits in Backlog until you start it; Start puts it into the first stage."
+      },
+      {
+        "column": "dev",
+        "name": "Dev",
+        "state": "Working · default",
+        "text": "default works on it in Dev with otaq:work-ticket."
+      },
+      {
+        "column": "validate",
+        "name": "Validate",
+        "state": "Checking · round 1 of 3",
+        "text": "Validate fails it once, so it goes back to Dev with default’s notes. After 3 fails in a row it would wait for you."
+      },
+      {
+        "column": "dev",
+        "name": "Dev",
+        "state": "Working · default",
+        "text": "default fixes it in Dev and it comes back to Validate."
+      },
+      {
+        "column": "validate",
+        "name": "Validate",
+        "state": "Checking · round 2 of 3",
+        "text": "default checks it again in Validate and passes it."
+      },
+      {
+        "column": "review",
+        "name": "Review",
+        "state": "Ready for you",
+        "text": "It waits in Review for you: you pass it, or send it back to Dev with a note."
+      },
+      {
+        "column": "done",
+        "name": "Done",
+        "state": "PR open",
+        "text": "You approve it and a pull request opens; it is done once it is merged."
+      }
+    ],
+    "ticket_label": "YOUR TICKET",
+    "ticket_title": "A ticket like yours",
+    "step_of": "Step {n} of {m}",
+    "back": "Back",
+    "next": "Next",
+    "close": "Close"
+  },
+  "saved": {
+    "title": "Flow saved",
+    "text": "Applied now. Tickets that haven’t reached a changed stage follow it; tickets in it or past it finish as they are."
+  },
+  "hint": "flow_columns"
+}

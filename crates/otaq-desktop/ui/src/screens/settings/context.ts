@@ -33,6 +33,9 @@ export interface SettingsContextValue {
   /** Opens a project's page at one of its sections (What this agent reads' Edit in <project>'s settings →, T-0440).
    * Absent in the gallery. */
   openProject?: (project: string, section: string) => void;
+  /** Opens another topic of app settings at one of its sections, as its nav row does (Settings → Noyan's Set up
+   * <Tool> opens Tools). Absent in the gallery. */
+  openTopic?: (section: string) => void;
 }
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);

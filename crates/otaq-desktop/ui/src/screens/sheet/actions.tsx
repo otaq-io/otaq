@@ -7,7 +7,13 @@ import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useSta
 import { cardActions, takeCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
 import { useShortcut } from "../../app/registry";
-import { openTicket, requestTerminalFocus, requestTicketEdit, showTab } from "../../app/selection";
+import {
+  closeTicket,
+  openTicket,
+  requestTerminalFocus,
+  requestTicketEdit,
+  showTab,
+} from "../../app/selection";
 import { useStore } from "../../app/store";
 import { AnchoredMenu, IconButton } from "../../components";
 import type { SheetButton } from "../../generated/SheetButton";
@@ -20,7 +26,8 @@ import { askNoyanAbout } from "../agent_panel/logic";
 import { startTicket } from "../board/Board";
 import { passTicket } from "../review/CheckDialogs";
 import { startRun } from "../session/logic";
-import { actionRoute, agentSettings, cardRoute, CLOSE_TICKET, menuRoute } from "./actionRoutes";
+import { openFlowBoard } from "../flow_board/logic";
+import { actionRoute, cardRoute, CLOSE_TICKET, editFlowAt, menuRoute } from "./actionRoutes";
 
 /** The service events that change what the sheet shows. */
 export const SHEET_EVENTS = [
@@ -203,8 +210,9 @@ export function useSheetActions(view: SheetView): SheetActions {
         showTab("run");
         void startRun(view.key);
         return;
-      case "open_agent":
-        openOverlay("settings", agentSettings(view.open_agent));
+      case "edit_flow":
+        closeTicket();
+        openFlowBoard(editFlowAt(view.key, view.edit_flow_stage));
         return;
     }
   };
@@ -292,8 +300,9 @@ export function useSheetActions(view: SheetView): SheetActions {
       case "run_tab":
         showTab("run");
         return;
-      case "open_agent":
-        openOverlay("settings", agentSettings(view.open_agent));
+      case "edit_flow":
+        closeTicket();
+        openFlowBoard(editFlowAt(view.key, view.edit_flow_stage));
         return;
       case "provider_settings":
         openOverlay("settings", { section: "git" });

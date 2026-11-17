@@ -48,8 +48,9 @@ export function RefusalBox({ refusal }: { refusal: EditorRefusal | null }) {
 }
 
 /**
- * "Stage choices" under Priority (AGM-09; *08 → Row · Stage choices (update AG §9)*): a select per stage with options,
- * each on its stage's own agent until picked; none on the default flow. The picks stay in the
+ * "Stage choices" under Priority (AGM-09; *08 → Row · Stage choices (update AG §9)*): a select per stage the flow lets
+ * tickets skip, each running as the flow says until Skip is picked (a ticket picks no model, UX-65); none on the
+ * default flow. The picks stay in the
  * form and go with Create or Save (`form.choices`).
  */
 function ChoicesField({

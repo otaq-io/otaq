@@ -1,16 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createStore } from "../../app/store";
-import {
-  editStage,
-  NO_CHOICES,
-  pickEntry,
-  skillButton,
-  typedItem,
-  withClash,
-  withModel,
-  writeSkill,
-} from "./logic";
+import { editStage, pickEntry, skillButton, typedItem, writeSkill } from "./logic";
 
 const ask = vi.fn<(method: string, params?: unknown) => Promise<unknown>>();
 
@@ -46,17 +37,6 @@ describe("the board editor's calls for its draft", () => {
     expect(agents.get()).toEqual({ SHOP: "pa-1" });
     await skillButton("SHOP", "plan", "undo_skill", ask);
     expect(ask).toHaveBeenLastCalledWith("flow_editor.undo_skill", { project: "SHOP", stage: "plan" });
-  });
-
-  it("a problem's picks are kept until Save sends them (Q426)", () => {
-    let picks = withModel(NO_CHOICES, "Rust developer", "claude", "opus");
-    picks = withModel(picks, "Security reviewer", "default", "ignored");
-    picks = withClash(picks, "Validator", "add_as");
-    expect(picks).toEqual({
-      clashes: { Validator: "add_as" },
-      models: { "Rust developer": "claude:opus", "Security reviewer": "default" },
-    });
-    expect(NO_CHOICES).toEqual({ clashes: {}, models: {} });
   });
 
   it("Pick a skill… takes a name typed by hand: Use `<typed text>`, chosen as the text", () => {

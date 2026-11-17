@@ -3,28 +3,38 @@
 //! first stage: until it can begin it waits at the top of that stage's column. Neither end is a stage, and neither is
 //! the delivery: a flow's stages are only work and checks, each in its own column.
 //!
-//! A flow file holds `agents:`, `flow:` and `delivery:`. An agent is a name, resolved to one of the user's agents.
+//! A flow file holds `flow:` and `delivery:`. A stage an agent works or checks says who does it (UX-65): its `model:`
+//! (a tool, or `tool:model`), `effort:` and `instructions:`; so does the delivery (UX-69).
 
 use serde::Deserialize;
 
-/// A flow file: the agents it defines, its stages in the YAML's order, and its delivery.
+/// A flow file: its stages in the YAML's order, and its delivery.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FlowFile {
-    pub agents: Vec<FlowAgent>,
     pub flow: Flow,
 }
 
-/// An agent a flow file defines (d0108): its instructions and model. An agent has no skills and no role: an old
-/// file's `skills:` and `role:` still read, and are ignored and never written (T6).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct FlowAgent {
-    pub name: String,
-    /// Empty when it has none.
-    pub instructions: String,
-    /// `default` (the account's default model, as shipped files say) or a model as M32 names it.
-    pub model: String,
-    /// Why the flow has it, naming its source (FLW-04, the flow editor); nothing else reads it.
-    pub why: Option<String>,
+/// Who does a stage's (or the delivery's) work (UX-65, UX-67, UX-69): its model, effort and instructions, as the flow
+/// file says them.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
+pub struct WhoDoesIt {
+    /// A tool (`claude`: its default model, UX-68) or `tool:model` (`claude:opus`); `default` (the account's default
+    /// model's tool) only in shipped and older files, made a tool when the flow is applied.
+    pub model: Option<String>,
+    /// One of the tool's effort levels ([`crate::agent_tools::Tool::effort_levels`]).
+    pub effort: Option<String>,
+    /// Markdown added to the stage's skill for every ticket at the stage (UX-67).
+    pub instructions: Option<String>,
+}
+
+impl WhoDoesIt {
+    /// On `model` with no effort or instructions.
+    pub fn on(model: &str) -> Self {
+        Self {
+            model: Some(model.to_owned()),
+            ..Self::default()
+        }
+    }
 }
 
 /// The stages of a project, in order, and how the work is delivered after the last one.
@@ -36,7 +46,7 @@ pub struct Flow {
 }
 
 /// One stage, in its own column on the board. Which fields are set depends on the kind ([`crate::flow::yaml`]
-/// refuses the others): `agent` and `skill` for an Agent stage; `agent`, `skill` and `rounds` for an agent check;
+/// refuses the others): `who` and `skill` for an Agent stage; `who`, `skill` and `rounds` for an agent check;
 /// `fail_to` for a check (d0131).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stage {
@@ -45,13 +55,12 @@ pub struct Stage {
     pub id: String,
     pub name: String,
     pub kind: StageKind,
-    /// The agent that runs the stage: an Agent stage's or an agent check's (a check has one agent, like an Agent
-    /// stage; two checks are two stages). A draft's agent check may have none yet.
-    pub agent: Option<String>,
+    /// Who does the stage (UX-65): an Agent stage's or an agent check's model, effort and instructions. A draft's
+    /// stage may have no model yet ([`crate::flow::Rule::NoModel`]); a check by you has none.
+    pub who: WhoDoesIt,
     pub skill: Option<String>,
-    /// What a ticket may do besides running the stage as the flow says: only skipping it. A stage doesn't list the
-    /// agents it allows: a ticket may pick any agent whose tool has the stage's skill
-    /// ([`crate::board::stage_choices`]); the agent names older files list here are read and ignored.
+    /// What a ticket may do besides running the stage as the flow says: only skipping it (UX-72: a ticket can't pick
+    /// its own model); the agent names older files list here are read and ignored.
     pub options: Vec<StageOption>,
     /// An agent check's fails in a row before the card stops for the user (1–5).
     pub rounds: Option<u32>,
@@ -94,10 +103,10 @@ pub enum StageOption {
 pub struct Delivery {
     pub mode: DeliveryMode,
     pub delivers: Delivers,
-    /// The delivery's agent: when a ticket reaches Review it writes the message the delivery uses (the squash
-    /// commit's, and for a PR its branch, title and description), and it opens the PR. Required when the delivery can
-    /// open a PR (`pr` or `either`); a local merge may leave it out, and then its message is Otaq's plain one.
-    pub agent: Option<String>,
+    /// Who writes the message the delivery uses (the squash commit's, and for a PR its branch, title and description)
+    /// and opens the PR (UX-69): its model, effort and instructions. A model is required when the delivery can open a
+    /// PR (`pr` or `either`); a local merge may leave it out, and then its message is Otaq's plain one.
+    pub who: WhoDoesIt,
     /// The skill it opens the PR with; Otaq's `open-pr` when none is named.
     pub skill: Option<String>,
 }
@@ -108,7 +117,7 @@ impl Default for Delivery {
         Self {
             mode: DeliveryMode::Click,
             delivers: Delivers::Local,
-            agent: None,
+            who: WhoDoesIt::default(),
             skill: None,
         }
     }
@@ -241,29 +250,14 @@ impl Stage {
         }
     }
 
-    /// An agent check's agent; `None` for every other kind, and for a draft's check with none yet.
-    pub fn check_agent(&self) -> Option<&str> {
-        self.agent.as_deref().filter(|_| self.is_agent_check())
+    /// An agent works or checks it: an Agent stage or an agent check.
+    pub fn runs_agent(&self) -> bool {
+        self.is_agent_stage() || self.is_agent_check()
     }
 
-    /// The agent the stage names: an Agent stage's or an agent check's.
-    pub fn named_agents(&self) -> impl Iterator<Item = &String> {
-        self.agent.iter()
-    }
-
-    /// Every agent the stage names: its own agent ([`Self::named_agents`]); a stage lists no others.
-    pub fn every_agent(&self) -> impl Iterator<Item = &String> {
-        self.named_agents()
-    }
-
-    /// The agent the stage itself names ("Developer"); empty when it names none.
-    pub fn agents_line(&self) -> String {
-        self.agent.clone().unwrap_or_default()
-    }
-
-    /// The stage names an agent of its own: an Agent stage, an agent check with its agent.
-    pub fn has_agent(&self) -> bool {
-        self.agent.is_some()
+    /// The model the stage names (`claude:opus`); `None` for a check by you and a draft's stage with none yet.
+    pub fn model(&self) -> Option<&str> {
+        self.who.model.as_deref().filter(|_| self.runs_agent())
     }
 
     /// The flow lets a ticket skip this stage.

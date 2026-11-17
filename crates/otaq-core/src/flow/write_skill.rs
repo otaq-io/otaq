@@ -112,7 +112,7 @@ fn asked_for_another<'a>(
 
 /// A stage an agent runs (only those have a skill).
 fn runs_agent(stage: &Stage) -> Result<(), BoardError> {
-    if stage.has_agent() {
+    if stage.runs_agent() {
         return Ok(());
     }
     Err(BoardError::refused(
@@ -206,27 +206,14 @@ impl Board {
         Ok(PathBuf::from(self.project(project).await?.repo_path))
     }
 
-    /// The tool of the agent that runs `stage` (its first named agent: the document's own when it defines it, else
-    /// the stored one; `default` is the account's default model's tool). `None` when it can't be told.
-    async fn stage_tool(&self, file: &FlowFile, stage: &Stage) -> Result<Option<Tool>, BoardError> {
-        let Some(name) = stage.named_agents().next() else {
-            return Ok(None);
-        };
-        let documented = file
-            .agents
-            .iter()
-            .find(|a| a.name.eq_ignore_ascii_case(name))
-            .and_then(|a| crate::agents::shipped::model_of(&a.model).ok());
-        let model = match documented {
-            Some(model) => Some(model),
-            None => self
-                .store()
-                .agents()
-                .await?
-                .into_iter()
-                .find(|a| a.name.eq_ignore_ascii_case(name))
-                .map(|a| a.model),
-        };
+    /// The tool `stage` runs on (its model's; `default` is the account's default model's tool). `None` when it can't
+    /// be told.
+    async fn stage_tool(
+        &self,
+        _file: &FlowFile,
+        stage: &Stage,
+    ) -> Result<Option<Tool>, BoardError> {
+        let model = stage.model().and_then(|m| AgentModel::parse(m).ok());
         Ok(match model {
             Some(AgentModel::Tool { tool, .. }) => Some(tool),
             Some(AgentModel::Default) => self.store().default_model().await?.map(|m| m.tool),

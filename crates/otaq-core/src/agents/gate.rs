@@ -6,7 +6,7 @@
 //! **Resumes are never checked** (Send back, Park → Dev, Resume, the PR resume, Answer): a running conversation never
 //! changes tool, so a resume on a tool that isn't available or is at its limit fails the existing way.
 //!
-//! The agent's model is resolved first (`default` → the default model; the new-session tool with its default model
+//! The session's model (its stage's, the delivery's, Noyan's) is resolved first (`default` → the default model; the new-session tool with its default model
 //! while none is set), then checked, in order ([`check`]):
 //! 1. **the tool available?** (its state on Settings → Agent tools) — no: `tool_unavailable` with the tool's reason;
 //! 2. **the tool at its limit?** (an active limit of that tool not reset yet) — yes: `tool_limit`;
@@ -20,8 +20,8 @@
 //!    pass. A `tuq:` skill is asked of the tool's tuq, which tuq's installer installs or updates first when it doesn't
 //!    have it ([`crate::tuq`], decision 103); still missing: "Your tuq doesn't have `tuq:update-docs`".
 //!
-//! A session that can't start is **held** ([`super::AgentHold`]): **its agent waits for its tool**. Otaq never moves
-//! the work to another tool, on its own or in bulk. The card says why it waits and offers Open agent…. A held Developer stays waiting before its Agent stage (Held, its step naming the reason; Ready
+//! A session that can't start is **held** ([`super::AgentHold`]): **its stage waits for its tool**. Otaq never moves
+//! the work to another tool, on its own or in bulk. The card says why it waits and offers Edit flow…. A held Developer stays waiting before its Agent stage (Held, its step naming the reason; Ready
 //! for Dev before the first, between two Agent stages before the next, STG-07).
 //!
 //! **A hold lifts** when its cause may have gone ([`LaunchGate::run`]): a tool's state changes, a limit is resumed or
@@ -39,7 +39,9 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{Mutex, watch};
 
 use super::store::HoldScope;
-use super::{Agent, AgentHold, HoldReason, ModelRef, RunsOn, SessionRole, mark, resolve};
+use super::{
+    AgentHold, AgentModel, HoldReason, ModelRef, RunsOn, SessionRole, Who, effort_on, mark, resolve,
+};
 use crate::agent_tools::Tool;
 use crate::agent_tools::connected::{ConnectedTools, NotAvailable};
 use crate::agent_tools::follow::FollowChoice;
@@ -125,8 +127,8 @@ pub fn check(on: &ModelRef, facts: &Facts) -> Result<Option<String>, Blocked> {
 /// A session that can't start, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Held {
-    /// The agent it would have started.
-    pub agent: Agent,
+    /// Who it would have started.
+    pub who: Who,
     /// The tool and model it would have run on.
     pub on: ModelRef,
     pub blocked: Blocked,
@@ -172,34 +174,33 @@ impl Held {
 pub enum Decision {
     /// Launch on `on`, passing `model`.
     Launch { on: ModelRef, model: Option<String> },
-    /// Its agent waits for its tool (or its model).
+    /// It waits for its tool (or its model).
     Hold(Box<Held>),
 }
 
-/// The decision for a new session of `agent` on `on` (pure): launch when the checks pass, else held. Nothing ever
+/// The decision for a new session of `who` on `on` (pure): launch when the checks pass, else held. Nothing ever
 /// moves to another tool.
-pub fn decide(agent: &Agent, on: &ModelRef, facts: &Facts) -> Decision {
+pub fn decide(who: &Who, on: &ModelRef, facts: &Facts) -> Decision {
     match check(on, facts) {
         Ok(model) => Decision::Launch {
             on: on.clone(),
             model,
         },
         Err(blocked) => Decision::Hold(Box::new(Held {
-            agent: agent.clone(),
+            who: who.clone(),
             on: on.clone(),
             blocked,
         })),
     }
 }
 
-/// What a session of `agent` launches on: the agent's effort only with its own tool.
-fn runs_on(agent: &Agent, on: ModelRef, model: Option<String>) -> RunsOn {
-    let own = agent.model.tool() == Some(on.tool);
+/// What a session of `who` launches on: its effort only where its tool has that level.
+fn runs_on(who: &Who, on: ModelRef, model: Option<String>) -> RunsOn {
     RunsOn {
         tool: Some(on.tool),
         model,
-        effort: agent.effort.clone().filter(|_| own),
-        agent: Some(agent.session_agent()),
+        effort: effort_on(who, on.tool),
+        agent: Some(who.session_agent(on.tool)),
     }
 }
 
@@ -335,38 +336,38 @@ impl LaunchGate {
         Ok(facts)
     }
 
-    /// The tool and model `agent` runs on now (AGM-03, AGM-05): its own, or the default model (the new-session tool
+    /// The tool and model `who` runs on now (AGM-03, AGM-05): its own, or the default model (the new-session tool
     /// with its default model while none is set).
-    pub async fn model_of(&self, agent: &Agent) -> Result<ModelRef, BoardError> {
+    pub async fn model_of(&self, who: &Who) -> Result<ModelRef, BoardError> {
         let default = self.inner.board.store().default_model().await?;
-        Ok(agent.model.on(default.as_ref()).unwrap_or(ModelRef {
+        Ok(who.model.on(default.as_ref()).unwrap_or(ModelRef {
             tool: self.inner.new_session_tool,
             model: None,
         }))
     }
 
-    /// What `agent` would launch on now without the check (a gate-less test service, the PR path's tool check).
-    pub async fn runs_on(&self, agent: &Agent) -> Result<RunsOn, BoardError> {
-        let on = self.model_of(agent).await?;
+    /// What `who` would launch on now without the check (a gate-less test service, the PR path's tool check).
+    pub async fn runs_on(&self, who: &Who) -> Result<RunsOn, BoardError> {
+        let on = self.model_of(who).await?;
         let model = on.model.clone();
-        Ok(runs_on(agent, on, model))
+        Ok(runs_on(who, on, model))
     }
 
-    /// The check before a new session of `role` in `scope`, on `agent`. A launch clears an earlier hold; a hold
+    /// The check before a new session of `role` in `scope`, as `who`. A launch clears an earlier hold; a hold
     /// writes the hold (and the "no longer lists" mark).
     pub async fn before_launch(
         &self,
         role: SessionRole,
         scope: Scope<'_>,
-        agent: &Agent,
+        who: &Who,
     ) -> Result<Gated, BoardError> {
         let store = self.inner.board.store();
-        let decision = decide(agent, &self.model_of(agent).await?, &self.facts().await?);
-        let decision = self.with_skill(decision, role, scope).await?;
+        let decision = decide(who, &self.model_of(who).await?, &self.facts().await?);
+        let decision = self.with_skill(decision, role, scope, who).await?;
         match decision {
             Decision::Launch { on, model } => {
                 store.clear_agent_hold(scope.hold_scope(), role).await?;
-                Ok(Gated::Launch(runs_on(agent, on, model)))
+                Ok(Gated::Launch(runs_on(who, on, model)))
             }
             Decision::Hold(held) => {
                 self.write_hold(role, scope, &held).await?;
@@ -382,6 +383,7 @@ impl LaunchGate {
         decision: Decision,
         role: SessionRole,
         scope: Scope<'_>,
+        who: &Who,
     ) -> Result<Decision, BoardError> {
         let Decision::Launch { on, .. } = &decision else {
             return Ok(decision);
@@ -392,14 +394,11 @@ impl LaunchGate {
         let ticket = self.inner.board.ticket_by_id(id).await?;
         let skill = self.inner.board.held_stage_skill(&ticket, role).await?;
         match self.skill_blocked(&ticket, on.tool, skill.as_deref()).await {
-            Some(blocked) => {
-                let agent = resolve::session_agent(&self.inner.board, &ticket, role).await?;
-                Ok(Decision::Hold(Box::new(Held {
-                    agent,
-                    on: on.clone(),
-                    blocked,
-                })))
-            }
+            Some(blocked) => Ok(Decision::Hold(Box::new(Held {
+                who: who.clone(),
+                on: on.clone(),
+                blocked,
+            }))),
             None => Ok(decision),
         }
     }
@@ -455,14 +454,14 @@ impl LaunchGate {
         &self,
         role: SessionRole,
         scope: Scope<'_>,
-        agent: &Agent,
+        who: &Who,
     ) -> Result<Option<Held>, BoardError> {
         if !self.inner.check_tool_states {
             return Ok(None);
         }
-        let on = self.model_of(agent).await?;
+        let on = self.model_of(who).await?;
         self.inner.connected.recheck(Some(on.tool)).await?;
-        let Decision::Hold(held) = decide(agent, &on, &self.facts().await?) else {
+        let Decision::Hold(held) = decide(who, &on, &self.facts().await?) else {
             return Ok(None);
         };
         self.write_hold(role, scope, &held).await?;
@@ -496,7 +495,7 @@ impl LaunchGate {
     }
 
     /// Writes the hold of `role` in `scope`; a held Developer's ticket keeps its message current. A model no longer
-    /// listed marks the agent.
+    /// listed marks what the model came from (the stage, the delivery, Noyan's setting).
     async fn write_hold(
         &self,
         role: SessionRole,
@@ -517,7 +516,6 @@ impl LaunchGate {
                 reason: held.blocked.reason(),
                 tool: held.on.tool,
                 model: held.on.model.clone(),
-                agent_id: Some(held.agent.id.clone()),
                 skill: match &held.blocked {
                     Blocked::MissingSkill { skill } => Some(skill.clone()),
                     _ => None,
@@ -529,7 +527,7 @@ impl LaunchGate {
             && let Some(model) = held.on.model.as_deref()
             && mark::set_if_new(
                 store,
-                &held.agent,
+                &held.who.about,
                 &mark::no_longer_lists(held.on.tool.display_name(), model, &scope.on()),
             )
             .await?
@@ -552,7 +550,7 @@ impl LaunchGate {
             self.ticket_changed(id, key);
         }
         tracing::info!(on = scope.on(), %role, reason = %held.blocked.reason(), tool = %held.on.tool,
-            agent = held.agent.name, "held before launch");
+            runs_for = held.who.about.scope(), "held before launch");
         Ok(())
     }
 
@@ -563,14 +561,13 @@ impl LaunchGate {
     pub async fn lift(&self) -> Result<usize, BoardError> {
         let _one = self.inner.lifting.lock().await;
         let store = self.inner.board.store();
-        let agents = store.agents().await?;
         let facts = self.facts().await?;
-        let cleared = mark::clear_listed_again(store, &agents, |tool, model| {
+        let cleared = mark::clear_listed_again(store, |tool, model| {
             passed_model(Some(model), facts.lists.get(&tool)).is_some()
         })
         .await?;
         if !cleared.is_empty() {
-            tracing::info!(agents = ?cleared, "the tool lists the model again: marks cleared");
+            tracing::info!(marks = ?cleared, "the tool lists the model again: marks cleared");
             self.inner.events.publish(Event::AgentsChanged);
         }
         let mut holds = Vec::new();
@@ -615,18 +612,17 @@ impl LaunchGate {
                 id: &project.id,
                 name: &project.name,
             };
-            // The agent the held message would have started on (the conversation's own pick), else the agent Noyan
-            // uses.
-            let picked = match &hold.agent_id {
-                Some(id) => store.agent(id).await?,
-                None => None,
+            // The model the held message would have started on (Noyan's, or the conversation's own pick): the
+            // user's next send checks once more.
+            let who = Who {
+                model: AgentModel::Tool {
+                    tool: hold.tool,
+                    model: hold.model.clone(),
+                },
+                ..resolve::noyan_who(store).await?
             };
-            let agent = match picked {
-                Some(agent) => agent,
-                None => resolve::noyan_agent(store).await?,
-            };
-            let on = self.model_of(&agent).await?;
-            if let Decision::Hold(held) = decide(&agent, &on, facts) {
+            let on = self.model_of(&who).await?;
+            if let Decision::Hold(held) = decide(&who, &on, facts) {
                 self.write_hold(hold.role, scope, &held).await?;
                 return Ok(false);
             }
@@ -654,10 +650,10 @@ impl LaunchGate {
         if hold.role == SessionRole::Developer && ticket.status != Status::Held {
             return Ok(false);
         }
-        let agent = resolve::session_agent(board, &ticket, hold.role).await?;
-        let on = self.model_of(&agent).await?;
+        let who = resolve::session_who(board, &ticket, hold.role).await?;
+        let on = self.model_of(&who).await?;
         let decision = self
-            .with_skill(decide(&agent, &on, facts), hold.role, scope)
+            .with_skill(decide(&who, &on, facts), hold.role, scope, &who)
             .await?;
         if let Decision::Hold(held) = decision {
             if !same_hold(hold, &held) {
@@ -809,7 +805,6 @@ fn same_hold(stored: &AgentHold, held: &Held) -> bool {
     stored.reason == held.blocked.reason()
         && stored.tool == held.on.tool
         && stored.model == held.on.model
-        && stored.agent_id.as_deref() == Some(held.agent.id.as_str())
         && stored.skill.as_deref()
             == match &held.blocked {
                 Blocked::MissingSkill { skill } => Some(skill.as_str()),
@@ -834,22 +829,20 @@ pub fn still_waits(ticket: &Ticket, role: SessionRole) -> bool {
 mod tests {
     use super::*;
     use crate::agent_tools::models::{ModelEntry, ModelKind, ModelList};
-    use crate::agents::{AgentModel, CameFrom};
+    use crate::agents::About;
 
-    fn agent(tool: Tool) -> Agent {
-        Agent {
-            id: "dev".into(),
-            name: "Developer".into(),
-            instructions: String::new(),
+    fn agent(tool: Tool) -> Who {
+        Who {
             model: AgentModel::Tool {
                 tool,
                 model: Some("opus".into()),
             },
             effort: Some("high".into()),
-            came_from: CameFrom::DefaultPreset,
-            mark: None,
-            created_at: 0,
-            updated_at: 0,
+            instructions: String::new(),
+            about: About::Stage {
+                project: "SHOP".into(),
+                stage: "dev".into(),
+            },
         }
     }
 

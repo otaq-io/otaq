@@ -35,13 +35,14 @@ pub struct TicketCardView {
     pub title: String,
     /// The one status line: the state's dot (an amber hourglass while it waits) and its words.
     pub status: Option<StatusLine>,
-    /// One muted line under it, only when set: the ticket's own agent for a stage, or the stages it skips.
+    /// One muted line under it, only when set: the stages it skips.
     pub note: Option<crate::view_models::card_line::Note>,
     /// What waits for it: the line the card gains while hovered ("SHOP-30 waits for it"), the List's "blocks 1".
     pub blocks: Option<crate::view_models::dependencies::Blocks>,
     /// The tool mark of whoever has the turn; `null` while only one tool is connected (d0086).
     pub avatar: Option<ToolAvatarView>,
-    /// The agent's name ("Strong"); `null` while there is only one agent (d0086).
+    /// The tool of whoever has the turn ("Claude Code"; UX-65: the model stays off the card); `null` while only one
+    /// tool is connected (d0086).
     pub who: Option<String>,
     /// How long the agent has been at it ("26m"), or when a finished card finished ("today").
     pub time: Option<Signal>,

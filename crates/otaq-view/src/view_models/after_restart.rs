@@ -97,7 +97,7 @@ pub fn cannot_resume(tool: otaq_core::agent_tools::Tool, tools: &Tools) -> Optio
 }
 
 /// Whether a row on `tool` offers Sign in…: its tool can't run because it is signed out and has a sign-in to start
-/// (the same one Settings → Agents starts). A tool not checked yet, one whose sign-in couldn't be checked, one that
+/// (the same one Settings → Tools starts). A tool not checked yet, one whose sign-in couldn't be checked, one that
 /// isn't installed or at its limit gets none.
 pub fn offers_sign_in(tool: otaq_core::agent_tools::Tool, tools: &Tools) -> bool {
     !still_checking(tool, tools)
@@ -210,7 +210,7 @@ pub struct SummaryRow {
     /// "Codex isn’t signed in · sign in first": its tool can't run now, so it is unticked and can't be ticked.
     pub problem: Option<String>,
     /// "Sign in…", beside a problem that is its tool being signed out: `agent_tools.sign_in { tool }`, the same
-    /// sign-in as Settings → Agents. Once it succeeds the row is ticked.
+    /// sign-in as Settings → Tools. Once it succeeds the row is ticked.
     pub sign_in: Option<String>,
     /// The tool it ran on, as stored ("codex"): what Sign in… sends.
     pub tool: String,

@@ -56,7 +56,7 @@ fn human_check(id: &str, name: &str) -> Stage {
         id: id.into(),
         name: name.into(),
         kind: StageKind::Check { by: CheckBy::You },
-        agent: None,
+        who: Default::default(),
         skill: None,
         options: Vec::new(),
         rounds: None,

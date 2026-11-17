@@ -68,7 +68,7 @@ permission_prompt: SheetPermissionPrompt | null, notice: SheetNotice | null, con
 refusal: SheetRefusal | null, 
 /**
  * The held roles (§7.2, SCH-04 `[M23]`): "Model unavailable", "Codex isn't available · logged out", "Claude
- * Code limit reached · resets 3:45 pm", with Open agent…, Sign in….
+ * Code limit reached · resets 3:45 pm", with Edit flow…, Sign in….
  */
 holds: Array<ToolProblemCallout>, mark_closed: SheetConfirm | null, 
 /**
@@ -84,9 +84,9 @@ sheet: SheetFrame,
  */
 live_agent: boolean, 
 /**
- * The agent Open agent… opens (a held session's, or the one whose model the tool refused).
+ * The stage (its id) Edit flow… opens on: a held session's, or the one whose model the tool refused.
  */
-open_agent: string | null, 
+edit_flow_stage: string | null, 
 /**
  * "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125):
  * on the Overview and at the top of the Run and Shell.

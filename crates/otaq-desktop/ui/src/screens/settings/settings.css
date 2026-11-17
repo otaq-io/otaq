@@ -1970,7 +1970,7 @@
 }
 
 /*
- * Settings → Agent tools (T-0365; *15* `bGHVl` / `ehz4J`): one bordered list, a row per tool with its 28 px avatar,
+ * Settings → Tools (T-0365; *15* `bGHVl` / `ehz4J`): one bordered list, a row per tool with its 28 px avatar,
  * name and pill, the line under it, and Sign in… and … on the right. Connected green; the found states that need
  * something, a setup that failed and the permission warning amber; the rest grey. Never turquoise (d0077). The
  * onboarding Tools step reuses the command box, the chips and the warning.
@@ -2184,6 +2184,70 @@
 
 .agent-tools-not-shown {
   padding-top: 8px;
+}
+
+/* Settings → Tools' Where they're used (canvas A-8). */
+.tools-used {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 20px;
+}
+
+/* Settings → Noyan's Noyan starts on (UX-70): the shared field, alone on its page. */
+.noyan-starts-on {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.noyan-starts-on .fe-field {
+  max-width: 420px;
+}
+
+.noyan-starts-on-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tools-used-rows {
+  margin: 0;
+}
+
+.tools-used-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+}
+
+.tools-used-row + .tools-used-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.tools-used-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tools-used-places {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.tools-used-off {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--st-paused);
+  font-size: 12px;
+}
+
+.tools-used-note {
+  margin: 0;
 }
 
 .agent-tool-disconnect {

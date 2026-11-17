@@ -134,8 +134,8 @@ fn listed_status(ticket: &Ticket, tickets: &[Ticket]) -> PillView {
     pill
 }
 
-/// "Filters: is:needs-you · is:working · in:review · by:Strong": the state filters most used, the project's last
-/// stage and its first agent, as the user types them.
+/// "Filters: is:needs-you · is:working · in:review · by:claude-code": the state filters most used, the project's last
+/// stage and the first tool its cards' stages run on, as the user types them.
 fn filters_hint(scope: &Scope) -> String {
     let mut tokens = vec![
         Token::Is(Is::NeedsMe).label(),
@@ -152,14 +152,14 @@ fn filters_hint(scope: &Scope) -> String {
             .label(),
         );
     }
-    if let Some(agent) = scope.agents.first() {
-        tokens.push(Token::By(filter::word(agent)).label());
+    if let Some(tool) = scope.tools.first() {
+        tokens.push(Token::By(*tool).label());
     }
     format!("{FILTERS_HINT} {}", tokens.join(" \u{b7} "))
 }
 
 /// The field for `state` over the project's `tickets`; `selected` is the open ticket (its chain is suggested), `scope`
-/// the project's columns and agents (`in:`, `by:`).
+/// the project's columns and the tools its cards' stages run on (`in:`, `by:`).
 pub fn view(
     state: &FilterState,
     tickets: &[Ticket],
@@ -255,7 +255,7 @@ mod tests {
     }
 
     fn scope(all: &[Ticket]) -> Scope {
-        Scope::of(&otaq_core::flow::default_flow(), all, None, None)
+        Scope::of(&otaq_core::flow::default_flow(), all, None)
     }
 
     fn view_of(state: &FilterState, all: &[Ticket], selected: Option<&TicketKey>) -> SearchView {
@@ -431,15 +431,13 @@ mod tests {
         assert_eq!(v.suggestions[0].count, "1");
     }
 
-    /// `by:` keeps the tickets whose current stage is worked by that agent (the ticket's own pick for the stage, else
-    /// the stage's); an agent nobody has stays typed text.
+    /// `by:` keeps the tickets whose current stage runs on that tool (UX-65), named as the card names it, by its short
+    /// name or its command; a word that names no tool stays typed text, and a tool no card runs on finds none.
     #[test]
-    fn by_keeps_the_tickets_an_agent_works() {
+    fn by_keeps_the_tickets_whose_stage_runs_on_a_tool() {
         use otaq_core::agents::facts::{BoardAgents, CardAgents};
         let all = sample();
         let card = |key: &str, agent: Option<&str>| CardAgents {
-            instead_of: None,
-            own_agent: None,
             skips: Vec::new(),
             key: key.parse().unwrap(),
             running_developer: None,
@@ -448,20 +446,20 @@ mod tests {
             running_validator_on: None,
             holds: Vec::new(),
             starts: None,
-            refused_agent: None,
+            refused_stage: None,
             stage_agent: agent.map(Into::into),
+            at_check: false,
         };
         let agents = BoardAgents {
-            agent_count: 2,
             cards: vec![
-                card("SHOP-18", Some("Strong")),
-                card("SHOP-20", Some("Developer")),
-                card("SHOP-22", Some("Strong")),
+                card("SHOP-18", Some("Claude Code")),
+                card("SHOP-20", Some("Codex")),
+                card("SHOP-22", Some("Claude Code")),
                 card("SHOP-19", None),
             ],
             connected: Vec::new(),
         };
-        let scope = Scope::of(&otaq_core::flow::default_flow(), &all, Some(&agents), None);
+        let scope = Scope::of(&otaq_core::flow::default_flow(), &all, Some(&agents));
         let listed = |text: &str| {
             let v = view(&state(&[], text), &all, None, &scope, &MAC());
             (
@@ -469,16 +467,24 @@ mod tests {
                 v.tickets.into_iter().map(|t| t.key).collect::<Vec<_>>(),
             )
         };
-        assert_eq!(
-            listed("by:Strong "),
-            (
-                vec!["by:strong".to_owned()],
-                vec!["SHOP-18".to_owned(), "SHOP-22".to_owned()]
-            )
+        let both = (
+            vec!["by:claude-code".to_owned()],
+            vec!["SHOP-18".to_owned(), "SHOP-22".to_owned()],
         );
-        assert_eq!(listed("by:developer ").1, ["SHOP-20"]);
-        let (tokens, keys) = listed("by:nobody ");
-        assert!(tokens.is_empty(), "an unknown agent stays text");
+        assert_eq!(listed("by:Claude-Code "), both);
+        assert_eq!(listed("by:claude "), both);
+        assert_eq!(listed("by:codex ").1, ["SHOP-20"]);
+        let (tokens, keys) = listed("by:copilot ");
+        assert_eq!(tokens, ["by:copilot"], "every tool reads");
         assert!(keys.is_empty());
+        let (tokens, keys) = listed("by:strong ");
+        assert!(tokens.is_empty(), "an old agent's name stays text");
+        assert!(keys.is_empty());
+        // Typed, `by:` suggests the tools the cards run on, and the hint names the first.
+        let v = view(&state(&[], "by:"), &all, None, &scope, &MAC());
+        let suggested: Vec<&str> = v.suggestions.iter().map(|s| s.token.as_str()).collect();
+        assert_eq!(suggested, ["by:claude-code", "by:codex"]);
+        let hint = filters_hint(&scope);
+        assert!(hint.ends_with("by:claude-code"), "{hint}");
     }
 }

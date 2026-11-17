@@ -1,23 +1,23 @@
-//! What the screens show about a ticket's agents (AGM-05, AGM-09; d0108, d0088): the agent each stage of its flow
-//! runs, the sessions that ran (with the agent, the exact model and the effort of each) and its holds, answered by
-//! `ticket.agents`; and what each board card says about its running agent, answered by `board.agents`. The wording
-//! is the view models' (`stage_choices.rs` draws the path and the choices); this is only the facts.
+//! What the screens show about a ticket's sessions (AGM-05, AGM-09; d0108, d0088, UX-65): who does each stage of its
+//! flow (the stage's model, effort and instructions), the sessions that ran (with the tool, the exact model and the
+//! effort of each) and its holds, answered by `ticket.agents`; and what each board card says about its running session,
+//! answered by `board.agents`. The wording is the view models'; this is only the facts.
 
 use serde::{Deserialize, Serialize};
 
 use super::store::SessionAgentRun;
-use super::{Agent, AgentHold, HoldReason, ModelRef, SessionRole, resolve};
+use super::{AgentHold, HoldReason, ModelRef, SessionRole, Who, resolve};
 use crate::agent_tools::Tool;
 use crate::board::stage_choices::StageOptions;
 use crate::board::stage_runs::StageRun;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::domain::{Place, Status, TicketKey};
-use crate::flow::{Flow, StageKind};
+use crate::flow::{Flow, Stage, StageKind};
 use crate::usage::AgentTokens;
 
-/// A stage of the ticket's flow that runs an agent, and the agent it runs (the ticket's choice, else the stage's
-/// agent; AGM-05, AGM-08).
+/// A stage of the ticket's flow that runs an agent, and who does it (the stage's model, effort and instructions;
+/// AGM-05, UX-65).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageAgent {
     pub stage_id: String,
@@ -25,18 +25,16 @@ pub struct StageAgent {
     pub stage: String,
     /// Which session runs it: an Agent stage's the Developer, an agent check's the Validator.
     pub role: SessionRole,
-    /// `None` when the stage names an agent that isn't there.
-    pub agent: Option<Agent>,
+    /// `None` when the stage names no model yet.
+    pub who: Option<Who>,
 }
 
-/// The answer to `ticket.agents`: a ticket's agents, or (no key) a new one's in a project.
+/// The answer to `ticket.agents`: a ticket's sessions, or (no key) a new one's stages in a project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketAgents {
     /// `None` for a ticket not created yet (the ⌘N form).
     pub key: Option<TicketKey>,
     pub status: Option<Status>,
-    /// Every agent.
-    pub agents: Vec<Agent>,
     /// A ticket's stages that run an agent, in flow order.
     pub stages: Vec<StageAgent>,
     /// Oldest first.
@@ -51,8 +49,7 @@ pub struct TicketAgents {
     /// Where the ticket is now (`None` for a new one).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<Place>,
-    /// A ticket's path (AGM-09): every stage of its flow, in order, with the agent each runs for it; empty for a
-    /// new ticket.
+    /// A ticket's path (AGM-09): every stage of its flow, in order, with who does each; empty for a new ticket.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<PathStage>,
     /// The ticket's stage runs, oldest first (STG-05): what ran, on which exact model, and how each ended.
@@ -78,8 +75,8 @@ pub enum PathKind {
 pub const DELIVERY_STEP_ID: &str = "delivery";
 pub const DELIVERY_STEP: &str = "Delivery";
 
-/// One step of a ticket's path (AGM-09): a stage, and the agent it runs for this ticket (its choice, else the stage's
-/// agent; none for a human check), or the flow's delivery, last, with the agent that opens its PR.
+/// One step of a ticket's path (AGM-09): a stage, and who does it (none for a human check), or the flow's delivery,
+/// last, with who writes and opens its PR.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathStage {
     pub stage_id: String,
@@ -93,7 +90,7 @@ pub struct PathStage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery: Option<PathDelivery>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<Agent>,
+    pub who: Option<Who>,
     /// The ticket skips it by its choice (AGM-08).
     #[serde(default)]
     pub skipped: bool,
@@ -106,22 +103,10 @@ pub struct PathDelivery {
 }
 
 /// The path of `ticket` on `flow` ([`PathStage`]), skipping `skips`.
-async fn path_of(
-    board: &Board,
-    ticket: &Ticket,
-    flow: &Flow,
-    skips: &[String],
-) -> Result<Vec<PathStage>, BoardError> {
+fn path_of(ticket: &Ticket, flow: &Flow, skips: &[String]) -> Vec<PathStage> {
+    let project = ticket.key.project.as_str();
     let mut path = Vec::with_capacity(flow.stages.len() + 1);
     for stage in &flow.stages {
-        // T-0527: every check agent (one agent per stage here: an agent check's first).
-        let agent = match stage.has_agent() {
-            true => match board.chosen_agent(ticket, stage).await? {
-                Some(chosen) => Some(chosen),
-                None => resolve::stage_agent(board, stage).await.ok(),
-            },
-            false => None,
-        };
         path.push(PathStage {
             stage_id: stage.id.clone(),
             stage: stage.name.clone(),
@@ -132,15 +117,13 @@ async fn path_of(
             },
             rounds: stage.rounds,
             delivery: None,
-            agent,
+            who: resolve::stage_who(project, stage).ok(),
             skipped: skips.contains(&stage.id),
         });
     }
     let delivery = &flow.delivery;
-    let agent = match delivery.can_open_pr() {
-        true => resolve::delivery_agent(board, ticket.key.project.as_str())
-            .await
-            .ok(),
+    let who = match delivery.can_open_pr() {
+        true => resolve::delivery_who_of(project, flow).ok(),
         false => None,
     };
     path.push(PathStage {
@@ -152,16 +135,15 @@ async fn path_of(
             automatic: delivery.mode == crate::flow::DeliveryMode::Automatic,
             delivers: delivery.delivers.as_str().to_owned(),
         }),
-        agent,
+        who,
         skipped: false,
     });
-    Ok(path)
+    path
 }
 
-/// What a project's board cards say about their agents (SHL-07's footer; T-0345), answered by `board.agents`.
+/// What a project's board cards say about their sessions (SHL-07's footer; T-0345), answered by `board.agents`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardAgents {
-    pub agent_count: usize,
     /// Every ticket of the project.
     pub cards: Vec<CardAgents>,
     /// The agent tools connected now (`ConnectedTools`, filled by the service): avatars and tool names show once
@@ -170,11 +152,12 @@ pub struct BoardAgents {
     pub connected: Vec<Tool>,
 }
 
-/// One ticket's agents for its card: whoever has the turn, and its holds. Nothing before it starts (AGM-09).
+/// One ticket's sessions for its card: whoever has the turn, and its holds. Nothing before it starts (AGM-09).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardAgents {
     pub key: TicketKey,
-    /// The agent of the running Agent stage session (agent, answer, delivery) and of the running check.
+    /// The name of the running Agent stage session (agent, answer, delivery) and of the running check: its tool's
+    /// ("Claude Code"; an older session's agent's).
     pub running_developer: Option<String>,
     pub running_validator: Option<String>,
     /// The tool and model each runs on (T-0362).
@@ -182,50 +165,35 @@ pub struct CardAgents {
     pub running_developer_on: Option<RunsOnTool>,
     #[serde(default)]
     pub running_validator_on: Option<RunsOnTool>,
-    /// The sessions held before they start, with the names the card says.
+    /// The sessions held before they start, with what the card says.
     #[serde(default)]
     pub holds: Vec<CardHold>,
-    /// A ticket waiting before an Agent stage: where it starts, on which agent and model ("Product spec · Spec writer ·
+    /// A ticket waiting before an Agent stage: where it starts, on which tool and model ("Product spec · Claude Code ·
     /// sonnet", AGM-09).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub starts: Option<CardStart>,
-    /// The agent whose model the tool refused (a Start failed or a check's No result on the model, AGT-05), for
-    /// Open agent….
+    /// The stage (its id) whose model the tool refused (a Start failed or a check's No result on the model, AGT-05),
+    /// for Edit flow….
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refused_agent: Option<String>,
-    /// The agent of the stage the ticket is in or waits before, by name: the ticket's own agent for that stage if it
-    /// chose one, else the stage's. `None` in Backlog, Done and a stage that runs no agent. The search's `by:` reads it.
+    pub refused_stage: Option<String>,
+    /// The tool the stage the ticket is in or waits before runs on ("Claude Code"). `None` in Backlog, Done and a stage
+    /// that runs no agent. The search's `by:` reads it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage_agent: Option<String>,
-    /// The stage's own agent, by name, when the ticket chose another one for the stage it is in or waits before
-    /// ([`Self::stage_agent`]). Kept for older readers; the card reads [`Self::own_agent`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub instead_of: Option<String>,
-    /// The agent the ticket chose for a stage instead of that stage's own, from the moment it is set: the first stage
-    /// from the one it is in or waits before on (the whole flow from Backlog) that it chose one for. The card's and
-    /// Overview's "Dev: Light instead of Strong".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub own_agent: Option<OwnAgent>,
+    /// The ticket is in an agent check stage of its project's flow ([`at_agent_check`]): the check, not the developer,
+    /// has it, also while it waits for its tool's limit or was interrupted (C3c). The card names the check's tool.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub at_check: bool,
     /// The stages the user chose to skip for this ticket, by name, in flow order: the card's "Skips Product spec".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skips: Vec<String>,
 }
 
-/// A ticket's own agent for a stage ([`CardAgents::own_agent`]): the stage, the agent it chose, and the stage's own.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OwnAgent {
-    /// "Dev".
-    pub stage: String,
-    /// "Light".
-    pub agent: String,
-    /// "Strong".
-    pub instead_of: String,
-}
-
-/// Where a waiting ticket starts: the stage, the agent it runs there, and that agent's model now.
+/// Where a waiting ticket starts: the stage, the tool it runs there, and its model now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardStart {
     pub stage: String,
+    /// The tool's name ("Claude Code").
     pub agent: String,
     /// `None` while no default model is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -237,23 +205,21 @@ pub struct CardStart {
 pub struct RunsOnTool {
     pub tool: Tool,
     pub model: Option<String>,
-    /// The model as passed (`None`: the tool's default): what the footer names ("Rust developer · sonnet").
+    /// The model as passed (`None`: the tool's default): what the footer names ("Claude Code · sonnet").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub passed: Option<String>,
 }
 
-/// A hold ([`super::AgentHold`]) as a card says it: the agent it would have started, waiting for its tool.
+/// A hold ([`super::AgentHold`]) as a card says it: the stage that waits for its tool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardHold {
     pub role: SessionRole,
     pub reason: HoldReason,
     pub tool: Tool,
     pub model: Option<String>,
-    /// The agent it would have started ("Developer").
-    pub agent: Option<String>,
-    /// Its agent's id, for Open agent….
+    /// The stage it would have started (its id), for Edit flow….
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_id: Option<String>,
+    pub stage_id: Option<String>,
     /// **Skip this check** is offered: an agent check held for its tool's plan limit (FLW-13, Q277). Never on a
     /// held Agent stage.
     #[serde(default)]
@@ -267,18 +233,14 @@ pub struct CardHold {
 }
 
 impl CardHold {
-    pub fn of(hold: &AgentHold, agents: &[Agent]) -> Self {
-        let agent = hold
-            .agent_id
-            .as_ref()
-            .and_then(|id| agents.iter().find(|a| &a.id == id));
+    /// `hold` as a card says it, held at the stage `stage_id`.
+    pub fn of(hold: &AgentHold, stage_id: Option<String>) -> Self {
         Self {
             role: hold.role,
             reason: hold.reason,
             tool: hold.tool,
             model: hold.model.clone(),
-            agent: agent.map(|a| a.name.clone()),
-            agent_id: hold.agent_id.clone(),
+            stage_id,
             can_skip_check: crate::validation::skip_at_limit(hold),
             resets_at: None,
             skill: hold.skill.clone(),
@@ -286,32 +248,44 @@ impl CardHold {
     }
 }
 
-/// The stages of `project`'s flow that run an agent, each with its agent.
+/// The stage of `ticket` on `flow` a session of `role` runs in (skipping `skips`): an Agent stage's, an agent check's.
+pub fn stage_of_role<'f>(
+    flow: &'f Flow,
+    ticket: &Ticket,
+    skips: &[String],
+    role: SessionRole,
+) -> Option<&'f Stage> {
+    match role {
+        SessionRole::Developer => resolve::agent_stage_of(flow, ticket, skips),
+        SessionRole::Validator => resolve::check_stage_of(flow, ticket, skips),
+        SessionRole::ProjectAgent => None,
+    }
+}
+
+/// The stages of `project`'s flow that run an agent, each with who does it.
 async fn stage_agents(board: &Board, project: &str) -> Result<Vec<StageAgent>, BoardError> {
     let flow = board.effective_flow(project).await?;
-    let mut stages = Vec::new();
-    // T-0527: every check agent (one agent per stage here: an agent check's first).
-    for stage in flow.stages.iter().filter(|s| s.has_agent()) {
-        stages.push(StageAgent {
+    Ok(flow
+        .stages
+        .iter()
+        .filter(|s| s.runs_agent())
+        .map(|stage| StageAgent {
             stage_id: stage.id.clone(),
             stage: stage.name.clone(),
             role: match stage.is_agent_check() {
                 true => SessionRole::Validator,
                 false => SessionRole::Developer,
             },
-            agent: resolve::stage_agent(board, stage).await.ok(),
-        });
-    }
-    Ok(stages)
+            who: resolve::stage_who(project, stage).ok(),
+        })
+        .collect())
 }
 
 /// What a ticket not created yet in `project` runs: its flow's stages, nothing ran.
 pub async fn new_ticket_agents(board: &Board, project: &str) -> Result<TicketAgents, BoardError> {
-    let store = board.store();
     Ok(TicketAgents {
         key: None,
         status: None,
-        agents: store.agents().await?,
         stages: stage_agents(board, project).await?,
         sessions: Vec::new(),
         tokens: Vec::new(),
@@ -323,21 +297,14 @@ pub async fn new_ticket_agents(board: &Board, project: &str) -> Result<TicketAge
     })
 }
 
-/// Everything the sheet shows of `key`'s agents ([`TicketAgents`]).
+/// Everything the sheet shows of `key`'s sessions ([`TicketAgents`]).
 pub async fn ticket_agents(board: &Board, key: &str) -> Result<TicketAgents, BoardError> {
     let ticket = board.ticket(key).await?;
     let mut agents = new_ticket_agents(board, ticket.key.project.as_str()).await?;
-    // The agent the ticket chose for a stage instead of its usual one (AGM-08), its path, runs and choices (AGM-09).
+    // Its path, runs and choices (AGM-09).
     let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-    for stage_agent in &mut agents.stages {
-        if let Some(stage) = flow.stage(&stage_agent.stage_id)
-            && let Some(chosen) = board.chosen_agent(&ticket, stage).await?
-        {
-            stage_agent.agent = Some(chosen);
-        }
-    }
     let skips = board.ticket_skips(&ticket, &flow).await?;
-    agents.path = path_of(board, &ticket, &flow, &skips).await?;
+    agents.path = path_of(&ticket, &flow, &skips);
     agents.runs = board.stage_runs(key).await?;
     agents.choices = board.ticket_choices(key).await?.stages;
     agents.place = Some(ticket.place.clone());
@@ -353,11 +320,10 @@ pub async fn ticket_agents(board: &Board, key: &str) -> Result<TicketAgents, Boa
     Ok(agents)
 }
 
-/// Every card's agent facts in `project` ([`BoardAgents`]): read in a few queries, whatever the board's size.
+/// Every card's facts in `project` ([`BoardAgents`]): read in a few queries, whatever the board's size.
 pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, BoardError> {
     let project = board.project(project).await?;
     let store = board.store();
-    let agents = store.agents().await?;
     let running = store.running_agent_names(&project.id).await?;
     let holds = store.project_ticket_holds(&project.id).await?;
     // The tools at their limits and when each resets (a limit's hold says it).
@@ -389,38 +355,21 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
                 })
             })
         };
-        let starts = match ticket.place.is_waiting() {
-            true => card_start(board, &ticket, &flow, default_model.as_ref()).await?,
-            false => None,
-        };
-        let refused_agent = match crate::board::needs_you::change_agent(&ticket) {
-            Some(role) => store
-                .session_agents(&ticket.id)
-                .await?
-                .into_iter()
-                .rev()
-                .find(|s| s.role == role)
-                .and_then(|s| s.agent_id),
-            None => None,
-        };
-        let stage_agent = match &starts {
-            Some(start) => Some(start.agent.clone()),
-            None => stage_agent_of(board, &ticket, &flow).await?,
-        };
         let skipped = match ticket.place {
             Place::Done => Vec::new(),
             _ => board.ticket_skips(&ticket, &flow).await?,
         };
-        let own = own_agent_of(board, &ticket, &flow, &skipped).await?;
-        let here = match &ticket.place {
-            Place::Waiting(None) => flow.first_agent_stage().map(|s| s.id.as_str()),
-            place => place.stage_id(),
+        let starts = match ticket.place.is_waiting() {
+            true => card_start(&ticket, &flow, &skipped, default_model.as_ref()),
+            false => None,
         };
-        let instead_of = own
-            .as_ref()
-            .filter(|(stage_id, _)| Some(stage_id.as_str()) == here)
-            .map(|(_, o)| o.instead_of.clone());
-        let own_agent = own.map(|(_, o)| o);
+        let refused_stage = crate::board::needs_you::fix_model(&ticket)
+            .and_then(|role| stage_of_role(&flow, &ticket, &skipped, role))
+            .map(|s| s.id.clone());
+        let stage_agent = match &starts {
+            Some(start) => Some(start.agent.clone()),
+            None => stage_tool_of(&ticket, &flow, default_model.as_ref()),
+        };
         let skips = flow
             .stages
             .iter()
@@ -437,106 +386,78 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
                 .filter(|h| h.ticket_id.as_deref() == Some(ticket.id.as_str()))
                 .map(|h| CardHold {
                     resets_at: resets_of(h),
-                    ..CardHold::of(h, &agents)
+                    ..CardHold::of(
+                        h,
+                        stage_of_role(&flow, &ticket, &skipped, h.role).map(|s| s.id.clone()),
+                    )
                 })
                 .collect(),
             starts,
-            refused_agent,
+            refused_stage,
             stage_agent,
-            instead_of,
-            own_agent,
+            at_check: at_agent_check(&ticket, &flow),
             skips,
             key: ticket.key,
         });
     }
     Ok(BoardAgents {
-        agent_count: agents.len(),
         cards,
         connected: Vec::new(),
     })
 }
 
-/// The agent of the stage `ticket` is in ([`CardAgents::stage_agent`]): its own choice there, else the stage's.
-async fn stage_agent_of(
-    board: &Board,
-    ticket: &Ticket,
-    flow: &Flow,
-) -> Result<Option<String>, BoardError> {
+/// Whether `ticket` is in an agent check stage of `flow` (C3c): the check has it, whatever its status says (Checking,
+/// a check that ended without passing, or one waiting for its tool's limit or interrupted). A ticket sent back to an
+/// Agent stage is in that stage, not here.
+pub fn at_agent_check(ticket: &Ticket, flow: &Flow) -> bool {
+    matches!(ticket.place, Place::InStage(_))
+        && ticket
+            .place
+            .stage()
+            .and_then(|id| flow.stage(id))
+            .is_some_and(|s| s.is_agent_check())
+}
+
+/// Whether an Agent stage's `status` in an agent check stage (`at_check`, [`at_agent_check`]) is the check's (C3c): its
+/// checker waits for its tool's limit or was interrupted while checking. Not the developer's own waits (Asks you,
+/// Needs you, Idle, or Interrupted from one: `interrupted_from`): its live session raises them while the check runs
+/// (signals' `validating`, the place staying the check), and the developer is the one asking. The checker's own
+/// prompts read Checker needs you.
+pub fn check_waits(at_check: bool, status: Status, interrupted_from: Option<Status>) -> bool {
+    at_check
+        && status.set() == crate::domain::StatusSet::AgentStage
+        && !status.is_agent_waiting()
+        && !interrupted_from.is_some_and(Status::is_agent_waiting)
+}
+
+/// The tool the stage `ticket` is in runs on ([`CardAgents::stage_agent`]), by its name.
+fn stage_tool_of(ticket: &Ticket, flow: &Flow, default: Option<&ModelRef>) -> Option<String> {
     let stage = match &ticket.place {
         Place::InStage(id) | Place::Waiting(Some(id)) => flow.stage(id),
         Place::Waiting(None) => flow.first_agent_stage(),
         Place::Backlog | Place::Done => None,
-    };
-    let Some(stage) = stage.filter(|s| s.has_agent()) else {
-        return Ok(None);
-    };
-    Ok(match board.chosen_agent(ticket, stage).await? {
-        Some(chosen) => Some(chosen.name),
-        None => resolve::stage_agent(board, stage)
-            .await
-            .ok()
-            .map(|a| a.name),
-    })
-}
-
-/// The ticket's own agent ([`CardAgents::own_agent`]): the first stage from the one it is in or waits before on (the
-/// whole flow from Backlog), past the stages it skips, that it chose another agent for, with that stage's id. Nothing
-/// once it is done.
-async fn own_agent_of(
-    board: &Board,
-    ticket: &Ticket,
-    flow: &Flow,
-    skips: &[String],
-) -> Result<Option<(String, OwnAgent)>, BoardError> {
-    let from = match &ticket.place {
-        Place::InStage(id) | Place::Waiting(Some(id)) => {
-            flow.stages.iter().position(|s| &s.id == id).unwrap_or(0)
-        }
-        Place::Backlog | Place::Waiting(None) => 0,
-        Place::Done => return Ok(None),
-    };
-    for stage in flow.stages.iter().skip(from) {
-        if !stage.has_agent() || skips.contains(&stage.id) {
-            continue;
-        }
-        let Some(chosen) = board.chosen_agent(ticket, stage).await? else {
-            continue;
-        };
-        let Ok(own) = resolve::stage_agent(board, stage).await else {
-            continue;
-        };
-        if own.id != chosen.id {
-            return Ok(Some((
-                stage.id.clone(),
-                OwnAgent {
-                    stage: stage.name.clone(),
-                    agent: chosen.name,
-                    instead_of: own.name,
-                },
-            )));
-        }
-    }
-    Ok(None)
+    }?;
+    let who = resolve::stage_who(ticket.key.project.as_str(), stage).ok()?;
+    let on = who.model.on(default)?;
+    Some(on.tool.display_name().to_owned())
 }
 
 /// Where a waiting `ticket` starts ([`CardStart`]): the Agent stage it waits before (its first on the flow, past the
-/// stages it skips), and the agent it runs there.
-async fn card_start(
-    board: &Board,
+/// stages it skips), and the tool and model it runs there.
+fn card_start(
     ticket: &Ticket,
     flow: &Flow,
+    skips: &[String],
     default_model: Option<&ModelRef>,
-) -> Result<Option<CardStart>, BoardError> {
-    let skips = board.ticket_skips(ticket, flow).await?;
-    let Some(stage) = resolve::agent_stage_of(flow, ticket, &skips) else {
-        return Ok(None);
-    };
-    let Ok(agent) = resolve::running_agent(board, ticket, &stage.id).await else {
-        return Ok(None);
-    };
-    Ok(Some(CardStart {
+) -> Option<CardStart> {
+    let stage = resolve::agent_stage_of(flow, ticket, skips)?;
+    let who = resolve::stage_who(ticket.key.project.as_str(), stage).ok()?;
+    let model = who.model.on(default_model);
+    Some(CardStart {
         stage: stage.name.clone(),
-        model: agent.model.on(default_model),
-        agent: agent.name,
-    }))
+        agent: model
+            .as_ref()
+            .map_or_else(|| stage.name.clone(), |m| m.tool.display_name().to_owned()),
+        model,
+    })
 }

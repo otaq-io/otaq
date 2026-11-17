@@ -35,7 +35,6 @@ import type { FlowBoardDeliverySkill } from "../../generated/FlowBoardDeliverySk
 import type { FlowBoardDetails } from "../../generated/FlowBoardDetails";
 import type { FlowBoardParams } from "../../generated/FlowBoardParams";
 import type { FlowBoardView } from "../../generated/FlowBoardView";
-import type { FlowEditorChoices } from "../../generated/FlowEditorChoices";
 import type { FlowEditorPick } from "../../generated/FlowEditorPick";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
 import type { MenuItem } from "../../generated/MenuItem";
@@ -44,16 +43,11 @@ import { asRequestError, useServiceView } from "../../service";
 import { pickFlowFile, request, saveFlowFile } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { cardsOf } from "../board/Column";
+import { openOverlay } from "../../app/overlays";
 import { showAgentInPanel } from "../agent_panel/logic";
-import { type EditorActions, FixLine, SkillField } from "../flow_editor/FlowEditor";
-import {
-  editorAgents,
-  editStage,
-  NO_CHOICES,
-  pickEntry,
-  skillButton,
-  writeSkill,
-} from "../flow_editor/logic";
+import { ModelEffortField } from "../settings/ModelEffort";
+import { type EditorActions, SkillField } from "../flow_editor/FlowEditor";
+import { editorAgents, editStage, pickEntry, skillButton, writeSkill } from "../flow_editor/logic";
 import {
   askForChanges,
   clampStep,
@@ -113,10 +107,15 @@ export interface FlowBoardProps {
 export function FlowBoard({ open, board }: FlowBoardProps) {
   const project = open.project;
   const [selected, setSelected] = useState<string | null>(open.select ?? null);
+  // Opened again on a stage while the editor is open (a held card's Edit flow…): that stage's panel shows.
+  const [openedOn, setOpenedOn] = useState(open);
+  if (openedOn !== open) {
+    setOpenedOn(open);
+    if (open.select !== undefined) setSelected(open.select);
+  }
   const [focusSkill, setFocusSkill] = useState<string | null>(
     open.focusSkill === true ? (open.select ?? null) : null,
   );
-  const [choices, setChoices] = useState<FlowEditorChoices>(NO_CHOICES);
   const [history, setHistory] = useState<string[]>([]);
   const [palette, setPalette] = useState<PaletteAt | null>(null);
   const [startFrom, setStartFrom] = useState(false);
@@ -137,10 +136,9 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
       project,
       ...(selected !== null && { selected }),
       ...(agent !== null && { agent }),
-      choices,
     };
     return request("flow_board.view", p) as Promise<FlowBoardView>;
-  }, [project, selected, agent, choices]);
+  }, [project, selected, agent]);
   const state = useServiceView(load, FLOW_BOARD_EVENTS);
   const view = state.view;
   // ⤢ opens Noyan's question larger; it stays so for that question only, until ⤡, Esc or its answer is sent.
@@ -235,7 +233,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
       skill: (stage, button) => {
         skillButton(project, stage, button).catch(ignore);
       },
-      fix: setChoices,
     }),
     [edit, project],
   );
@@ -936,12 +933,23 @@ function ColumnHead({
         )}
       </div>
       <span className="fb-head-what">{column.what}</span>
-      {column.who !== null && (
-        <span className="fb-head-who">
-          {column.avatar !== null && <ToolAvatar avatar={column.avatar} />}
-          <span>{column.who}</span>
-        </span>
-      )}
+      {column.who !== null &&
+        (column.who_off === null ? (
+          <span className="fb-head-who">
+            {column.avatar !== null && <ToolAvatar avatar={column.avatar} />}
+            <span>{column.who}</span>
+          </span>
+        ) : (
+          // A-4: the model's tool isn't set up, tickets wait here; or the model's mark (AGT-05: refused, no longer listed,
+          // swapped).
+          <Tooltip text={column.who_off}>
+            <span className="fb-head-who" data-off>
+              {column.avatar !== null && <ToolAvatar avatar={column.avatar} />}
+              <span>{column.who}</span>
+              <Icon name="triangle-alert" size={11} label={column.who_off} />
+            </span>
+          </Tooltip>
+        ))}
       {column.skill !== null && <span className="fb-head-skill">{column.skill}</span>}
       {column.check_line !== null && <span className="fb-head-line">{column.check_line}</span>}
       {column.delivery !== null && <span className="fb-head-delivery">{column.delivery}</span>}
@@ -973,6 +981,7 @@ function StagePanel({
   onClose: () => void;
 }) {
   const stage = details.stage;
+  const who = details.who;
   const kindIndex = details.kinds.findIndex((k) => k.kind === details.kind);
   return (
     <aside className="fb-side fe-details" aria-label={details.title}>
@@ -1016,32 +1025,41 @@ function StagePanel({
           onEdit({ edit: "description", stage, description });
         }}
       />
-      {details.agent !== null && (
-        <div className="fe-field">
-          <span className="fe-label">{details.agent.label}</span>
-          <div className="fe-agent-row">
-            {details.agent.avatar !== null && <ToolAvatar avatar={details.agent.avatar} />}
-            <Select
-              label={details.agent.label}
-              value={details.agent.name}
-              items={details.agent.items}
-              onChange={(agent) => {
-                if (agent !== details.agent?.name) onEdit({ edit: "agent", stage, agent });
-              }}
-            />
-          </div>
-          {details.agent.warning !== null && (
+      {who !== null && (
+        <>
+          <span className="fb-section">{who.heading}</span>
+          <ModelEffortField
+            view={who.picker}
+            onPick={(pick) => {
+              onEdit(
+                pick.kind === "pair"
+                  ? {
+                      edit: "pair",
+                      stage,
+                      model: pick.model,
+                      ...(pick.effort !== null && { effort: pick.effort }),
+                    }
+                  : { edit: "model", stage, model: pick.model },
+              );
+            }}
+            onEffort={(effort) => {
+              onEdit(effort === null ? { edit: "effort", stage } : { edit: "effort", stage, effort });
+            }}
+            onSetUp={() => {
+              openOverlay("settings", { section: "tools" });
+            }}
+          />
+          {who.warning !== null && (
             <div className="fe-fix" data-tone="amber">
               <Icon name="triangle-alert" size={14} />
               <span className="fe-fix-text">
                 <span>
-                  <CodeText text={details.agent.warning} />
+                  <CodeText text={who.warning} />
                 </span>
               </span>
             </div>
           )}
-          <span className="fe-hint">{details.agent.hint}</span>
-        </div>
+        </>
       )}
       {details.skill !== null && (
         <>
@@ -1051,6 +1069,18 @@ function StagePanel({
             {details.skill_hint}
           </span>
         </>
+      )}
+      {who !== null && (
+        <TextField
+          key={`instructions-${stage}-${who.instructions}`}
+          label={who.instructions_label}
+          value={who.instructions}
+          hint={who.instructions_hint}
+          multiline
+          onSave={(instructions) => {
+            onEdit({ edit: "instructions", stage, instructions });
+          }}
+        />
       )}
       {details.fail_to !== null && (
         <div className="fe-field">
@@ -1112,9 +1142,6 @@ function StagePanel({
           }}
         />
       </div>
-      {details.fixes.map((fix) => (
-        <FixLine key={fix.text} fix={fix} actions={actions} />
-      ))}
       {details.problem !== null && (
         <p className="fe-problem" role="alert">
           {details.problem}
@@ -1181,6 +1208,7 @@ function DeliveryPanel({
   onClose: () => void;
 }) {
   const skill = delivery.skill;
+  const who = delivery.who;
   return (
     <aside className="fb-side" aria-label={delivery.title}>
       <header className="fb-side-head">
@@ -1220,20 +1248,46 @@ function DeliveryPanel({
         ))}
         {delivery.mode_note !== null && <span className="fe-hint">{delivery.mode_note}</span>}
       </div>
-      <div className="fe-field">
-        <span className="fe-label">{delivery.agent.label}</span>
-        <Select
-          label={delivery.agent.label}
-          value={delivery.agent.value}
-          items={delivery.agent.items}
-          onChange={(agent) => {
-            onEdit({ edit: "delivery", field: delivery.agent.field, value: agent });
-          }}
-        />
-        <span className="fe-hint">{delivery.agent.hint}</span>
-      </div>
+      {who !== null && (
+        <>
+          <span className="fb-section">{who.heading}</span>
+          {delivery.writes !== null && <p className="fe-hint">{delivery.writes}</p>}
+          <ModelEffortField
+            view={who.picker}
+            onPick={(pick) => {
+              onEdit(
+                pick.kind === "pair"
+                  ? {
+                      edit: "delivery_pair",
+                      model: pick.model,
+                      ...(pick.effort !== null && { effort: pick.effort }),
+                    }
+                  : { edit: "delivery_model", model: pick.model },
+              );
+            }}
+            onEffort={(effort) => {
+              onEdit(effort === null ? { edit: "delivery_effort" } : { edit: "delivery_effort", effort });
+            }}
+            onSetUp={() => {
+              openOverlay("settings", { section: "tools" });
+            }}
+          />
+        </>
+      )}
       {skill !== null && (
         <DeliverySkillField key={skill.value} skill={skill} focus={focusSkill} onEdit={onEdit} />
+      )}
+      {who !== null && (
+        <TextField
+          key={`delivery-instructions-${who.instructions}`}
+          label={who.instructions_label}
+          value={who.instructions}
+          hint={who.instructions_hint}
+          multiline
+          onSave={(instructions) => {
+            onEdit({ edit: "delivery_instructions", instructions });
+          }}
+        />
       )}
       <p className="fe-hint">{delivery.note}</p>
     </aside>

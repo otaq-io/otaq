@@ -68,14 +68,14 @@ function view(vars: { name: string; value: string }[]): SettingsView {
       {
         label: "Demo",
         icon: "folder",
-        target: { page: "global", section: "agents", sections: ["agents", "data"] },
+        target: { page: "global", section: "tools", sections: ["tools", "data"] },
       },
     ],
     page: {
       page: "global",
       title: "General",
       sections: [
-        { id: "agents", title: null, intro: null, rows: [], note: null },
+        { id: "tools", title: null, intro: null, rows: [], note: null },
         { id: "data", title: null, intro: null, rows: [envRow(vars)], note: null },
       ],
     },
@@ -109,7 +109,7 @@ function PickerSection() {
 const app = registerScreens({
   settings: (a) => {
     a.overlays.register("settings", { Component: Settings });
-    a.settings.global.register("agents", { Component: PickerSection });
+    a.settings.global.register("tools", { Component: PickerSection });
     a.settings.global.register("data", { Component: sectionComponent("data") });
   },
 });

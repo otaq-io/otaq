@@ -1,8 +1,8 @@
 // The ticket card: at most four lines plus one action. Its key with a P1/P2 chip, the title on two lines (the full
 // title in a tooltip), one status line in words with a dot in the state's colour (an amber hourglass while it waits),
-// only when set one muted note under it (the ticket's own agent for a stage, or the stages it skips), then who and how
-// long, and the card's one action. A coloured edge only while the card needs the user: turquoise asks, the review
-// colour is your review, red broke and waits. Hovered, a card others wait for gains one line ("SHOP-30 waits for
+// only when set one muted note under it (the stages it skips), then who and how long ("Claude Code · 26m": the tool,
+// never the model), and the card's one action. A coloured edge only while the card needs the user: turquoise asks,
+// the review colour is your review, red broke and waits. Hovered, a card others wait for gains one line ("SHOP-30 waits for
 // it"). Tokens, models, rounds, Plan pieces, Run ports and decision counts are the sheet's, never the card's.
 // Everything it says comes from a `TicketCardView` (`card_page.rs`); the board (or the gallery) decides the moment of
 // interaction: hovered, selected, chain, dragging. Resting on the key row shows the full status and what the card has
@@ -150,7 +150,7 @@ function StatusLine({ line }: { line: CardStatusLine }) {
   );
 }
 
-/** Who and when, then the one action (*24 · The two views*): the tool mark and the agent's name on the left, the time
+/** Who and when, then the one action (*24 · The two views*): the tool mark and the tool's name on the left, the time
  * and the button on the right. */
 function WhoRow({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
   const { avatar, who, time, action } = card;

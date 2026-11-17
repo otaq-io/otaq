@@ -333,7 +333,7 @@ async fn answering_or_resuming_one_ticket_starts_only_it_and_the_pause_stays() {
     assert!(spec_writer.is_running());
     assert_eq!(
         spec_writer.agent.as_ref().map(|a| a.name.as_str()),
-        Some("Spec writer")
+        Some("Claude Code")
     );
     w.review.resume("SHOP-3", &me()).await.unwrap();
     until_status(&w, "SHOP-3", Status::Working).await;
@@ -449,13 +449,6 @@ async fn the_gates_lift_keeps_a_paused_projects_hold() {
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    let developer = w
-        .board
-        .store()
-        .agent_named("Developer")
-        .await
-        .unwrap()
-        .unwrap();
     w.board
         .store()
         .set_agent_hold(&AgentHold {
@@ -466,7 +459,6 @@ async fn the_gates_lift_keeps_a_paused_projects_hold() {
             reason: HoldReason::ToolLimit,
             tool: Tool::Claude,
             model: None,
-            agent_id: Some(developer.id),
             skill: None,
             since: 1,
         })

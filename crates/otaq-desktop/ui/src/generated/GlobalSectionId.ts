@@ -3,4 +3,4 @@
 /**
  * A section of the global page; its id is the page registry's.
  */
-export type GlobalSectionId = "agent_tools" | "agents" | "git" | "agent_limits" | "usage" | "notifications" | "appearance" | "keyboard_shortcuts" | "data" | "about";
+export type GlobalSectionId = "tools" | "noyan" | "git" | "agent_limits" | "usage" | "notifications" | "appearance" | "keyboard_shortcuts" | "data" | "about";

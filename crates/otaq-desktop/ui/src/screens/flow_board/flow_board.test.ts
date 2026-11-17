@@ -38,7 +38,6 @@ const VIEW = {
   project: "SHOP",
   proposal: 7,
   yaml: "flow: []\n",
-  choices: { clashes: {}, models: {} },
   saved: { title: "Flow saved", text: "Applied now." },
   more: { export_title: "Export shop-web’s flow", export_file: "shop-web.flow.yaml", import_title: "Import" },
   ask: { state: { kind: "proposal", agent: "c1", show: "Show conversation" } },
@@ -137,13 +136,10 @@ describe("the first-time hint", () => {
 });
 
 describe("the draft's requests", () => {
-  it("Save flow applies the draft with its picks, then says what it did", async () => {
+  it("Save flow applies the draft, then says what it did", async () => {
     const { calls, ask } = recorder();
     await saveDraft(VIEW, ask);
-    expect(calls[0]).toEqual([
-      "flow_editor.apply",
-      { project: "SHOP", proposal: 7, choices: { clashes: {}, models: {} } },
-    ]);
+    expect(calls[0]).toEqual(["flow_editor.apply", { project: "SHOP", proposal: 7 }]);
     expect(calls[1]?.[0]).toBe("notices.toast");
     expect(calls[1]?.[1]).toMatchObject({ level: "success", title: "Flow saved", text: "Applied now." });
   });

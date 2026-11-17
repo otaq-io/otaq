@@ -3,7 +3,8 @@
 // (0086 · V)*, *Row · Switching agents, attention (0086 · V)*, *24 → Row · The Project agent*): the `agent_panel` slot, 420 px
 // (or as dragged, T-0502) between the rail and the main area while open. It shows one conversation, or the empty panel
 // "Ask Noyan" whose first message starts one (d0087). Its header has "Noyan", the switcher (the
-// conversation ▾), the state pill, …, Recently ended, +, Expand (T-0502) and the close icon (a narrow panel folds
+// conversation ▾), the state pill, the model · effort (A-6: switchable before the first message, read-only after), …,
+// Recently ended, +, Expand (T-0502) and the close icon (a narrow panel folds
 // Recently ended and + into … and shows the pill's icon only, `agent_panel.css`); then the agent line,
 // Created and changed, its real terminal (T-0216's component, `terminal.attach`) and the footer. The close icon, ⌘L
 // and Esc (outside the terminal) close it. Everything it says comes from `agent_panel.view`.
@@ -24,11 +25,10 @@ import {
   ToolProblemCallout,
   Tooltip,
   PLAIN_TEXT,
-  Select,
 } from "../../components";
 import type { AgentCloseDialog } from "../../generated/AgentCloseDialog";
 import type { AgentPanelAgent } from "../../generated/AgentPanelAgent";
-import type { AgentPanelAgentPick } from "../../generated/AgentPanelAgentPick";
+import type { AgentPanelModel } from "../../generated/AgentPanelModel";
 import type { AgentPanelAgentLine } from "../../generated/AgentPanelAgentLine";
 import type { AgentPanelButton } from "../../generated/AgentPanelButton";
 import type { AgentPanelCreated } from "../../generated/AgentPanelCreated";
@@ -75,7 +75,7 @@ import {
   toggleExpandAgentPanel,
 } from "./logic";
 import { CloseAgentDialog, RecentList } from "./parts";
-import { optionItems } from "../settings/Agents";
+import { ModelEffortButton, ModelEffortLabel } from "../settings/ModelEffort";
 
 /** The service events that change what the agent panel shows. */
 export const AGENT_PANEL_EVENTS = [
@@ -432,17 +432,31 @@ function CreatedBox({
   );
 }
 
-/** The new conversation's own pick of agent: the agent Noyan uses unless another is picked here, for this conversation
- * only. */
-function AgentPick({ pick, project }: { pick: AgentPanelAgentPick; project: string }) {
-  const current = pick.options.find((o) => o.selected);
+/** The header's model · effort (canvas A-6, UX-70): before the first message it opens "For this conversation", and what
+ * is picked is this conversation's only (the next one starts on "Noyan starts on" again); once the conversation has
+ * started it is read-only. */
+function HeaderModel({ model, project }: { model: AgentPanelModel; project: string }) {
+  const pick = model.pick;
+  if (pick === null)
+    return <ModelEffortLabel avatar={model.avatar} text={model.text} tooltip={model.tooltip} />;
+  const on = (picked: string, effort: string | null) => ({
+    model: picked,
+    ...(effort !== null && effort !== "" && { effort }),
+  });
   return (
-    <Select
-      label={pick.label}
-      value={current?.label ?? pick.label}
-      items={optionItems(pick.options)}
-      onChange={(id) => {
-        pickStartOn(project, id, pick.usual);
+    <ModelEffortButton
+      view={pick}
+      avatar={model.avatar}
+      text={model.text}
+      tooltip={model.tooltip}
+      onPick={(p) => {
+        pickStartOn(project, on(p.model, p.kind === "pair" ? p.effort : model.effort));
+      }}
+      onEffort={(effort) => {
+        pickStartOn(project, on(model.model, effort));
+      }}
+      onSetUp={() => {
+        openOverlay("settings", { section: "tools" });
       }}
     />
   );
@@ -544,7 +558,6 @@ function EmptyState({
             }}
           />
           <div className="agent-panel-input-row">
-            {empty.pick !== null && <AgentPick pick={empty.pick} project={project} />}
             <span className="agent-panel-input-hint">{empty.hint}</span>
             <span className="agent-panel-spacer" />
             <button
@@ -737,7 +750,7 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
     }, ignore);
   };
   const send = () => {
-    sendFirstMessage(project, draft, request, undefined, view.empty?.starts_on ?? null).then((id) => {
+    sendFirstMessage(project, draft, request, undefined, startOn.get()[project] ?? null).then((id) => {
       if (id !== null) setDraft("");
     }, ignore);
   };
@@ -824,6 +837,7 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
             <StatusPill pill={header.pill} />
           </Tooltip>
         )}
+        <HeaderModel model={header.model} project={project} />
         <span className="agent-panel-spacer" />
         <HeaderButton
           ref={moreButton}

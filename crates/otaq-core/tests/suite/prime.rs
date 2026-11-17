@@ -150,7 +150,7 @@ const RULES: &str = "## Otaq's rules
 ";
 
 /// The default flow's Dev, as the ticket prime names it.
-const DEV: &str = "## Your stage\n\nDev, as Developer, with the skill `/otaq:work-ticket`.\n";
+const DEV: &str = "## Your stage\n\nDev, with the skill `/otaq:work-ticket`.\n";
 
 /// The default flow's stages as Dev's prime lists them: each with its description, Dev marked as the reader's own,
 /// and the Delivery, which the shipped file gives none, by its name alone.
@@ -233,12 +233,12 @@ async fn your_stage_names_the_skill_as_the_readers_tool_does() {
     let own = w.board.prime_context("SHOP-20", claude).await.unwrap();
     assert_eq!(
         stage(&own),
-        "## Your stage\n\nDev, as Developer, with the skill `/otaq:work-ticket`."
+        "## Your stage\n\nDev, with the skill `/otaq:work-ticket`."
     );
     let own = w.board.prime_context("SHOP-20", codex).await.unwrap();
     assert_eq!(
         stage(&own),
-        "## Your stage\n\nDev, as Developer, with the skill `$otaq:work-ticket`."
+        "## Your stage\n\nDev, with the skill `$otaq:work-ticket`."
     );
     assert_eq!(own.commit_skill, "$otaq:commit");
     assert!(
@@ -255,12 +255,12 @@ async fn your_stage_names_the_skill_as_the_readers_tool_does() {
     let users = w.board.prime_context("SHOP-20", claude).await.unwrap();
     assert_eq!(
         stage(&users),
-        "## Your stage\n\nDev, as Developer, with the skill `/team-dev`."
+        "## Your stage\n\nDev, with the skill `/team-dev`."
     );
     let users = w.board.prime_context("SHOP-20", codex).await.unwrap();
     assert_eq!(
         stage(&users),
-        "## Your stage\n\nDev, as Developer, with the skill `$team-dev`."
+        "## Your stage\n\nDev, with the skill `$team-dev`."
     );
     w.stop().await;
 }
@@ -283,12 +283,12 @@ async fn validate_prime_names_its_stage_and_skill_as_the_readers_tool_does() {
     let own = w.board.validate_prime_for("SHOP-20", claude).await.unwrap();
     assert_eq!(
         stage(&own),
-        "## Your stage\n\nValidate, as Checker, with the skill `/otaq:validate`."
+        "## Your stage\n\nValidate, with the skill `/otaq:validate`."
     );
     let own = w.board.validate_prime_for("SHOP-20", codex).await.unwrap();
     assert_eq!(
         stage(&own),
-        "## Your stage\n\nValidate, as Checker, with the skill `$otaq:validate`."
+        "## Your stage\n\nValidate, with the skill `$otaq:validate`."
     );
 
     let mut file = yaml::read(otaq_core::naming::DEFAULT_FLOW_YAML).unwrap();
@@ -303,12 +303,12 @@ async fn validate_prime_names_its_stage_and_skill_as_the_readers_tool_does() {
     let users = w.board.validate_prime_for("SHOP-20", claude).await.unwrap();
     assert_eq!(
         stage(&users),
-        "## Your stage\n\nValidate, as Checker, with the skill `/team-validate`."
+        "## Your stage\n\nValidate, with the skill `/team-validate`."
     );
     let users = w.board.validate_prime_for("SHOP-20", codex).await.unwrap();
     assert_eq!(
         stage(&users),
-        "## Your stage\n\nValidate, as Checker, with the skill `$team-validate`."
+        "## Your stage\n\nValidate, with the skill `$team-validate`."
     );
     w.stop().await;
 }
@@ -340,7 +340,7 @@ async fn with_the_agents_instructions_and_the_projects_notes() {
     );
     assert!(
         text.contains(&format!(
-            "\n## Agent instructions (Developer)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n\n{DEV}"
+            "\n## Agent instructions (Dev)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n\n{DEV}"
         )),
         "{text}"
     );
@@ -365,7 +365,7 @@ async fn with_the_agents_instructions_and_the_projects_notes() {
         other => panic!("{other:?}"),
     };
     let own = text
-        .find("\n## Agent instructions (Developer)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n")
+        .find("\n## Agent instructions (Dev)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n")
         .expect(&text);
     let notes = text
         .find("\n## Notes every agent in shop-web gets\n\nAsk before touching the payment code.\n")
@@ -438,8 +438,8 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
     };
     let text = render(&context);
     for part in [
-        "\n## Agent instructions (Rust developer)\n\nFollow our error-handling rules: no unwrap in library code.\n",
-        "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq:work-ticket`.\n",
+        "\n## Agent instructions (Dev)\n\nFollow our error-handling rules: no unwrap in library code.\n",
+        "\n## Your stage\n\nDev, with the skill `/otaq:work-ticket`.\n",
         "\n## Earlier stages\n\n- Product spec · Spec writer · finished\n\n## Comments\n\n### Spec writer · Product spec · 9:05 am\n\nAgreed: newest first.\nDates in the user's time zone.\n",
         // Every session commits with Otaq's `commit`, which the plugin gives it (T2).
         "2. Commit everything with `/otaq:commit` before you end your stage.",
@@ -462,42 +462,26 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
     w.stop().await;
 }
 
-/// AGM-06, AGM-08 on the test flow: the Project agent's prime lists every stage a ticket may choose for, each with its
-/// own agent first, then every other agent whose tool has the stage's skill (each with its model and its
-/// instructions' first line), `skip` on a skippable stage, and how to pass on the user's choice with `--by-user`
-/// (T1). An agent has no role, so the agent Noyan uses is offered like any other; the Delivery isn't listed.
+/// AGM-06, AGM-08 on the test flow: the Project agent's prime lists every stage a new ticket may skip, and how to pass
+/// on the user's skip with `--by-user` (T1); a ticket can't pick a model (UX-72), so no stage offers anything else, and
+/// the Delivery isn't listed.
 #[tokio::test(flavor = "multi_thread")]
 async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
     let w = with_agents().await;
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let (_, project) = primes(&w).await;
-    let default = match w.board.store().default_model().await.unwrap() {
-        Some(m) => format!(
-            "default · {} · {}",
-            m.tool.display_name(),
-            model_text(m.model.as_deref(), Some(&claude_list()))
-        ),
-        None => "default".to_owned(),
-    };
-    for part in [
-        "\n## Stage choices\n\nA new ticket runs every stage with the stage's own agent. Pass on only the choices \
-         the user names, with --by-user: `otaq create \"Title\" --stage \"Product spec=Noyan\" --by-user \
-         --stdin`.\n\n- Product spec\n  - Spec writer (the stage's own) · default: Ask one question at a time.\n"
-            .to_owned(),
-        "  - Noyan · default\n".to_owned(),
-        format!(
-            "\n- Dev\n  - Rust developer (the stage's own) · {default}: Follow our error-handling rules: no unwrap \
-             in library code.\n"
-        ),
-        format!("  - Quick developer · {default}\n"),
-        "  - skip: the ticket passes this stage\n- Dev\n".to_owned(),
-        "\n- Validate\n  - Validator (the stage's own)".to_owned(),
-        "\n- QA\n  - skip: the ticket passes this stage\n".to_owned(),
-    ] {
-        assert!(project.contains(&part), "missing {part:?} in\n{project}");
+    let choices = "\n## Stage choices\n\nA new ticket runs every stage of the flow, each on its stage's own model. Pass \
+                   on only the skips the user names, with --by-user: `otaq create \"Title\" --stage \"Product \
+                   spec=skip\" --by-user --stdin`.\n\n- Product spec\n  - skip: the ticket passes this stage\n- QA\n  \
+                   - skip: the ticket passes this stage\n";
+    assert!(
+        project.contains(choices),
+        "missing {choices:?} in\n{project}"
+    );
+    let listed = &project[project.find("## Stage choices").unwrap()..];
+    for gone in ["- Dev\n", "- Done\n", "(the stage's own)"] {
+        assert!(!listed.contains(gone), "{listed}");
     }
-    let choices = &project[project.find("## Stage choices").unwrap()..];
-    assert!(!choices.contains("- Done\n"), "{choices}");
     w.stop().await;
 }
 
@@ -518,7 +502,7 @@ async fn validate_prime_plain() {
         "# Validate SHOP-20 · Checkout page\n",
         "a read-only judge of its agent's work (round 1 of 3). Never edit files, never commit and never fix anything.",
         "## What and why\n\nThe checkout page shows the cart",
-        "## Agent instructions (Checker)\n\nRun `pnpm test` before submitting.",
+        "## Agent instructions (Validate)\n\nRun `pnpm test` before submitting.",
         "## Linked tickets",
         "- depends on SHOP-18 · Checkout API (Ready for you)\n  Last comment, Developer · Dev · 11:20 am:\n  > POST /checkout creates a Stripe session.",
         "- depends on SHOP-19 · Price table (Working)",
@@ -617,15 +601,14 @@ async fn primes(w: &TestService) -> (String, String) {
     (ticket, project)
 }
 
-/// AGM-06: only the user picks a stage's agent, so a ticket's prime lists no choices to set; Noyan's lists them even
-/// on the default flow (no stage lists options any more), to pass on the user's.
+/// AGM-06, UX-72: a ticket's prime lists no choices to set; on the default flow, which skips nothing, Noyan's lists
+/// none either (only a skippable stage has a choice).
 #[tokio::test(flavor = "multi_thread")]
-async fn only_noyans_prime_lists_choices_on_the_default_flow() {
+async fn no_prime_lists_choices_on_the_default_flow() {
     let w = with_agents().await;
     let (ticket, project) = primes(&w).await;
     assert!(!ticket.contains("\n## Stage choices\n"), "{ticket}");
-    assert!(project.contains("\n## Stage choices\n"), "{project}");
-    assert!(project.contains("\n- Dev\n"), "{project}");
+    assert!(!project.contains("\n## Stage choices\n"), "{project}");
     for text in [&ticket, &project] {
         assert!(!text.contains("\n## Agents\n"), "{text}");
     }
@@ -832,7 +815,7 @@ async fn prime_prints_the_examples_four_comments() {
     // Only QA is ahead, and it offers no other agent: no Stage choices section, so the rules follow (T9).
     assert!(
         text.contains(
-            "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq:work-ticket`.\n\n## The flow\n"
+            "\n## Your stage\n\nDev, with the skill `/otaq:work-ticket`.\n\n## The flow\n"
         ),
         "{text}"
     );
@@ -1209,5 +1192,73 @@ async fn prime_nests_a_comments_headings_under_the_comment() {
     let expected = "  Last comment, Rust developer · Dev · 4:00 pm:\n  > #### Handover\n  > ```\n  > # kept\n  > \
          ```\n  > No heading here.\n";
     assert!(text.contains(expected), "missing {expected:?} in\n{text}");
+    w.stop().await;
+}
+
+/// The prime `shell`'s session gets for SHOP-20, as `otaq prime` asks it from inside the session, rendered.
+async fn session_prime(w: &TestService, shell: &otaq_core::service::testing::AgentShell) -> String {
+    let line =
+        serde_json::json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1,
+        "request": {"method": "ticket.prime", "params": {"key": "SHOP-20"}}})
+        .to_string();
+    let ran = shell.send_raw(&w.data.socket_path(), &line).await;
+    let answer: serde_json::Value =
+        serde_json::from_str(ran.stdout.lines().next().unwrap_or_default())
+            .unwrap_or_else(|e| panic!("{e}: {ran:?}"));
+    let context: otaq_core::prime::PrimeContext =
+        serde_json::from_value(answer["reply"]["prime"].clone())
+            .unwrap_or_else(|e| panic!("{e}: {answer}"));
+    render(&context)
+}
+
+/// UX-67, UX-69: a stage's instructions are its sessions' "Agent instructions", named by the stage; the session that
+/// writes the PR on the delivery's own model reads the delivery's instead, next to the project's notes.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_delivery_session_reads_the_deliverys_instructions() {
+    let w = sample().await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            for stage in file.flow.stages.iter_mut().filter(|s| s.id == "dev") {
+                stage.who.instructions = Some("Keep the diff small.".into());
+            }
+            file.flow.delivery.who.instructions = Some("Name the issue in the PR's title.".into());
+        })
+        .await;
+    let t = w.board.ticket("SHOP-20").await.unwrap();
+    w.force_status(&t, Status::Working).await;
+    let dev = w.agent_shell(&t).await;
+    w.run_as_agent(
+        &dev,
+        &otaq_core::agents::About::Stage {
+            project: "SHOP".into(),
+            stage: "dev".into(),
+        }
+        .scope(),
+        "Claude Code",
+    )
+    .await;
+    let text = session_prime(&w, &dev).await;
+    assert!(
+        text.contains("\n## Agent instructions (Dev)\n\nKeep the diff small.\n"),
+        "{text}"
+    );
+    assert!(!text.contains("Name the issue"), "{text}");
+
+    let delivery = w.shell(&t, otaq_core::session::SessionKind::Delivery).await;
+    w.run_as_agent(
+        &delivery,
+        &otaq_core::agents::About::Delivery {
+            project: "SHOP".into(),
+        }
+        .scope(),
+        "Claude Code",
+    )
+    .await;
+    let text = session_prime(&w, &delivery).await;
+    assert!(
+        text.contains("\n## Agent instructions (Delivery)\n\nName the issue in the PR's title.\n"),
+        "{text}"
+    );
+    assert!(!text.contains("Keep the diff small."), "{text}");
     w.stop().await;
 }

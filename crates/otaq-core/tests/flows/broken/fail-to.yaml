@@ -2,7 +2,7 @@ flow:
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: default
     skill: otaq:work-ticket
   - id: review
     name: Review
@@ -12,7 +12,7 @@ flow:
     name: Spec review
     kind: check
     by: agent
-    agent: Validator
+    model: default
     skill: otaq:validate
     rounds: 3
     fail_to: Validate
@@ -20,7 +20,7 @@ flow:
     name: Validate
     kind: check
     by: agent
-    agent: Validator
+    model: default
     skill: otaq:validate
     rounds: 3
     fail_to: Review

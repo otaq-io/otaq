@@ -143,7 +143,7 @@ mod tests {
             age_ms: 0,
             blocked: 0,
             message: None,
-            change_agent: None,
+            fix_model: None,
             waiting_in: None,
             piece: None,
             helpers_to_resume: Vec::new(),

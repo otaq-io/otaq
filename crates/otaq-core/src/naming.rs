@@ -149,11 +149,6 @@ pub const DEFAULT_FLOW_FILE: &str = "otaq-default.yaml";
 /// The contents of [`DEFAULT_FLOW_FILE`], read by [`crate::flow::default`].
 pub const DEFAULT_FLOW_YAML: &str = include_str!("../flows/otaq-default.yaml");
 
-/// Otaq's agents file (AGM-02, d0108), shipped embedded; its contents are [`AGENTS_YAML`].
-pub const AGENTS_FILE: &str = "otaq-agents.yaml";
-/// The contents of [`AGENTS_FILE`], read by [`crate::agents::shipped`].
-pub const AGENTS_YAML: &str = include_str!("../flows/otaq-agents.yaml");
-
 /// A branch Otaq names: `branch("SHOP-40")` → `otaq/SHOP-40`.
 pub fn branch(name: &str) -> String {
     format!("{}{name}", branch_prefix())

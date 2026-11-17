@@ -1,0 +1,15 @@
+flow:
+  - id: dev
+    name: Dev
+    kind: agent
+    model: default
+    skill: otaq:work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    skill: otaq:validate
+    rounds: 3
+delivery:
+  delivers: local
+  mode: click

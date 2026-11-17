@@ -272,7 +272,7 @@ pub fn tool_button(row: &ToolRow) -> Option<ToolButton> {
     })
 }
 
-/// The agent tools on the Tools step (SET-02 `[M23]`, d0086): the same rows as Settings → Agent tools without
+/// The agent tools on the Tools step (SET-02 `[M23]`, d0086): the same rows as Settings → Tools without
 /// Disconnect…, and the rule "one tool is enough".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingAgentTools")]
@@ -426,7 +426,7 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
 
 /// The Tools step's last line: where more tools are added later.
 pub fn agents_line() -> String {
-    "You can add more tools later in Settings \u{2192} Agents.".to_owned()
+    "You can add more tools later in Settings \u{2192} Tools.".to_owned()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -1114,7 +1114,7 @@ mod tests {
         assert_eq!(names, ["git"], "gh and az aren't asked for here");
         assert_eq!(
             fine.agents_line.as_deref(),
-            Some("You can add more tools later in Settings → Agents.")
+            Some("You can add more tools later in Settings → Tools.")
         );
         assert_eq!(fine.waiting, None);
         assert_eq!(fine.recheck, "Check again");

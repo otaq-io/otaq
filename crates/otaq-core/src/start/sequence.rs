@@ -67,7 +67,7 @@ use serde_json::{Value, json};
 use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, WORK_TICKET_SKILL};
 use crate::agents::gate::{Gated, Held, LaunchGate, Scope};
-use crate::agents::{Agent, RunsOn, SessionRole, resolve};
+use crate::agents::{RunsOn, SessionRole, Who, resolve};
 use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
@@ -589,7 +589,7 @@ impl Starter {
                     actor,
                     EventKind::Held,
                     json!({ "step": step, "message": message, "tool": held.on.tool,
-                            "agent": held.agent.name }),
+                            "agent": held.on.tool.display_name() }),
                 )
                 .await?;
                 tracing::info!(ticket = %key, %message, "held before launch");
@@ -745,7 +745,7 @@ impl Starter {
         }
         if new_conversation {
             // The running agent of the Agent stage it starts (AGM-05).
-            let agent = resolve::session_agent(board, ticket, SessionRole::Developer)
+            let agent = resolve::session_who(board, ticket, SessionRole::Developer)
                 .await
                 .map_err(|e| (StartStep::Base, e.into()))?;
             let runs_on = match inner.gate.get() {
@@ -757,7 +757,7 @@ impl Starter {
                     Gated::Held(held) => return Ok(Done::AgentHeld(held)),
                     Gated::Launch(runs_on) => runs_on,
                 },
-                None => RunsOn::agent(
+                None => RunsOn::who(
                     &agent,
                     board
                         .store()
@@ -1051,7 +1051,7 @@ impl Starter {
         });
         // A new conversation runs on the agent resolved at the check (AGM-05: the start, Retry start, Start from
         // scratch); a resumed one on the tool, model and agent it ran on (ADP-04, d0088).
-        let mut agent_new: Option<Agent> = None;
+        let mut agent_new: Option<Who> = None;
         // A new conversation of a stage whose skill isn't Otaq's: typed once Otaq's workflow skill's turn ended.
         let mut task_skill: Option<String> = None;
         let (runs_on, resume, first_prompt) = match (conversation, rewalk) {
@@ -1084,7 +1084,7 @@ impl Starter {
                         runs_on
                     }
                     None => {
-                        let agent = resolve::session_agent(board, ticket, SessionRole::Developer)
+                        let agent = resolve::session_who(board, ticket, SessionRole::Developer)
                             .await
                             .map_err(|e| (StartStep::Launch, e.into()))?;
                         let default = board
@@ -1092,7 +1092,7 @@ impl Starter {
                             .default_model()
                             .await
                             .map_err(|e| (StartStep::Launch, BoardError::from(e).into()))?;
-                        RunsOn::agent(&agent, default.as_ref())
+                        RunsOn::who(&agent, default.as_ref())
                     }
                 };
                 (

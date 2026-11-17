@@ -4,6 +4,7 @@
 // it. Nothing here starts an agent by itself or moves work to another tool: a held agent waits for its own tool, and no
 // other agent is offered in its place (no fallback agents).
 import type { OverlayParams } from "../../app/registry/overlays";
+import type { FlowBoardOpen } from "../flow_board/logic";
 import type { AgentToolSignIn } from "../../generated/AgentToolSignIn";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
 
@@ -19,37 +20,41 @@ export type ToolProblemStep =
   /** The tool's own login in its terminal's dialog (`agent_tools.sign_in`), as Settings → Agents shows it. */
   | { kind: "sign_in"; tool: string }
   | { kind: "settings"; params: NonNullable<OverlayParams["settings"]> }
-  /** Change agent…'s dialog for the ticket's stage that waits for its tool. */
-  | { kind: "change_agent"; ticket: string }
+  /** Edit flow on the project's flow, at the stage that waits (UX-65: a stage's model is the flow's). */
+  | { kind: "edit_flow"; open: FlowBoardOpen }
   | { kind: "none" };
+
+/** The project a place is in: its own, or its ticket's (`SHOP-30` is SHOP's). */
+function projectOf(place: ToolProblemPlace): string | undefined {
+  if (place.project !== undefined) return place.project;
+  if (place.ticket === undefined) return undefined;
+  const at = place.ticket.lastIndexOf("-");
+  return at > 0 ? place.ticket.slice(0, at) : undefined;
+}
 
 export function toolProblemStep(action: ToolProblemAction, place: ToolProblemPlace): ToolProblemStep {
   switch (action.kind) {
     case "sign_in":
       return { kind: "sign_in", tool: action.tool };
-    case "show_in_agent_tools":
-      return { kind: "settings", params: { section: "agent_tools" } };
+    case "show_in_tools":
+      return { kind: "settings", params: { section: "tools" } };
     case "resume_tool":
       // Resume after reset: the callout's own tool's waiting agents continue (USG-10).
       return { kind: "request", method: "limits.resume_tool", params: { tool: action.tool } };
-    // Open agent… (AGM-03): Settings → Agents on that agent's page.
-    case "open_agent":
+    // Edit flow…: the stage's model is changed in its project's flow, at that stage when known.
+    case "edit_flow": {
+      const project = projectOf(place);
+      if (project === undefined) return { kind: "none" };
       return {
-        kind: "settings",
-        params: action.agent === null ? { section: "agents" } : { section: "agents", agent: action.agent },
+        kind: "edit_flow",
+        open: action.stage === null ? { project } : { project, select: action.stage },
       };
-    case "change_agent":
-      return place.ticket === undefined ? { kind: "none" } : { kind: "change_agent", ticket: place.ticket };
+    }
     // Check again: the finder is asked again and the held stage starts if its skill is found.
     case "check_again":
       return place.ticket === undefined
         ? { kind: "none" }
         : { kind: "request", method: "sheet.check_again", params: { key: place.ticket } };
-    case "agent_settings":
-      return {
-        kind: "settings",
-        params: action.agent === null ? { section: "agents" } : { section: "agents", agent: action.agent },
-      };
   }
 }
 
@@ -60,8 +65,8 @@ export interface ToolProblemRunner {
   /** Shows Sign in…'s terminal where the user can see it: its own dialog. (Not the Terminals drawer: that lists only
    * the project's terminals, and a sign-in belongs to no project, so the drawer said "Nothing open".) */
   showSignIn: (signIn: AgentToolSignIn) => void;
-  /** Opens Change agent…'s dialog on the ticket. */
-  changeAgent: (ticket: string) => void;
+  /** Opens Edit flow: the board becomes the flow's editor. */
+  editFlow: (open: FlowBoardOpen) => void;
 }
 
 export function runToolProblemAction(
@@ -85,8 +90,8 @@ export function runToolProblemAction(
     case "settings":
       run.openSettings(step.params);
       return;
-    case "change_agent":
-      run.changeAgent(step.ticket);
+    case "edit_flow":
+      run.editFlow(step.open);
       return;
     case "none":
       return;

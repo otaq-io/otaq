@@ -437,7 +437,21 @@ button.fb-noyan-send:disabled {
   align-items: center;
   gap: 6px;
   color: var(--text-primary);
-  font: 500 12px/1.35 var(--font-ui);
+  font: 500 11.5px/1.35 var(--font-mono);
+}
+
+/* A-4: the model's tool isn't set up on this Mac. */
+.fb-head-who[data-off] {
+  color: var(--st-paused);
+}
+
+/* "WHO DOES IT" over a stage's Model, Effort, Skill and Instructions (A-2). */
+.fb-section {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font: 600 11px/1.35 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .fb-head-skill {

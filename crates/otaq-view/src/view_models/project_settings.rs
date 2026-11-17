@@ -255,8 +255,9 @@ fn files_to_copy_row(s: &ProjectSettings, p: &[SettingProblem]) -> Row {
 /// Deliver as's fields.
 pub const DELIVERS_FIELD: &str = "delivery.delivers";
 pub const MODE_FIELD: &str = "delivery.mode";
-/// The delivery's agent (Edit flow's Done panel): it writes the message and opens the PR.
-pub const AGENT_FIELD: &str = "delivery.agent";
+/// The delivery's model (Edit flow's Done panel, UX-69): it writes the message and opens the PR. `default`, a tool or
+/// `tool:model`.
+pub const MODEL_FIELD: &str = "delivery.model";
 /// The skill the delivery opens a PR with (Edit flow's Done panel): the user's own Open PR skill, else Otaq's.
 pub const SKILL_FIELD: &str = "delivery.skill";
 pub const DELIVERY_LABEL: &str = "Delivery";
@@ -352,12 +353,17 @@ pub fn deliver_as(delivery: &Delivery, field: &str, value: &str) -> Result<Deliv
                 );
             }
         }
-        AGENT_FIELD => {
-            let name = value.trim();
-            if name.is_empty() && out.can_open_pr() {
-                return Err("A delivery that opens a PR needs an agent to open it".to_owned());
+        MODEL_FIELD => {
+            let model = value.trim();
+            if model.is_empty() && out.can_open_pr() {
+                return Err(
+                    "A delivery that opens a PR needs a model to write and open it".to_owned(),
+                );
             }
-            out.agent = (!name.is_empty()).then(|| name.to_owned());
+            if !model.is_empty() {
+                otaq_core::agents::AgentModel::parse(model)?;
+            }
+            out.who.model = (!model.is_empty()).then(|| model.to_owned());
         }
         SKILL_FIELD => {
             let name = value.trim().trim_start_matches(['/', '$']);
@@ -568,7 +574,7 @@ mod tests {
         let pr = Delivery {
             delivers: Delivers::Pr,
             mode: DeliveryMode::Automatic,
-            agent: Some("Shipper".into()),
+            who: otaq_core::flow::WhoDoesIt::on("claude"),
             skill: Some(otaq_core::own_skill!("open-pr").into()),
         };
         let row = delivery_row(Some(&pr), "develop");
@@ -629,35 +635,35 @@ mod tests {
         let pr = Delivery {
             delivers: Delivers::Pr,
             mode: DeliveryMode::Automatic,
-            agent: Some("Shipper".into()),
+            who: otaq_core::flow::WhoDoesIt::on("claude"),
             skill: Some(otaq_core::own_skill!("open-pr").into()),
         };
-        // A local merge opens no PR: no skill, but its agent stays to write the squash message.
+        // A local merge opens no PR: no skill, but its model stays to write the squash message.
         let local = deliver_as(&pr, DELIVERS_FIELD, "local").unwrap();
         assert_eq!(
             (
                 local.delivers,
                 local.mode,
-                local.agent.as_deref(),
+                local.who.model.as_deref(),
                 local.skill.as_deref()
             ),
             (
                 Delivers::Local,
                 DeliveryMode::Automatic,
-                Some("Shipper"),
+                Some("claude"),
                 None
             )
         );
-        // So switching back to Either or a PR still has the agent that opens it.
+        // So switching back to Either or a PR still has the model that opens it.
         let back = deliver_as(&local, DELIVERS_FIELD, "either").unwrap();
-        assert_eq!(back.agent.as_deref(), Some("Shipper"));
+        assert_eq!(back.who.model.as_deref(), Some("claude"));
         // Either is chosen at your click.
         let either = deliver_as(&pr, DELIVERS_FIELD, "either").unwrap();
         assert_eq!(
             (either.delivers, either.mode),
             (Delivers::Either, DeliveryMode::Click)
         );
-        assert_eq!(either.agent.as_deref(), Some("Shipper"));
+        assert_eq!(either.who.model.as_deref(), Some("claude"));
         assert!(deliver_as(&either, MODE_FIELD, "automatic").is_err());
         let click = deliver_as(&pr, MODE_FIELD, "click").unwrap();
         assert_eq!(

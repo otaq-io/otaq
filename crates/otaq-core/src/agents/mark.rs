@@ -1,21 +1,23 @@
-//! The amber mark on an agent (AGT-05, AGM-04; d0088, d0077): "Claude Code couldn't run `claude-fable-5-1` on SHOP-48".
+//! The amber mark on a model (AGT-05, AGM-04; d0088, d0077, UX-65): "Claude Code couldn't run `claude-fable-5-1` on
+//! SHOP-48". It is on what the model came from ([`super::About`]): a stage of a project's flow, the flow's delivery,
+//! or Noyan's setting (`model_marks`).
 //!
-//! - **Set** on any model refused ([`set`]): the session's agent, with the model (the session's exact model,
+//! - **Set** on any model refused ([`set`]): what the session ran for, with the model (the session's exact model,
 //!   else the model passed, else the one the tool named) and where it happened (the ticket, or the project for a
-//!   Project agent), and the tool's own message for the edit dialog. A later refusal replaces it.
-//! - **Cleared**, never dismissed: when the agent's model is changed and saved ([`super::Agents::edit`]), or
-//!   when a session of the agent that started after the mark ends its first turn normally on the model the agent
-//!   has now ([`clear_after_first_turn`]). A rename, an instructions change, or another agent's run leaves it.
+//!   Noyan conversation), and the tool's own message. A later refusal replaces it.
+//! - **Cleared**, never dismissed: when the stage's model or effort is changed and saved ([`clear_changed_in`]), or
+//!   when a session that started after the mark ends its first turn normally ([`clear_after_first_turn`]). An
+//!   instructions change, or another stage's run, leaves it.
 //!
 //! M23 (T-0357, d0088) adds two marks of the same kind:
-//! - **A model no longer listed** ([`no_longer_lists`]): the check before a launch found the agent's model missing
+//! - **A model no longer listed** ([`no_longer_lists`]): the check before a launch found the stage's model missing
 //!   from its tool's list ("Codex no longer lists gpt-5.4"); it also clears when the tool's list has it again
 //!   ([`clear_listed_again`]).
 //! - **A swap** ([`swapped`]): a tool that quietly runs another model ([`crate::agent_tools::AgentTool::
 //!   swaps_refused_model`]) ran another one than the exact model asked for ("Copilot ran auto instead of gpt-5.5 on
 //!   SHOP-29"). A follow choice (Copilot's Auto, a family) choosing a model is never a swap (Q-J).
 
-use super::{Agent, Mark, ModelCatalog, ToolModel};
+use super::{About, Mark, ModelCatalog, ModelMark, ToolModel};
 use crate::agent_tools::Tool;
 use crate::agent_tools::follow::FollowChoice;
 use crate::store::{Store, StoreError, now_ms};
@@ -105,32 +107,85 @@ pub fn is_swap(tool_swaps: bool, asked_exact: bool, asked: Option<&str>, ran: &s
     tool_swaps && asked_exact && asked.is_some_and(|asked| model(asked) != model(ran))
 }
 
-/// Sets `mark` on the agent unless it has that very mark already (same line and model). Whether it changed.
-pub async fn set_if_new(store: &Store, agent: &Agent, mark: &Mark) -> Result<bool, StoreError> {
-    if agent
-        .mark
-        .as_ref()
+/// The mark on `about`'s model, if any.
+pub async fn get(store: &Store, about: &About) -> Result<Option<Mark>, StoreError> {
+    let row: Option<MarkRow> = sqlx::query_as(
+        "SELECT scope, text, model, ticket, message, marked_at FROM model_marks WHERE scope = ?",
+    )
+    .bind(about.scope())
+    .fetch_optional(store.pool())
+    .await?;
+    Ok(row.map(|r| r.1))
+}
+
+/// Every mark, with what it is about (a stage, a delivery, Noyan's setting), oldest first.
+pub async fn all(store: &Store) -> Result<Vec<(About, Mark)>, StoreError> {
+    let rows: Vec<MarkRow> = sqlx::query_as(
+        "SELECT scope, text, model, ticket, message, marked_at FROM model_marks ORDER BY marked_at, scope",
+    )
+    .fetch_all(store.pool())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|MarkRow(scope, mark)| Some((About::parse(&scope)?, mark)))
+        .collect())
+}
+
+/// The marks on the models of `project`'s stages and its delivery (`flow.model_marks`), oldest first.
+pub async fn of_project(store: &Store, project: &str) -> Result<Vec<ModelMark>, StoreError> {
+    Ok(all(store)
+        .await?
+        .into_iter()
+        .filter(|(about, _)| match about {
+            About::Stage { project: p, .. } | About::Delivery { project: p } => p == project,
+            About::Noyan => false,
+        })
+        .map(|(about, mark)| ModelMark { about, mark })
+        .collect())
+}
+
+/// A row of `model_marks`, read.
+struct MarkRow(String, Mark);
+
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for MarkRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        use sqlx::Row;
+        Ok(Self(
+            row.try_get("scope")?,
+            Mark {
+                text: row.try_get("text")?,
+                model: row.try_get("model")?,
+                ticket: row.try_get("ticket")?,
+                message: row.try_get("message")?,
+                at: row.try_get("marked_at")?,
+            },
+        ))
+    }
+}
+
+/// Sets `mark` on `about` unless it has that very mark already (same line and model). Whether it changed.
+pub async fn set_if_new(store: &Store, about: &About, mark: &Mark) -> Result<bool, StoreError> {
+    if get(store, about)
+        .await?
         .is_some_and(|m| m.text == mark.text && m.model == mark.model)
     {
         return Ok(false);
     }
-    set(store, &agent.id, mark).await
+    set(store, about, mark).await
 }
 
-/// The tool's list has the model of an agent's "no longer lists" mark again: the mark clears (AGT-05). `listed`
-/// says whether a model is in its tool's list now. The agents whose mark cleared.
+/// The tool's list has the model of a "no longer lists" mark again: the mark clears (AGT-05). `listed` says whether
+/// a model is in its tool's list now. The scopes whose mark cleared.
 pub async fn clear_listed_again(
     store: &Store,
-    agents: &[Agent],
     listed: impl Fn(Tool, &str) -> bool,
 ) -> Result<Vec<String>, StoreError> {
     let mut cleared = Vec::new();
-    for agent in agents {
-        let Some(mark) = &agent.mark else { continue };
+    for (about, mark) in all(store).await? {
         let Some(model) = mark.model.as_deref() else {
             continue;
         };
-        // The tool the mark names (an agent on `default` runs on the default model's tool).
+        // The tool the mark names.
         let Some(tool) = Tool::ALL
             .iter()
             .copied()
@@ -141,56 +196,93 @@ pub async fn clear_listed_again(
         if !listed(tool, model) {
             continue;
         }
-        sqlx::query(
-            "UPDATE agents SET mark_text = NULL, mark_model = NULL, mark_ticket = NULL, mark_message = NULL,
-                               marked_at = NULL
-             WHERE id = ? AND mark_text = ?",
-        )
-        .bind(&agent.id)
-        .bind(&mark.text)
-        .execute(store.pool())
-        .await?;
-        cleared.push(agent.id.clone());
+        let scope = about.scope();
+        sqlx::query("DELETE FROM model_marks WHERE scope = ? AND text = ?")
+            .bind(&scope)
+            .bind(&mark.text)
+            .execute(store.pool())
+            .await?;
+        cleared.push(scope);
     }
     Ok(cleared)
 }
 
-/// Sets (or replaces) the agent's mark. Whether the agent exists.
-pub async fn set(store: &Store, agent_id: &str, mark: &Mark) -> Result<bool, StoreError> {
-    let done = sqlx::query(
-        "UPDATE agents SET mark_text = ?, mark_model = ?, mark_ticket = ?, mark_message = ?, marked_at = ?
-         WHERE id = ?",
+/// Sets (or replaces) the mark on `about`. Always `true`: a mark needs nothing else to be there.
+pub async fn set(store: &Store, about: &About, mark: &Mark) -> Result<bool, StoreError> {
+    sqlx::query(
+        "INSERT INTO model_marks (scope, text, model, ticket, message, marked_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (scope) DO UPDATE SET text = excluded.text, model = excluded.model, ticket = excluded.ticket,
+             message = excluded.message, marked_at = excluded.marked_at",
     )
+    .bind(about.scope())
     .bind(&mark.text)
     .bind(&mark.model)
     .bind(&mark.ticket)
     .bind(&mark.message)
     .bind(mark.at)
-    .bind(agent_id)
     .execute(store.pool())
     .await?;
+    Ok(true)
+}
+
+/// Clears the mark on `about` (its model was changed and saved). Whether there was one.
+pub async fn clear(store: &Store, about: &About) -> Result<bool, StoreError> {
+    let done = sqlx::query("DELETE FROM model_marks WHERE scope = ?")
+        .bind(about.scope())
+        .execute(store.pool())
+        .await?;
     Ok(done.rows_affected() > 0)
 }
 
-/// A session of the agent got through its first turn: the mark clears when the session started after it and ran on
-/// the model the agent has now (`passed`: the model the session was given, `None` for the tool default; any model for
-/// an agent on `default`). Whether a mark was cleared.
+/// Clears, in `tx`, the marks on the stages (and the delivery) of the project `project` (its key) whose model or
+/// effort `new` changed from `old` (a saved model change, AGT-05).
+pub(crate) async fn clear_changed_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    project: &str,
+    old: &crate::flow::Flow,
+    new: &crate::flow::Flow,
+) -> Result<(), StoreError> {
+    let changed = |a: &crate::flow::model::WhoDoesIt, b: &crate::flow::model::WhoDoesIt| {
+        a.model != b.model || a.effort != b.effort
+    };
+    let mut gone = Vec::new();
+    for stage in &old.stages {
+        if new
+            .stage(&stage.id)
+            .is_none_or(|s| changed(&s.who, &stage.who))
+        {
+            gone.push(About::Stage {
+                project: project.to_owned(),
+                stage: stage.id.clone(),
+            });
+        }
+    }
+    if changed(&old.delivery.who, &new.delivery.who) {
+        gone.push(About::Delivery {
+            project: project.to_owned(),
+        });
+    }
+    for about in gone {
+        sqlx::query("DELETE FROM model_marks WHERE scope = ?")
+            .bind(about.scope())
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+/// A session got through its first turn: the mark on what it ran for clears when the session started after it (the
+/// model, as it is now, runs). Whether a mark was cleared.
 pub async fn clear_after_first_turn(
     store: &Store,
-    agent_id: &str,
-    passed: Option<&str>,
+    about: &About,
     session_started_at: i64,
 ) -> Result<bool, StoreError> {
-    let done = sqlx::query(
-        "UPDATE agents SET mark_text = NULL, mark_model = NULL, mark_ticket = NULL, mark_message = NULL,
-                           marked_at = NULL
-         WHERE id = ? AND marked_at IS NOT NULL AND marked_at <= ? AND (tool IS NULL OR model IS ?)",
-    )
-    .bind(agent_id)
-    .bind(session_started_at)
-    .bind(passed)
-    .execute(store.pool())
-    .await?;
+    let done = sqlx::query("DELETE FROM model_marks WHERE scope = ? AND marked_at <= ?")
+        .bind(about.scope())
+        .bind(session_started_at)
+        .execute(store.pool())
+        .await?;
     Ok(done.rows_affected() > 0)
 }
 

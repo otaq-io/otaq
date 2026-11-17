@@ -1,6 +1,6 @@
-//! A check stage runs one agent, like an Agent stage: on the test flow (`tests/flows/every-kind.yaml`) Validate's
-//! agent is Validator and Security's is Security reviewer, two checks one after the other. Entering a check starts one
-//! read-only checker on the check's agent, with the stage's skill; its verdict ends the round; each check counts its
+//! A check stage runs one agent, like an Agent stage: on the test flow (`tests/flows/every-kind.yaml`) Validate runs on
+//! Claude Code and Security on Claude Code's Sonnet, two checks one after the other. Entering a check starts one
+//! read-only checker on the check's own model, with the stage's skill; its verdict ends the round; each check counts its
 //! own rounds, and a validator's `otaq prime --validate` reads its own stage's round. A checker held for its tool's
 //! limit is the ticket's hold, one per ticket. Every tool is the stand-in of `tests/fixtures/stand-in`; repos,
 //! `OTAQ_HOME` and the tools' home are temporary.
@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crate::common::stand_in;
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::{AgentModel, HoldReason, SessionRole};
+use otaq_core::agents::{HoldReason, SessionRole};
 use otaq_core::board::hand_over::HandOver;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, Status, ValidationOutcome, ValidationTrigger};
@@ -43,8 +43,16 @@ async fn world() -> World {
     w.add_project("shop-web").await;
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
     let mut file: FlowFile = yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let security = file.flow.stages.iter_mut().find(|s| s.id == "security");
-    security.unwrap().skill = Some("otaq:validate".into());
+    for stage in &mut file.flow.stages {
+        match stage.id.as_str() {
+            "validate" => stage.who.model = Some("claude".into()),
+            "security" => {
+                stage.skill = Some("otaq:validate".into());
+                stage.who.model = Some("claude:sonnet".into());
+            }
+            _ => {}
+        }
+    }
     w.board.use_flow_for_tests("SHOP", &file).await;
     World { w, _dir: dir }
 }
@@ -117,8 +125,13 @@ async fn verdict(
         .unwrap()
 }
 
+/// The stage a checker runs for (UX-65: what its model came from), by its id.
 fn agent_of(session: &SessionInfo) -> &str {
-    session.agent.as_ref().map_or("", |a| a.name.as_str())
+    session
+        .agent
+        .as_ref()
+        .and_then(|a| a.runs_for.rsplit('/').next())
+        .unwrap_or("")
 }
 
 /// (agent, result) of each run of `stage`, oldest first.
@@ -156,8 +169,8 @@ fn some(name: &str) -> Option<String> {
     Some(name.to_owned())
 }
 
-/// A flow with Validate (agent: Validator) runs one validator per round; Security, the check after it, runs its own
-/// one agent. Each round is one checker, one run and one History record; the pass moves the card on once.
+/// A flow with Validate runs one validator per round, on Validate's model; Security, the check after it, runs its own
+/// one, on Security's. Each round is one checker, one run and one History record; the pass moves the card on once.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_check_runs_one_checker_on_its_own_agent() {
     let world = world().await;
@@ -165,23 +178,23 @@ async fn each_check_runs_one_checker_on_its_own_agent() {
     let t = in_dev(w, "Search notes").await;
     submit(w, &t).await;
     let validator = checker(w, &t).await;
-    assert_eq!(agent_of(&validator), "Validator");
+    assert_eq!(agent_of(&validator), "validate");
     let security = verdict(w, &t, &validator, true, "Validate: all good.").await;
     assert_eq!(at(&security), (Some("security"), Status::Checking));
 
     let reviewer = checker(w, &t).await;
-    assert_eq!(agent_of(&reviewer), "Security reviewer");
+    assert_eq!(agent_of(&reviewer), "security");
     w.wait_for_output(&reviewer.id, "RUNS otaq:validate").await;
     let passed = verdict(w, &t, &reviewer, true, "No unescaped SQL.").await;
     assert_eq!(at(&passed), (Some("qa"), Status::WaitingForYou));
 
     assert_eq!(
         runs_of(w, &t, "validate").await,
-        [(some("Validator"), Some(RunResult::Passed))]
+        [(some("Claude Code"), Some(RunResult::Passed))]
     );
     assert_eq!(
         runs_of(w, &t, "security").await,
-        [(some("Security reviewer"), Some(RunResult::Passed))]
+        [(some("Claude Code"), Some(RunResult::Passed))]
     );
     let records = w.board.validations(&t.key.to_string()).await.unwrap();
     let records: Vec<_> = records
@@ -193,13 +206,13 @@ async fn each_check_runs_one_checker_on_its_own_agent() {
         [
             (
                 1,
-                Some("Security reviewer"),
+                Some("Claude Code"),
                 Some(ValidationOutcome::Pass),
                 Some("No unescaped SQL.")
             ),
             (
                 1,
-                Some("Validator"),
+                Some("Claude Code"),
                 Some(ValidationOutcome::Pass),
                 Some("Validate: all good.")
             ),
@@ -238,11 +251,11 @@ async fn two_checks_count_their_rounds_apart_and_prime_reads_its_own() {
 
     submit(w, &t).await;
     let validator = checker(w, &t).await;
-    assert_eq!(agent_of(&validator), "Validator");
+    assert_eq!(agent_of(&validator), "validate");
     assert_eq!(primed_round(w, &t).await, 1, "Validate's own round");
     verdict(w, &t, &validator, true, "Validate: all good.").await;
     let reviewer = checker(w, &t).await;
-    assert_eq!(agent_of(&reviewer), "Security reviewer");
+    assert_eq!(agent_of(&reviewer), "security");
     assert_eq!(primed_round(w, &t).await, 2, "Security's own round");
     let passed = verdict(w, &t, &reviewer, true, "No unescaped SQL.").await;
     assert_eq!(at(&passed), (Some("qa"), Status::WaitingForYou));
@@ -259,14 +272,12 @@ async fn a_check_at_its_tools_limit_waits_as_the_tickets_hold() {
     let t = in_dev(w, "Search notes").await;
     submit(w, &t).await;
     let validator = checker(w, &t).await;
-    w.set_agent_model(
-        "Security reviewer",
-        AgentModel::Tool {
-            tool: Tool::Codex,
-            model: None,
-        },
-    )
-    .await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            let security = file.flow.stages.iter_mut().find(|s| s.id == "security");
+            security.unwrap().who.model = Some("codex".into());
+        })
+        .await;
     let hit = LimitHit {
         kind: LimitKind::Session,
         text: "You've hit your usage limit.".into(),
@@ -298,7 +309,7 @@ async fn a_check_at_its_tools_limit_waits_as_the_tickets_hold() {
         .await
         .unwrap();
     let reviewer = checker(w, &t).await;
-    assert_eq!(agent_of(&reviewer), "Security reviewer");
+    assert_eq!(agent_of(&reviewer), "security");
     assert_eq!(reviewer.tool, Some(Tool::Codex));
     for _ in 0..500 {
         if ticket(w, &t).await.status == Status::Checking {

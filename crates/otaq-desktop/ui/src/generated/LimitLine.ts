@@ -25,6 +25,6 @@ tone: BannerTone, icon: IconName, title: string, text: string,
  */
 aside: string | null, 
 /**
- * Resume, Sign in… or Show in Agent tools.
+ * Resume, Sign in… or Show in Tools.
  */
 buttons: Array<LimitLineButton>, };

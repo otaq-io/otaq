@@ -1,18 +1,18 @@
-//! Agents at launch (T-0405; AGM-05, AGM-03, ADP-04, SES-03; d0108, d0088): every new session runs its agent (the
-//! Agent stage's, the agent check's, the agent Noyan uses for a Noyan conversation) and passes the agent's
-//! model (`--model opus`, nothing for the tool default; `model: default` resolved to the default model at start)
-//! and its effort; every resume passes the session's own stored model and effort again, whatever the agent is set to
-//! now; the session stores the agent, the tool, the model as passed and the effort, then the exact model the tool
-//! reports. `claude` stands in as `sh` printing its arguments: no test starts claude.
+//! Sessions at launch (T-0405; AGM-05, AGM-03, ADP-04, SES-03; d0108, d0088, UX-65, UX-70): every new session runs on
+//! who does its work (the Agent stage's model, the agent check's, "Noyan starts on" for a Noyan conversation, or the
+//! conversation's own pick) and passes that model (`--model opus`, nothing for the tool default; `model: default`
+//! resolved to the default model at start) and its effort; every resume passes the session's own stored model and
+//! effort again, whatever the stage says now; the session stores what it runs for, the tool, the model as passed and
+//! the effort, then the exact model the tool reports. `claude` stands in as `sh` printing its arguments: no test
+//! starts claude.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::claude::transcript::project_folder;
 use otaq_core::agent_tools::{LaunchContext, Tool};
-use otaq_core::agents::{Agent, AgentFields, AgentModel, Agents, FixedModels, ModelRef};
+use otaq_core::agents::{About, AgentModel, ModelRef, NoyanStartsOn};
 use otaq_core::board::comments::{NewComment, Side};
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::tickets::Ticket;
@@ -38,33 +38,30 @@ struct World {
     w: TestService,
     /// The user's Claude folder (the answer path reads a conversation's file there to know it can be resumed).
     claude: TempDir,
-    rules: Agents,
 }
 
 impl World {
-    async fn agent(&self, name: &str) -> Agent {
-        self.rules
-            .list()
-            .await
-            .unwrap()
-            .agents
-            .into_iter()
-            .find(|a| a.name == name)
-            .unwrap_or_else(|| panic!("no agent {name}"))
-    }
-
-    /// Saves a new model on an agent (an edit mid-ticket): Claude Code with `model` (`None`: its default).
+    /// Saves a new model on what the default flow's agent `name` did (an edit mid-ticket): Claude Code with `model`
+    /// (`None`: its default). `Developer`: the Agent stages and the delivery; `Checker`: the checks; `Noyan`: "Noyan
+    /// starts on".
     async fn set_model(&self, name: &str, model: Option<&str>) {
         self.set(name, claude(model), None).await;
     }
 
-    /// Saves a new model and effort on an agent.
+    /// Saves a new model and effort there.
     async fn set(&self, name: &str, model: AgentModel, effort: Option<&str>) {
-        let agent = self.agent(name).await;
-        self.rules
-            .edit(&agent.id, &fields(&agent, model, effort))
-            .await
-            .unwrap();
+        self.w
+            .edit_agent(name, |page| {
+                page.model = model;
+                page.effort = effort.map(str::to_owned);
+            })
+            .await;
+    }
+
+    /// The model Dev's stage names now (`claude:opus`).
+    async fn dev_model(&self) -> Option<String> {
+        let flow = self.w.board.effective_flow("SHOP").await.unwrap();
+        flow.stage("dev").unwrap().who.model.clone()
     }
 }
 
@@ -72,24 +69,6 @@ fn claude(model: Option<&str>) -> AgentModel {
     AgentModel::Tool {
         tool: Tool::ALL[0],
         model: model.map(str::to_owned),
-    }
-}
-
-/// `agent`'s page with another model and effort.
-fn fields(agent: &Agent, model: AgentModel, effort: Option<&str>) -> AgentFields {
-    AgentFields {
-        name: agent.name.clone(),
-        instructions: agent.instructions.clone(),
-        model,
-        effort: effort.map(str::to_owned),
-    }
-}
-
-/// The model text an agent passes (its own; `None` for the tool default and for `default`).
-fn model_of(agent: &Agent) -> Option<String> {
-    match &agent.model {
-        AgentModel::Tool { model, .. } => model.clone(),
-        AgentModel::Default => None,
     }
 }
 
@@ -110,8 +89,8 @@ fn launch_config(claude: &Path) -> impl FnOnce(ServiceConfig) -> ServiceConfig {
     }
 }
 
-/// Otaq's agents (Noyan, Developer, Validator; all on `default`, with no default model set yet: the
-/// new-session tool's own default) and Strong on `opus`; project SHOP (`shop-web`, with an origin for Open PR).
+/// Project SHOP (`shop-web`, with an origin for Open PR) on the default flow, every stage on `default` with no default
+/// model set yet (the new-session tool's own default), and Noyan on `default` too.
 async fn world() -> World {
     let claude_home = TempDir::new().unwrap();
     let w = TestService::start_with(launch_config(claude_home.path())).await;
@@ -123,20 +102,9 @@ async fn world() -> World {
         })
         .await
         .unwrap();
-    let rules = Agents::new(w.board.clone(), Arc::new(FixedModels::sample()));
-    rules
-        .add(&AgentFields {
-            name: "Strong".into(),
-            instructions: String::new(),
-            model: claude(Some("opus")),
-            effort: None,
-        })
-        .await
-        .unwrap();
     World {
         w,
         claude: claude_home,
-        rules,
     }
 }
 
@@ -183,10 +151,23 @@ fn model_flag(model: Option<&str>) -> String {
     model.map(|m| format!(" --model {m}")).unwrap_or_default()
 }
 
-fn named(agent: &Agent) -> Option<SessionAgent> {
+/// What a session of SHOP's stage `stage` stores it runs for, on Claude Code.
+fn on_stage(stage: &str) -> Option<SessionAgent> {
     Some(SessionAgent {
-        id: agent.id.clone(),
-        name: agent.name.clone(),
+        runs_for: About::Stage {
+            project: "SHOP".into(),
+            stage: stage.into(),
+        }
+        .scope(),
+        name: Tool::Claude.display_name().into(),
+    })
+}
+
+/// What a Noyan conversation's session stores it runs for, on Claude Code.
+fn on_noyan() -> Option<SessionAgent> {
+    Some(SessionAgent {
+        runs_for: About::Noyan.scope(),
+        name: Tool::Claude.display_name().into(),
     })
 }
 
@@ -220,14 +201,13 @@ async fn stored_on(
     (s.tool, s.model, s.agent)
 }
 
-/// A ticket's Dev session runs Developer (the Dev stage's agent) on its model, with its effort: `--model opus
-/// --effort high`; on `default` with no default model it runs the new-session tool's default (no `--model`); with a
-/// default model set, `default` resolves to it at the start and that is what the session stores (AGM-03, AGM-05).
+/// A ticket's Dev session runs on the Dev stage's model, with its effort: `--model opus --effort high`; on `default`
+/// with no default model it runs the new-session tool's default (no `--model`); with a default model set, `default`
+/// resolves to it at the start and that is what the session stores (AGM-03, AGM-05, UX-65).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_dev_session_runs_developer_on_its_model() {
+async fn a_dev_session_runs_on_its_stages_model() {
     let world = world().await;
     let w = &world.w;
-    let developer = world.agent("Developer").await;
     let price = create(w, "Price table").await;
     world
         .set("Developer", claude(Some("opus")), Some("high"))
@@ -243,7 +223,7 @@ async fn a_dev_session_runs_developer_on_its_model() {
     );
     assert_eq!(
         stored_on(w, &session.id).await,
-        (Some(Tool::Claude), Some("opus".into()), named(&developer))
+        (Some(Tool::Claude), Some("opus".into()), on_stage("dev"))
     );
     assert_eq!(
         w.sessions
@@ -266,11 +246,11 @@ async fn a_dev_session_runs_developer_on_its_model() {
     );
     assert_eq!(
         stored_on(w, &session.id).await,
-        (Some(Tool::Claude), None, named(&developer))
+        (Some(Tool::Claude), None, on_stage("dev"))
     );
 
-    world
-        .rules
+    w.board
+        .store()
         .set_default_model(&ModelRef {
             tool: Tool::ALL[0],
             model: Some("haiku".into()),
@@ -290,10 +270,10 @@ async fn a_dev_session_runs_developer_on_its_model() {
     );
     assert_eq!(
         stored_on(w, &session.id).await,
-        (Some(Tool::Claude), Some("haiku".into()), named(&developer))
+        (Some(Tool::Claude), Some("haiku".into()), on_stage("dev"))
     );
     let run: (Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT agent_id, model FROM stage_runs WHERE session_id = ? AND stage_id = 'dev'",
+        "SELECT agent, model FROM stage_runs WHERE session_id = ? AND stage_id = 'dev'",
     )
     .bind(&session.id)
     .fetch_one(w.board.store().pool())
@@ -301,8 +281,8 @@ async fn a_dev_session_runs_developer_on_its_model() {
     .unwrap();
     assert_eq!(
         run,
-        (Some(developer.id.clone()), Some("haiku".into())),
-        "the stage run keeps the agent and the model"
+        (Some("Claude Code".into()), Some("haiku".into())),
+        "the stage run keeps the tool and the model"
     );
     world.w.stop().await;
 }
@@ -354,8 +334,8 @@ async fn retry_start_after_the_model_changed_runs_the_new_model() {
     world.w.stop().await;
 }
 
-/// A Validate round runs Validator (the agent check's agent) on its own model while Dev runs Developer's: separate
-/// sessions, each with its own agent; the next round resolves the model again.
+/// A Validate round runs on the agent check's own model while Dev runs on Dev's: separate sessions, each on its
+/// stage's model; the next round resolves the model again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_check_round_runs_its_own_agent() {
     let world = world().await;
@@ -385,7 +365,7 @@ async fn a_check_round_runs_its_own_agent() {
         (
             Some(Tool::Claude),
             Some("haiku".into()),
-            named(&world.agent("Checker").await)
+            on_stage("validate")
         )
     );
     let dev_id = developer.tool_session_id.clone().unwrap();
@@ -397,7 +377,7 @@ async fn a_check_round_runs_its_own_agent() {
         )
     );
 
-    // Between rounds the agent may change (d0088): the next round runs on its model now.
+    // Between rounds the stage's model may change (d0088): the next round runs on its model now.
     w.sessions.stop(&validator.id).await.unwrap();
     world.set_model("Checker", Some("sonnet")).await;
     let next = w
@@ -415,33 +395,44 @@ async fn a_check_round_runs_its_own_agent() {
     world.w.stop().await;
 }
 
-/// "Noyan uses" is one app setting: changed to Strong, the next Noyan conversation starts on Strong.
+/// "Noyan starts on" is one app setting (UX-70): changed to Claude Code · opus · high, the next Noyan conversation
+/// starts on it.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_next_conversation_starts_on_the_agent_noyan_uses() {
+async fn the_next_conversation_starts_on_noyans_setting() {
     let world = world().await;
     let w = &world.w;
-    let strong = world.agent("Strong").await;
-    w.board.store().set_noyan_agent(&strong.id).await.unwrap();
+    world.set("Noyan", claude(Some("opus")), Some("high")).await;
     let agent = w
         .project_agents
         .open("SHOP", "Why is checkout slow?")
         .await
         .unwrap();
     let session = agent.session.clone().unwrap();
-    assert_eq!(stored_on(w, &session.id).await.2, named(&strong));
+    let id = session.tool_session_id.clone().unwrap();
+    assert_eq!(
+        launched(w, &session.id).await,
+        format!(
+            "--session-id {id} --model opus --effort high {} Why is checkout slow?",
+            claude_skill("otaq:noyan")
+        )
+    );
+    assert_eq!(stored_on(w, &session.id).await.2, on_noyan());
     world.w.stop().await;
 }
 
-/// A new conversation picks its own agent: a Noyan conversation opened on another agent than the one Noyan uses starts
-/// on that agent and stores it; an unknown one is refused.
+/// A new conversation picks its own model and effort before its first message (UX-70): it starts on them and stores
+/// them; a model that doesn't read is refused.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_project_agent_opens_on_the_agent_asked_for() {
+async fn a_project_agent_opens_on_the_model_asked_for() {
     let world = world().await;
     let w = &world.w;
-    let strong = world.agent("Strong").await;
+    let pick = NoyanStartsOn {
+        model: Some("claude:opus".into()),
+        effort: None,
+    };
     let agent = w
         .project_agents
-        .open_on("SHOP", "Why is checkout slow?", Some(&strong.id))
+        .open_on("SHOP", "Why is checkout slow?", Some(&pick))
         .await
         .unwrap();
     let session = agent.session.clone().unwrap();
@@ -453,10 +444,42 @@ async fn a_project_agent_opens_on_the_agent_asked_for() {
             claude_skill("otaq:noyan")
         )
     );
-    assert_eq!(stored_on(w, &session.id).await.2, named(&strong));
+    assert_eq!(stored_on(w, &session.id).await.1.as_deref(), Some("opus"));
+    // Switched to sonnet · medium in the panel's header before typing (canvas A-6): it runs on both.
+    let sonnet = NoyanStartsOn {
+        model: Some("claude:sonnet".into()),
+        effort: Some("medium".into()),
+    };
+    let agent = w
+        .project_agents
+        .open_on("SHOP", "Which avatar sizes?", Some(&sonnet))
+        .await
+        .unwrap();
+    let session = agent.session.clone().unwrap();
+    let id = session.tool_session_id.clone().unwrap();
+    assert_eq!(
+        launched(w, &session.id).await,
+        format!(
+            "--session-id {id} --model sonnet --effort medium {} Which avatar sizes?",
+            claude_skill("otaq:noyan")
+        )
+    );
+    assert_eq!(
+        w.sessions
+            .stored(&session.id)
+            .await
+            .unwrap()
+            .effort
+            .as_deref(),
+        Some("medium")
+    );
+    let bad = NoyanStartsOn {
+        model: Some("gpt-9".into()),
+        effort: None,
+    };
     assert!(
         w.project_agents
-            .open_on("SHOP", "Hello", Some("no-such-agent"))
+            .open_on("SHOP", "Hello", Some(&bad))
             .await
             .is_err()
     );
@@ -475,11 +498,19 @@ enum Resume {
 }
 
 impl Resume {
-    /// The agent whose session the path resumes.
+    /// Whose model the path's session runs on: the default flow's Developer (Dev, the delivery), or Noyan.
     fn agent(self) -> &'static str {
         match self {
             Self::ProjectAgent => "Noyan",
             _ => "Developer",
+        }
+    }
+
+    /// What its session stores it runs for.
+    fn runs_for(self) -> Option<SessionAgent> {
+        match self {
+            Self::ProjectAgent => on_noyan(),
+            _ => on_stage("dev"),
         }
     }
 }
@@ -495,22 +526,23 @@ const EVERY_RESUME: [Resume; 6] = [
 
 const CONVERSATION: &str = "0199d2a4-3b1c-7c3e-9f00-123456789abc";
 
-/// Records an ended agent session of `t` on `agent` with the model it launched with, as an earlier start would have.
-async fn record_ended_on(w: &TestService, t: &Ticket, agent: &Agent) {
+/// Records an ended Dev session of `t` on Claude Code with `model` (as passed), as an earlier start would have.
+async fn record_ended_on(w: &TestService, t: &Ticket, model: Option<&str>) {
     w.record_ended_agent(t, CONVERSATION).await;
+    let on = on_stage("dev").unwrap();
     sqlx::query(
-        "UPDATE sessions SET model = ?, agent_id = ?, agent_name = ? WHERE tool_session_id = ?",
+        "UPDATE sessions SET model = ?, runs_for = ?, agent_name = ? WHERE tool_session_id = ?",
     )
-    .bind(model_of(agent))
-    .bind(&agent.id)
-    .bind(&agent.name)
+    .bind(model)
+    .bind(&on.runs_for)
+    .bind(&on.name)
     .bind(CONVERSATION)
     .execute(w.board.store().pool())
     .await
     .unwrap();
 }
 
-/// Runs `path` for a session first launched with its agent on `model` (then edited to `edited_to`): returns the
+/// Runs `path` for a session first launched with its stage on `model` (then edited to `edited_to`): returns the
 /// resumed session's arguments, what it stored, and the arguments expected with `model` passed.
 async fn resume(
     world: World,
@@ -521,14 +553,13 @@ async fn resume(
     let mut world = world;
     let on = path.agent();
     world.set_model(on, model).await;
-    let agent = world.agent(on).await;
     let flag = model_flag(model);
     let (session, expected) = match path {
         Resume::SendBack => {
             let w = &world.w;
             let t = create(w, "Fix flaky login redirect").await;
             w.start_worktree(&t).await;
-            record_ended_on(w, &t, &agent).await;
+            record_ended_on(w, &t, model).await;
             world.set_model(on, edited_to).await;
             w.force_status(&t, Status::WaitingForYou).await;
             w.board
@@ -582,8 +613,7 @@ async fn resume(
             world.set_model(on, edited_to).await;
             let World { w, claude, .. } = world;
             let w = w.restart_with(launch_config(claude.path())).await;
-            let rules = Agents::new(w.board.clone(), Arc::new(FixedModels::sample()));
-            world = World { w, claude, rules };
+            world = World { w, claude };
             let w = &world.w;
             assert_eq!(w.status("SHOP-1").await, Status::Interrupted);
             w.review.resume("SHOP-1", &me()).await.unwrap();
@@ -604,7 +634,7 @@ async fn resume(
             let t = create(w, "Checkout API").await;
             let worktree = w.start_worktree(&t).await;
             commit(&worktree, "api.ts", "checkout\n");
-            record_ended_on(w, &t, &agent).await;
+            record_ended_on(w, &t, model).await;
             world.set_model(on, edited_to).await;
             w.force_status(&t, Status::WaitingForYou).await;
             // A local origin has no PR provider: the user's Open PR skill the Delivery stage names runs instead.
@@ -648,7 +678,7 @@ async fn resume(
                 .unwrap();
             let worktree = w.start_worktree(&parent).await;
             commit(&worktree, "api.ts", "checkout\n");
-            record_ended_on(w, &parent, &agent).await;
+            record_ended_on(w, &parent, model).await;
             let folder = world
                 .claude
                 .path()
@@ -717,31 +747,91 @@ async fn wait_for_agent(w: &TestService, id: &str, state: AgentState) {
     .unwrap_or_else(|_| panic!("agent {id} never became {state:?}"));
 }
 
-/// Every path that resumes a conversation launches with the session's own stored model, never the agent's current
+/// Every path that resumes a conversation launches with the session's own stored model, never the stage's current
 /// one (AGM-03: "Resume reopens the same tool and model"): a session started on `sonnet` resumes with `--model
-/// sonnet` after its agent was edited to `opus`, and the resumed session's row names the agent with `sonnet` again.
+/// sonnet` after its stage was edited to `opus`, and the resumed session's row says what it runs for with `sonnet`
+/// again.
 #[tokio::test(flavor = "multi_thread")]
 async fn every_resume_passes_the_sessions_own_model() {
     for path in EVERY_RESUME {
         let (world, args, expected, session) =
             resume(world().await, path, Some("sonnet"), Some("opus")).await;
         assert_eq!(args, expected, "{path:?}");
-        let agent = world.agent(path.agent()).await;
-        assert_eq!(
-            model_of(&agent).as_deref(),
-            Some("opus"),
-            "edited mid-ticket"
-        );
+        let now = match path {
+            Resume::ProjectAgent => world.w.board.store().noyan_starts_on().await.unwrap().model,
+            _ => world.dev_model().await,
+        };
+        assert_eq!(now.as_deref(), Some("claude:opus"), "edited mid-ticket");
         assert_eq!(
             stored_on(&world.w, &session.id).await,
-            (Some(Tool::Claude), Some("sonnet".into()), named(&agent)),
+            (Some(Tool::Claude), Some("sonnet".into()), path.runs_for()),
             "{path:?}: the new session row copies the one it resumes"
         );
         world.w.stop().await;
     }
 }
 
-/// A session that ran on the tool default resumes with no `--model`, even after its agent got one.
+/// A session from before the stage said who does it (0.2.0: its row names the agent, "Quick") resumes named after its
+/// tool, as every new session is (UX-65): the new row and the comments it writes read "Claude Code", never "Quick".
+/// The old row keeps its name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resumed_session_of_a_named_agent_is_named_after_its_tool() {
+    use otaq_core::board::ticket_comments::CommentAuthor;
+
+    let world = world().await;
+    let w = &world.w;
+    let t = create(w, "Fix flaky login redirect").await;
+    w.start_worktree(&t).await;
+    record_ended_on(w, &t, Some("haiku")).await;
+    sqlx::query("UPDATE sessions SET agent_name = 'Quick' WHERE tool_session_id = ?")
+        .bind(CONVERSATION)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    w.force_status(&t, Status::WaitingForYou).await;
+    w.board
+        .add_comment(&NewComment {
+            key: "SHOP-1".into(),
+            file: "login.ts".into(),
+            line: 1,
+            side: Side::New,
+            body: "Keep the query string".into(),
+        })
+        .await
+        .unwrap();
+    w.review
+        .fail("SHOP-1", "", Vec::new(), false, &me())
+        .await
+        .unwrap();
+    let s = w
+        .sessions
+        .running_of(&t.id, SessionKind::Agent)
+        .expect("resumed");
+    assert!(
+        launched(w, &s.id)
+            .await
+            .starts_with(&format!("--resume {CONVERSATION} --model haiku"))
+    );
+    assert_eq!(stored_on(w, &s.id).await.2, on_stage("dev"));
+    match w.board.session_author(&s.id).await.unwrap() {
+        CommentAuthor::Agent { name, tool, .. } => {
+            assert_eq!(name.as_deref(), Some("Claude Code"));
+            assert_eq!(tool, Some(Tool::Claude));
+        }
+        other => panic!("not an agent: {other:?}"),
+    }
+    let old: Vec<String> =
+        sqlx::query_scalar("SELECT agent_name FROM sessions WHERE tool_session_id = ? AND id <> ?")
+            .bind(CONVERSATION)
+            .bind(&s.id)
+            .fetch_all(w.board.store().pool())
+            .await
+            .unwrap();
+    assert_eq!(old, ["Quick"]);
+    world.w.stop().await;
+}
+
+/// A session that ran on the tool default resumes with no `--model`, even after its stage got one.
 #[tokio::test(flavor = "multi_thread")]
 async fn every_resume_of_a_tool_default_session_passes_no_model() {
     for path in EVERY_RESUME {
@@ -754,7 +844,7 @@ async fn every_resume_of_a_tool_default_session_passes_no_model() {
     }
 }
 
-/// An edit to an agent mid-ticket changes only new sessions (0088): SHOP-1's Send back still passes `sonnet`, a new
+/// An edit to a stage's model mid-ticket changes only new sessions (0088): SHOP-1's Send back still passes `sonnet`, a new
 /// ticket starts with the new `opus`.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_edited_agent_changes_only_new_sessions() {
@@ -780,7 +870,7 @@ async fn an_edited_agent_changes_only_new_sessions() {
     world.w.stop().await;
 }
 
-/// A Resume passes the session's own effort again, whatever its agent's effort is now (AGM-01, AGM-03).
+/// A Resume passes the session's own effort again, whatever its stage's effort is now (AGM-01, AGM-03).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_resume_passes_the_sessions_own_effort() {
     let world = world().await;
@@ -868,11 +958,8 @@ async fn the_model_that_ran_is_written_once() {
         Some("claude-opus-5-5"),
         "the first value wins"
     );
-    // An agent's model is never read back from the agent panel: Developer stays on `opus`.
-    assert_eq!(
-        model_of(&world.agent("Developer").await).as_deref(),
-        Some("opus")
-    );
+    // A stage's model is never read back from the agent panel: Dev stays on `opus`.
+    assert_eq!(world.dev_model().await.as_deref(), Some("claude:opus"));
     world.w.stop().await;
 }
 
@@ -916,31 +1003,32 @@ async fn a_project_agents_model_that_ran_is_on_its_row() {
     world.w.stop().await;
 }
 
-/// A Noyan conversation started on another agent than the one Noyan uses reads that agent's instructions in its
-/// `prime --project`; read by hand (no conversation), the prime gives the instructions of the agent Noyan uses.
+/// Noyan has no instructions of its own (UX-74): its conversations' `prime --project`, and one read by hand, give only
+/// the project's notes, whatever model the conversation runs on.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_conversations_prime_gives_its_own_agents_instructions() {
+async fn a_conversations_prime_gives_only_the_projects_notes() {
     let world = world().await;
     let w = &world.w;
-    let strong = world.agent("Strong").await;
-    w.edit_agent(&strong.name, |a| {
-        a.instructions = "Strong's own rules.".into()
-    })
-    .await;
-    let noyan = w.board.store().noyan_agent().await.unwrap().unwrap();
-    w.edit_agent(&noyan.name, |a| {
-        a.instructions = "Noyan's own rules.".into()
-    })
-    .await;
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    settings.project_notes = "Use pnpm.".into();
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    let pick = NoyanStartsOn {
+        model: Some("claude:opus".into()),
+        effort: None,
+    };
     let conversation = w
         .project_agents
-        .open_on("SHOP", "Why is checkout slow?", Some(&strong.id))
+        .open_on("SHOP", "Why is checkout slow?", Some(&pick))
         .await
         .unwrap();
     let told = |prime: otaq_core::project_agents::prime::ProjectPrime| {
         let i = prime.instructions.unwrap();
-        (i.agent, i.own)
+        (i.agent, i.own, i.notes)
     };
+    let notes_only = (None, String::new(), "Use pnpm.".to_owned());
     assert_eq!(
         told(
             w.board
@@ -948,11 +1036,11 @@ async fn a_conversations_prime_gives_its_own_agents_instructions() {
                 .await
                 .unwrap()
         ),
-        (Some(strong.name.clone()), "Strong's own rules.".to_owned())
+        notes_only
     );
     assert_eq!(
         told(w.board.project_prime("SHOP", None).await.unwrap()),
-        (Some(noyan.name.clone()), "Noyan's own rules.".to_owned())
+        notes_only
     );
     for s in w
         .sessions

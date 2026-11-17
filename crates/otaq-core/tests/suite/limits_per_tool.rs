@@ -16,9 +16,7 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::models::{ModelEntry, ModelKind, ModelList};
 use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::agents::limits::{Situation, ToolLine, ToolLines};
-use otaq_core::agents::{
-    Agent, AgentFields, AgentHold, AgentModel, Agents, FixedModels, HoldReason, ToolModel,
-};
+use otaq_core::agents::{AgentHold, AgentModel, HoldReason};
 use otaq_core::attention::notify::pace::{FakeClock, QUIET};
 use otaq_core::attention::notify::{Notifier, OnClick, OsNotification};
 use otaq_core::board::moves::DropTarget;
@@ -26,7 +24,7 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Status};
-use otaq_core::flow::FlowAgent;
+use otaq_core::flow::WhoDoesIt;
 use otaq_core::naming;
 use otaq_core::protocol::{KeyParams, Reply, Request, ToolParams, UsageParams};
 use otaq_core::service::ServiceConfig;
@@ -67,8 +65,7 @@ impl Recorder {
 
 struct World {
     w: TestService,
-    rules: Agents,
-    /// BILL's key: its Agent stage runs "Codex developer".
+    /// BILL's key: its Agent stage runs on Codex.
     bill: String,
     recorder: Arc<Recorder>,
     /// The notifications' quiet period counts in it (d0090).
@@ -77,32 +74,9 @@ struct World {
 }
 
 impl World {
-    async fn agent(&self, name: &str) -> Agent {
-        self.rules
-            .list()
-            .await
-            .unwrap()
-            .agents
-            .into_iter()
-            .find(|a| a.name == name)
-            .unwrap_or_else(|| panic!("no agent {name}"))
-    }
-
-    /// Saves `model` on the agent `name` (Settings → Agents).
+    /// Saves `model` on what the default flow's agent `name` did (Noyan: "Noyan starts on").
     async fn set_model(&self, name: &str, model: AgentModel) {
-        let agent = self.agent(name).await;
-        self.rules
-            .edit(
-                &agent.id,
-                &AgentFields {
-                    name: agent.name.clone(),
-                    instructions: agent.instructions.clone(),
-                    model,
-                    effort: None,
-                },
-            )
-            .await
-            .unwrap();
+        self.w.set_agent_model(name, model).await;
     }
 
     /// The `n`th BILL ticket's key.
@@ -217,26 +191,10 @@ async fn world() -> World {
     w.add_project("shop-web").await;
     let bill = w.add_project("billing-api").await.key;
     let mut file = otaq_core::flow::default_file().clone();
-    for stage in &mut file.flow.stages {
-        if stage.agent.as_deref() == Some("Developer") {
-            stage.agent = Some("Codex developer".into());
-        }
+    for stage in file.flow.stages.iter_mut().filter(|s| s.id == "dev") {
+        stage.who = WhoDoesIt::on("codex");
     }
-    file.agents = vec![FlowAgent {
-        name: "Codex developer".into(),
-        instructions: String::new(),
-        model: "codex".into(),
-        why: None,
-    }];
     w.board.use_flow_for_tests(&bill, &file).await;
-    let rules = Agents::new(
-        w.board.clone(),
-        Arc::new(FixedModels::new(vec![
-            ToolModel::ToolDefault,
-            ToolModel::Follow("sonnet".into()),
-            ToolModel::Follow("newest:gpt-sol".into()),
-        ])),
-    );
     // Codex's list, with GPT Sol's newest model.
     let entry = |id: &str, kind, resolves_to: Option<&str>| ModelEntry {
         id: id.into(),
@@ -261,7 +219,6 @@ async fn world() -> World {
         .await;
     World {
         w,
-        rules,
         bill,
         recorder,
         clock,
@@ -661,7 +618,7 @@ async fn another_tools_limit_doesnt_hold_a_project_agent() {
         )
         .await
         .unwrap();
-    // The agent Noyan uses on Codex: it opens.
+    // Noyan starts on Codex: it opens.
     world
         .set_model(
             "Noyan",

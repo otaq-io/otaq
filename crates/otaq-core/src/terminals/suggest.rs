@@ -92,10 +92,10 @@ impl Suggester {
     /// Starts a suggestion for the project (the user's click). One already running is replaced.
     pub async fn start(&self, project: &str) -> Result<(), BoardError> {
         let project = self.inner.board.project(project).await?;
-        // The agent Noyan uses, as a new Noyan conversation would start (AGM-05).
+        // "Noyan starts on", as a new Noyan conversation would start (AGM-05, UX-70).
         let store = self.inner.board.store();
-        let agent = resolve::noyan_agent(store).await?;
-        let runs_on = RunsOn::agent(&agent, store.default_model().await?.as_ref());
+        let who = resolve::noyan_who(store).await?;
+        let runs_on = RunsOn::who(&who, store.default_model().await?.as_ref());
         let adapter = self.inner.adapters.of_session(runs_on.tool);
         let question = adapter
             .one_off(&OneOffRequest {

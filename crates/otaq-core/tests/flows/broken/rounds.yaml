@@ -2,13 +2,13 @@ flow:
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: default
     skill: otaq:work-ticket
   - id: validate
     name: Validate
     kind: check
     by: agent
-    agent: Validator
+    model: default
     skill: otaq:validate
     rounds: 7
 delivery:

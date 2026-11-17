@@ -230,7 +230,7 @@ pub(super) async fn handle(
             )))
         }),
         Request::AgentToolsList => {
-            boxed(move || async move { Ok(Reply::AgentTools(Box::new(shared.connected.list()))) })
+            boxed(move || async move { Ok(Reply::AgentTools(Box::new(tools_list(shared).await?))) })
         }
         // Settings → About: the tuq each connected tool has (decisions 100, 102).
         Request::TuqVersions => boxed(move || async move {
@@ -255,11 +255,11 @@ pub(super) async fn handle(
                 .connected
                 .set_hidden(&shared.store, p.tool, p.hidden)
                 .await?;
-            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+            Ok(Reply::AgentTools(Box::new(tools_list(shared).await?)))
         }),
         Request::AgentToolsRecheck(p) => boxed(move || async move {
             shared.connected.recheck(p.tool).await?;
-            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+            Ok(Reply::AgentTools(Box::new(tools_list(shared).await?)))
         }),
         Request::AgentToolsSignIn(p) => boxed(move || async move {
             let terminal = shared.connected.sign_in(p.tool).await?;
@@ -271,7 +271,7 @@ pub(super) async fn handle(
         }),
         Request::AgentToolsDisconnect(p) => boxed(move || async move {
             shared.connected.disconnect(p.tool).await?;
-            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+            Ok(Reply::AgentTools(Box::new(tools_list(shared).await?)))
         }),
         Request::LimitsResumeTool(p) => boxed(move || async move {
             let resumed = crate::agents::limits::resume_tool(
@@ -1445,12 +1445,12 @@ pub(super) async fn handle(
             )
         }
         Request::FlowProposal(p) => boxed(move || async move {
-            let proposal = board.proposal(&p.project, shared.agents.models()).await?;
+            let proposal = board.proposal(&p.project, &shared.models).await?;
             Ok(Reply::FlowProposal(proposal.map(Box::new)))
         }),
         Request::FlowProposeFrom(p) => boxed(move || async move {
             let proposal = board
-                .propose_from(&p.project, &p.source, shared.agents.models())
+                .propose_from(&p.project, &p.source, &shared.models)
                 .await?;
             flow_event(
                 shared,
@@ -1464,7 +1464,7 @@ pub(super) async fn handle(
         Request::FlowApply(p) => boxed(move || async move {
             let by = board.proposed_by(&p.project, p.proposal).await?;
             let applied = board
-                .apply_proposal(&p.project, p.proposal, &p.choices, shared.agents.models())
+                .apply_proposal(&p.project, p.proposal, &p.choices, &shared.models)
                 .await?;
             if let Some(by) = &by {
                 let waiting = applied.waiting.as_ref().map(|w| w.summary());
@@ -1484,9 +1484,8 @@ pub(super) async fn handle(
                     proposal: applied.proposal,
                 },
             );
-            if !applied.agents.is_empty() {
-                shared.events.publish(Event::AgentsChanged);
-            }
+            // A stage's model may have changed: the holds are checked again.
+            shared.events.publish(Event::AgentsChanged);
             if applied.waiting.is_some() {
                 flow_event(shared, &key, FlowEvent::Waiting);
             }
@@ -1551,7 +1550,7 @@ pub(super) async fn handle(
             };
             // It lands in the draft, and no preview opens (FED-02).
             let proposal = board
-                .propose(&p.project, &p.source, &by, shared.agents.models())
+                .propose(&p.project, &p.source, &by, &shared.models)
                 .await?;
             let change = FlowEvent::DraftChanged {
                 proposal: proposal.id,
@@ -1561,12 +1560,16 @@ pub(super) async fn handle(
         }),
         Request::FlowDraft(p) => boxed(move || async move {
             Ok(Reply::FlowDraft(Box::new(
-                board.draft(&p.project, shared.agents.models()).await?,
+                board.draft(&p.project, &shared.models).await?,
             )))
+        }),
+        Request::FlowModelMarks(p) => boxed(move || async move {
+            let marks = crate::agents::mark::of_project(board.store(), &p.project).await?;
+            Ok(Reply::ModelMarks(marks))
         }),
         Request::FlowDraftUpdate(p) => boxed(move || async move {
             let draft = board
-                .update_draft(&p.project, &p.edit, shared.agents.models())
+                .update_draft(&p.project, &p.edit, &shared.models)
                 .await?;
             flow_event(
                 shared,
@@ -1599,7 +1602,7 @@ pub(super) async fn handle(
                 }
             };
             let project = board.project(&p.project).await?.key;
-            let draft = board.draft(&project, shared.agents.models()).await?;
+            let draft = board.draft(&project, &shared.models).await?;
             flow_event(
                 shared,
                 &project,
@@ -1760,15 +1763,8 @@ pub(super) async fn handle(
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
         | Request::ProjectAgentUndone(_)
-        | Request::AgentsList
-        | Request::AgentsAdd(_)
-        | Request::AgentsEdit(_)
-        | Request::AgentsDuplicate(_)
-        | Request::AgentsDelete(_)
-        | Request::AgentsInUse(_)
-        | Request::AgentsNoyan(_)
-        | Request::AgentsDefaultModel(_)
-        | Request::AgentsReads(_)
+        | Request::NoyanStartsOn
+        | Request::NoyanSetStartsOn(_)
         | Request::HelperStart(_)
         | Request::HelperList(_)
         | Request::HelperDiff(_)
@@ -2312,6 +2308,28 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
         .board
         .prime_context(key, shared.adapters.of_session(caller_tool(shared, caller)))
         .await?;
+    // The session that writes the PR on the delivery's own model reads the delivery's instructions (UX-69).
+    if let Some(session) = caller_session(caller) {
+        let runs_for: Option<Option<String>> =
+            sqlx::query_scalar("SELECT runs_for FROM sessions WHERE id = ?")
+                .bind(session)
+                .fetch_optional(shared.board.store().pool())
+                .await?;
+        if let Some(crate::agents::About::Delivery { project }) = runs_for
+            .flatten()
+            .as_deref()
+            .and_then(crate::agents::About::parse)
+        {
+            let flow = shared.board.effective_flow(&project).await?;
+            let own = flow
+                .delivery
+                .who
+                .instructions
+                .as_deref()
+                .map(|text| (crate::agents::facts::DELIVERY_STEP, text));
+            context.instructions = shared.board.instructions(&project, own).await?;
+        }
+    }
     context.long_text_file = codex_long_text_file(shared, caller);
     record_prime(&shared.board, caller, &context.ticket.id).await?;
     Ok(Reply::Prime(Box::new(context)))
@@ -2475,7 +2493,16 @@ async fn tell_running_agent(shared: &Shared, key: &str, n: u32) {
     let Ok(ticket) = shared.board.ticket(key).await else {
         return;
     };
-    let kind = crate::board::ticket_comments::told_session_kind(ticket.status);
+    let at_check = match shared
+        .board
+        .effective_flow(ticket.key.project.as_str())
+        .await
+    {
+        Ok(flow) => crate::agents::facts::at_agent_check(&ticket, &flow),
+        Err(_) => false,
+    };
+    let waits = crate::agents::facts::check_waits(at_check, ticket.status, ticket.interrupted_from);
+    let kind = crate::board::ticket_comments::told_session_kind(ticket.status, waits);
     let Some(session) = shared.sessions.running_of(&ticket.id, kind) else {
         return;
     };
@@ -2726,8 +2753,8 @@ pub(super) fn error_body(e: &BoardError) -> ErrorBody {
     }
 }
 
-/// The agent the ticket's check waits for when its checker is held before it started (its tool lacks the skill, isn't
-/// available, is at its limit…): `stage next` says the check waits rather than runs.
+/// What the ticket's check waits for when its checker is held before it started (its tool lacks the skill, isn't
+/// available, is at its limit…), named by its tool ("Codex"): `stage next` says the check waits rather than runs.
 async fn held_checker(board: &Board, ticket: &Ticket) -> Result<Option<String>, BoardError> {
     let store = board.store();
     let Some(hold) = store
@@ -2738,14 +2765,15 @@ async fn held_checker(board: &Board, ticket: &Ticket) -> Result<Option<String>, 
     else {
         return Ok(None);
     };
-    let name = match hold.agent_id {
-        Some(id) => store
-            .agents()
-            .await?
-            .into_iter()
-            .find(|a| a.id == id)
-            .map(|a| a.name),
-        None => None,
-    };
-    Ok(Some(name.unwrap_or_else(|| "its agent".to_owned())))
+    Ok(Some(hold.tool.display_name().to_owned()))
+}
+
+/// Every tool's row ([`crate::agent_tools::connected::Connected::list`]) with the account's default model, which only
+/// the store knows.
+async fn tools_list(
+    shared: &Shared,
+) -> Result<crate::agent_tools::connected::AgentToolsList, BoardError> {
+    let mut list = shared.connected.list();
+    list.default_model = shared.store.default_model().await?;
+    Ok(list)
 }

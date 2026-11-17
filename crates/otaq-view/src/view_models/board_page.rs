@@ -13,7 +13,7 @@
 use std::borrow::Cow;
 
 use otaq_core::board::moves::{DropOn, MoveAction, STARTS_BY_ITSELF, check_move_in};
-use otaq_core::board::stage_choices::{Choice, StageOptions};
+use otaq_core::board::stage_choices::StageOptions;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::flow::engine::Target;
@@ -442,8 +442,9 @@ pub struct ProjectFacts<'a> {
     pub agent_filter: Option<&'a AgentFilter>,
     /// The cards' named agents (`board.agents`, T-0345): the footer's agent part.
     pub agents: Option<&'a otaq_core::agents::facts::BoardAgents>,
-    /// Every agent (`agents.list`): the column headers' tooltips name each stage's tool and model (FLW-12).
-    pub agent_list: Option<&'a otaq_core::agents::AgentList>,
+    /// The account's default model, for a `default` a flow still says: the column headers' tooltips name each stage's
+    /// tool and model (FLW-12).
+    pub default_model: Option<&'a otaq_core::agents::ModelRef>,
     /// The starts a waiting flow change holds back (FLW-06, FED-08): its cards say
     /// [`board::WAITING_FOR_THE_FLOW_CHANGE`]; `None` while starts run.
     pub starts_held: Option<&'a otaq_core::flow::apply::Hold>,
@@ -589,7 +590,7 @@ pub fn page(
     now_ms: i64,
     keys: &KeyLabels,
 ) -> BoardPage {
-    let scope = Scope::of(project.flow, tickets, project.agents, project.agent_list);
+    let scope = Scope::of(project.flow, tickets, project.agents);
     let filter = params.filter.filter(&scope);
     let mut visible = filter.visible(tickets, &scope);
     // The agent filter (d0087) narrows whatever the search shows.
@@ -618,7 +619,7 @@ pub fn page(
         agent_names: project.agent_names,
         was_validating: project.was_validating,
         agents: project.agents,
-        agent_list: project.agent_list,
+        default_model: project.default_model,
         starts_held: project.starts_held,
         paused: project.paused,
         helpers: project.helpers,
@@ -1151,17 +1152,10 @@ fn agent_works(status: Status) -> bool {
     )
 }
 
-/// The agent a stage runs for the ticket: the one it picked, else the stage's own.
-fn agent_of(stage: &Stage, choices: &[StageOptions]) -> Option<String> {
-    let picked = choices
-        .iter()
-        .find(|c| c.stage_id == stage.id)
-        .and_then(|c| c.choice.as_ref())
-        .and_then(|c| match &c.choice {
-            Choice::Agent { name, .. } => Some(name.clone()),
-            Choice::Usual | Choice::Skip => None,
-        });
-    picked.or_else(|| stage.agent.clone())
+/// The tool a stage runs on for the ticket: the stage's own model's (a ticket can't pick another, UX-72).
+fn agent_of(stage: &Stage, _choices: &[StageOptions]) -> Option<String> {
+    crate::view_models::agents::stage_tool(stage, None)
+        .map(|t| crate::view_models::tool_problems::tool_word(t).to_owned())
 }
 
 /// "Then it goes on to Security, Review and Done as usual.": the stages after `to` the ticket runs.
@@ -1284,7 +1278,7 @@ pub fn gallery() -> Gallery {
         was_validating: &[],
         agent_filter: None,
         agents: None,
-        agent_list: None,
+        default_model: None,
         starts_held: None,
         view: &view,
         paused: false,
@@ -1404,7 +1398,7 @@ fn gallery_rails(flow: &Flow) -> Vec<GalleryColumn> {
         was_validating: &[],
         agent_filter: None,
         agents: None,
-        agent_list: None,
+        default_model: None,
         starts_held: None,
         view: &view,
         paused: false,
@@ -1610,10 +1604,7 @@ mod tests {
         let failed = on_test_flow("SHOP-19", "security", Status::CheckFailed);
         let dialog = drag_back_dialog(&flow, &failed, &DropTargetId::DEV, &[]).unwrap();
         assert_eq!(dialog.title, "Send SHOP-19 back to Dev?");
-        assert_eq!(
-            dialog.comment.label.as_deref(),
-            Some("Comment for Dev (Rust developer)")
-        );
+        assert_eq!(dialog.comment.label.as_deref(), Some("Comment for Dev"));
         assert_eq!(
             dialog.comment.placeholder,
             "What should change? Every later stage reads it too."
@@ -1641,9 +1632,7 @@ mod tests {
         assert_eq!(dialog.title, "Send SHOP-29 back to Dev?");
         assert_eq!(
             dialog.stops.as_deref(),
-            Some(
-                "Security reviewer is working on it now. It stops, and the check runs again after Dev."
-            )
+            Some("Security is working on it now. It stops, and the check runs again after Dev.")
         );
         assert_eq!(dialog.then, None);
         assert_eq!(dialog.confirm, "Stop and send to Dev");
@@ -1654,7 +1643,7 @@ mod tests {
         assert_eq!(dialog.title, "Run Security again on SHOP-18?");
         assert_eq!(
             dialog.comment.label.as_deref(),
-            Some("Comment for Security (Security reviewer)")
+            Some("Comment for Security")
         );
         assert_eq!(
             dialog.comment.footer.as_deref(),
@@ -1665,22 +1654,15 @@ mod tests {
         assert_eq!(dialog.confirm, "Run Security");
         assert_eq!(dialog.confirm_icon, IconName::RotateCcw);
 
-        // The ticket's own choices: the agent it picked for Dev, and QA skipped.
+        // The ticket's own choices: QA skipped.
         let choices: Vec<StageOptions> = serde_json::from_value(serde_json::json!([
-            {"stage_id": "dev", "stage": "Dev", "usual": {"name": "Rust developer"},
-             "agents": [{"name": "Quick developer"}], "can_skip": false,
-             "choice": {"stage_id": "dev", "choice": {"kind": "agent", "id": "a2", "name": "Quick developer"},
-                        "set_by": {"by": "user"}, "set_at": 0}, "locked": true},
-            {"stage_id": "qa", "stage": "QA", "agents": [], "can_skip": true,
+            {"stage_id": "qa", "stage": "QA", "can_skip": true,
              "choice": {"stage_id": "qa", "choice": {"kind": "skip"}, "set_by": {"by": "user"}, "set_at": 0},
              "locked": false}
         ]))
         .unwrap();
         let dialog = drag_back_dialog(&flow, &failed, &DropTargetId::DEV, &choices).unwrap();
-        assert_eq!(
-            dialog.comment.label.as_deref(),
-            Some("Comment for Dev (Quick developer)")
-        );
+        assert_eq!(dialog.comment.label.as_deref(), Some("Comment for Dev"));
         assert_eq!(
             dialog.then.as_deref(),
             Some("Then it goes on to Validate and Security as usual.")
@@ -1690,10 +1672,7 @@ mod tests {
         let flow = otaq_core::flow::default_flow();
         let dialog = drag_back_dialog(&flow, &review, &DropTargetId::DEV, &[]).unwrap();
         assert_eq!(dialog.title, "Send NOTE-1 back to Dev?");
-        assert_eq!(
-            dialog.comment.label.as_deref(),
-            Some("Comment for Dev (Developer)")
-        );
+        assert_eq!(dialog.comment.label.as_deref(), Some("Comment for Dev"));
         assert_eq!(
             dialog.then.as_deref(),
             Some("Then it goes on to Validate and Review as usual.")
@@ -1715,7 +1694,7 @@ mod tests {
             was_validating: &[],
             agent_filter: None,
             agents: None,
-            agent_list: None,
+            default_model: None,
             starts_held: None,
             view: view(ViewPrefs {
                 folded_columns: Vec::new(),
@@ -2666,12 +2645,12 @@ mod tests {
     fn shop_web() -> Flow {
         let yaml = "\
 flow:
-  - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
-  - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
-  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: product-spec, name: Product spec, kind: agent, model: default, skill: product-spec}
+  - {id: dev, name: Dev, kind: agent, model: default, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, model: default, skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, model: default, skill: security-review, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
-delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
+delivery: {delivers: pr, mode: click, model: default, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
@@ -2681,19 +2660,19 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
     fn twelve_stages() -> Flow {
         let yaml = "\
 flow:
-  - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
-  - {id: plan, name: Plan, kind: agent, agent: Planner, skill: plan}
-  - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
-  - {id: tests, name: Tests, kind: agent, agent: Test runner, skill: e2e}
-  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
-  - {id: perf, name: Perf, kind: check, by: agent, agent: Perf reviewer, skill: perf, rounds: 3}
-  - {id: a11y, name: A11y, kind: check, by: agent, agent: A11y reviewer, skill: a11y, rounds: 3}
+  - {id: product-spec, name: Product spec, kind: agent, model: default, skill: product-spec}
+  - {id: plan, name: Plan, kind: agent, model: default, skill: plan}
+  - {id: dev, name: Dev, kind: agent, model: default, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, model: default, skill: validate, rounds: 3}
+  - {id: tests, name: Tests, kind: agent, model: default, skill: e2e}
+  - {id: security, name: Security, kind: check, by: agent, model: default, skill: security-review, rounds: 3}
+  - {id: perf, name: Perf, kind: check, by: agent, model: default, skill: perf, rounds: 3}
+  - {id: a11y, name: A11y, kind: check, by: agent, model: default, skill: a11y, rounds: 3}
   - {id: qa, name: QA, kind: check, by: you}
   - {id: review, name: Review, kind: check, by: you}
-  - {id: notes, name: Release notes, kind: agent, agent: Doc writer, skill: docs}
-  - {id: deploy, name: Deploy, kind: agent, agent: Deployer, skill: deploy}
-delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
+  - {id: notes, name: Release notes, kind: agent, model: default, skill: docs}
+  - {id: deploy, name: Deploy, kind: agent, model: default, skill: deploy}
+delivery: {delivers: pr, mode: click, model: default, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }

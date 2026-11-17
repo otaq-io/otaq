@@ -20,7 +20,6 @@ use otaq_core::terminals::run::{RunInfo, RunState};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::view_models::agents::TOOL_DEFAULT;
 use crate::view_models::sheet::Content;
 
 /// Below this width the terminal's strip drops the path and the port and shortens the attach command.
@@ -295,16 +294,32 @@ pub fn tab_dot(parts: &[PartView]) -> Option<Dot> {
         .or_else(|| dots().find(|d| *d == Dot::Running))
 }
 
-/// "Rust developer · Codex · gpt-5.5", "Strong · Claude Code · opus": who the terminal is and what it runs on, in the
-/// words the agent was set up with (the model as chosen, not the exact id the tool reported, and no worktree path).
-pub fn agent_line(agent: &str, tool: Option<Tool>, model: Option<&str>) -> String {
-    let model = model.filter(|m| !m.is_empty()).unwrap_or(TOOL_DEFAULT);
-    let tool = tool.map(|t| format!("{} \u{b7} {model}", t.display_name()));
-    [Some(agent.to_owned()), tool]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" \u{b7} ")
+/// A session started on its tool's own model: `default`, as the stage's model menu names it (UX-68).
+pub const DEFAULT_MODEL: &str = "default";
+
+/// "Claude Code · opus · high", "Codex · gpt-5.5", "Claude Code · default": what the terminal runs on (UX-65: the
+/// ticket's Session tab shows tool, model and effort), the model as the stage chose it, not the exact id the tool
+/// reported, the effort only when one was passed, and no worktree path. `name` is said only when the tool isn't known
+/// (a session from before tools were recorded).
+pub fn agent_line(
+    name: &str,
+    tool: Option<Tool>,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> String {
+    let Some(tool) = tool else {
+        return name.to_owned();
+    };
+    let model = model.filter(|m| !m.is_empty()).unwrap_or(DEFAULT_MODEL);
+    [
+        Some(tool.display_name()),
+        Some(model),
+        effort.filter(|e| !e.is_empty()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" \u{b7} ")
 }
 
 /// The command that attaches to a check's terminal while it runs: `otaq attach SHOP-19 --stage security` (a check has
@@ -374,7 +389,7 @@ mod tests {
             tool_session_id: None,
             model: Some("gpt-5.5".into()),
             agent: agent.map(|name| SessionAgent {
-                id: name.to_lowercase(),
+                runs_for: name.to_lowercase(),
                 name: name.into(),
             }),
             effort: None,
@@ -716,17 +731,31 @@ mod tests {
         );
     }
 
+    /// UX-65: the Session tab names the tool, the model and the effort, never an agent; an older session's agent
+    /// name stays only where its tool wasn't recorded.
     #[test]
-    fn the_line_names_the_agent_its_tool_and_model_in_plain_words() {
+    fn the_line_names_the_tool_model_and_effort_in_plain_words() {
         assert_eq!(
-            agent_line("Rust developer", Some(Tool::Codex), Some("gpt-5.5")),
-            "Rust developer \u{b7} Codex \u{b7} gpt-5.5"
+            agent_line(
+                "Claude Code",
+                Some(Tool::Claude),
+                Some("opus"),
+                Some("high")
+            ),
+            "Claude Code \u{b7} opus \u{b7} high"
         );
         assert_eq!(
-            agent_line("Validator", Some(Tool::Claude), None),
-            "Validator \u{b7} Claude Code \u{b7} tool default"
+            agent_line("Rust developer", Some(Tool::Codex), Some("gpt-5.5"), None),
+            "Codex \u{b7} gpt-5.5"
         );
-        assert_eq!(agent_line("Spec writer", None, None), "Spec writer");
+        assert_eq!(
+            agent_line("Validator", Some(Tool::Claude), None, Some("")),
+            "Claude Code \u{b7} default"
+        );
+        assert_eq!(
+            agent_line("Spec writer", None, None, Some("high")),
+            "Spec writer"
+        );
     }
 
     /// Finding 55: the label names the ticket, and says "Typing goes to" only while that terminal has the keyboard.

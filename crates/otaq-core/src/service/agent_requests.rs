@@ -20,11 +20,9 @@ pub(super) async fn handle(
             .map_err(|e| error_body(&e))
     };
     match request {
-        Request::ProjectAgentOpen(p) => agent(
-            agents
-                .open_on(&p.project, &p.message, p.agent.as_deref())
-                .await,
-        ),
+        Request::ProjectAgentOpen(p) => {
+            agent(agents.open_on(&p.project, &p.message, p.on.as_ref()).await)
+        }
         Request::ProjectAgentList(p) => agents
             .list(&p.project)
             .await
@@ -122,8 +120,7 @@ async fn project_prime(
         _ => None,
     };
     let mut context = shared.board.project_prime(project, conversation).await?;
-    context.choices =
-        crate::prime::reader_choices(&shared.board, &context.project, &shared.models).await?;
+    context.choices = crate::prime::skip_choices(&shared.board, &context.project).await?;
     context.long_text_file = super::board_requests::codex_long_text_file(shared, caller);
     Ok(context)
 }

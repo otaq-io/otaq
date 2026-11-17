@@ -238,13 +238,15 @@ async fn otaqs_validate_starts_alone_and_a_turn_without_a_verdict_is_no_result()
     assert!(!out.contains("check-ticket"), "{out}");
     assert!(w.deliveries.pending(&checker).await.unwrap().is_empty());
     let shell = w.shell_in(&checker);
-    send(
-        &w,
-        &shell,
-        "hook",
-        json!({"tool": "claude", "event": "Stop", "payload": stop_payload()}),
-    )
-    .await;
+    // The turn's end stops the checker's session, which can take its shell before the request's exit status is
+    // written: the request is sent without waiting for it.
+    shell.post_raw(
+        &w.data.socket_path(),
+        &request(
+            "hook",
+            json!({"tool": "claude", "event": "Stop", "payload": stop_payload()}),
+        ),
+    );
     until("no result", async || {
         w.status(&key).await == Status::CheckNoResult
     })

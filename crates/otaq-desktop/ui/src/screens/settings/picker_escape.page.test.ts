@@ -2,19 +2,15 @@
 // Esc in a picker above Settings closes only the picker (F-B-4): the open list is the topmost Esc layer, so one Esc
 // closes it wherever the focus really is, and the next Esc closes Settings. In the app the floating list is hidden
 // until it is placed, and a hidden element takes no focus, so its first focus fails and the focus stays on the field;
-// the page here refuses focus the same way, and the list takes it once shown. The same for a Settings row's dropdown
-// and for the flow editor's model fix, drawn in the overlay host outside any layer, with the board's details under it.
+// the page here refuses focus the same way, and the list takes it once shown. The same for a Settings row's dropdown.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RegistriesContext, registerScreens } from "../../app/registry";
-import { OVERLAY_HOST_ID } from "../../components/Floating";
-import type { FlowEditorFix } from "../../generated/FlowEditorFix";
 import type { ModelPickerView } from "../../generated/ModelPickerView";
 import type { SettingsView } from "../../generated/SettingsView";
 import { request } from "../../tauri";
-import { type EditorActions, FixLine } from "../flow_editor/FlowEditor";
 import { ModelPicker } from "./ModelPicker";
 import { sectionComponent } from "./Rows";
 import { Settings } from "./Settings";
@@ -64,14 +60,14 @@ const VIEW: SettingsView = {
     {
       label: "Demo",
       icon: "folder",
-      target: { page: "global", section: "agents", sections: ["agents", "data"] },
+      target: { page: "global", section: "tools", sections: ["tools", "data"] },
     },
   ],
   page: {
     page: "global",
     title: "General",
     sections: [
-      { id: "agents", title: null, intro: null, rows: [], note: null },
+      { id: "tools", title: null, intro: null, rows: [], note: null },
       {
         id: "data",
         title: null,
@@ -104,7 +100,7 @@ const VIEW: SettingsView = {
 const app = registerScreens({
   settings: (a) => {
     a.overlays.register("settings", { Component: Settings });
-    a.settings.global.register("agents", {
+    a.settings.global.register("tools", {
       Component: () =>
         createElement(ModelPicker, {
           label: "Model",
@@ -242,65 +238,5 @@ describe("Esc in a picker above Settings", () => {
     expect(document.activeElement).toBe(field);
     escape();
     expect(closed).toBe(1);
-  });
-});
-
-describe("Esc in the flow editor's model fix", () => {
-  const fix: FlowEditorFix = {
-    text: "Security reviewer: opus isn’t in Claude Code’s model list",
-    fixed: false,
-    control: {
-      kind: "model",
-      fix: {
-        agent: "Security reviewer",
-        tool_label: "Tool",
-        tools: [{ id: "claude", label: "Claude Code", selected: true }],
-        picker: PICKER,
-        model_label: "Model",
-      },
-    },
-  };
-  const actions: EditorActions = {
-    edit: () => undefined,
-    write: () => undefined,
-    skill: () => undefined,
-    fix: () => undefined,
-  };
-
-  it("closes only the picker's list, never the board's details under it", async () => {
-    // The frame's overlay host: the list, outside any layer, draws there (`FloatingPortal`).
-    const overlay = document.body.appendChild(document.createElement("div"));
-    overlay.id = OVERLAY_HOST_ID;
-    // The board's details close on an Esc nothing else took (`FlowBoard`'s `closeOne`).
-    let detailsClosed = 0;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
-      detailsClosed += 1;
-      e.preventDefault();
-    };
-    document.addEventListener("keydown", onKey);
-    try {
-      act(() => {
-        root.render(createElement(FixLine, { fix, actions }));
-      });
-      const field = host.querySelector<HTMLButtonElement>(".settings-model-field");
-      clickOpen(field);
-      expect(overlay.contains(list())).toBe(true);
-      expect(document.activeElement).toBe(field);
-      escape();
-      expect(list()).toBeNull();
-      expect(detailsClosed).toBe(0);
-      escape();
-      expect(detailsClosed).toBe(1);
-
-      clickOpen(field);
-      await nextFrame();
-      expect(document.activeElement).toBe(list());
-      escape();
-      expect(list()).toBeNull();
-      expect(detailsClosed).toBe(1);
-    } finally {
-      document.removeEventListener("keydown", onKey);
-    }
   });
 });

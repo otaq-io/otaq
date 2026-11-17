@@ -35,7 +35,7 @@ fn facts<'a>(name: &'static str, flow: &'a Flow) -> ProjectFacts<'a> {
         was_validating: &[],
         agent_filter: None,
         agents: None,
-        agent_list: None,
+        default_model: None,
         starts_held: None,
         view: Box::leak(Box::default()),
         paused: false,
@@ -169,7 +169,7 @@ fn without_new_fields(mut snapshot: Value) -> Value {
     snapshot
 }
 
-/// The card footer's `second` button (T-0411: Open agent… beside Skip this check), added after the snapshot.
+/// The card footer's `second` button (T-0411: Edit flow… beside Skip this check), added after the snapshot.
 fn drop_footer_seconds(value: &mut Value) {
     match value {
         Value::Object(map) => {

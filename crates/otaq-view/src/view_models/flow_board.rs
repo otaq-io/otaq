@@ -7,7 +7,9 @@
 //! for (the stage's description, which every agent reads; there is no separate instructions field), Agent, Skill
 //! (Pick a skill… or Ask the agent to write it), Fails go to, Rounds (−/+, 1–5) and whether tickets may skip it.
 //! Clicking Done opens How work leaves the flow: the flow's delivery, edited with the same rules as the project's
-//! Repository card.
+//! Repository card, then Who does it: the model, effort and instructions that write the pull request (UX-69, A-5),
+//! with a stage's model menu and effort rules; the Done tile shows that model. A conflict or a failed merge check is
+//! never its work: it goes back to the last agent stage (UX-24).
 //!
 //! The bar on top says what is being edited and how many changes the draft holds, with Watch a ticket (a pretend
 //! ticket walks the draft step by step, passing or failing a check, running nothing), Start from… (the shipped flows,
@@ -36,19 +38,17 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::agent_page::Choice;
+use crate::machine::this_machine;
 use crate::view_models::agent_panel::{self, LABEL as NOYAN};
 use crate::view_models::agent_question::{self, AgentQuestion};
+use crate::view_models::agents::Choice;
 use crate::view_models::flow_columns::{BACKLOG, DONE};
 use crate::view_models::flow_editor::{
-    self as editor, AgentField, CHECK_ROUNDS, Choices, EditorKind, Facts, FailToField, FixRow,
-    MarkView, Pick, SkillField,
+    self as editor, CHECK_ROUNDS, EditorKind, Facts, FailToField, MarkView, Pick, SkillField, Who,
 };
 use crate::view_models::hint::HintId;
-use crate::view_models::menu::MenuItem;
-use crate::view_models::project_settings::{
-    AGENT_FIELD, DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD, SKILL_FIELD,
-};
+use crate::view_models::model_effort;
+use crate::view_models::project_settings::{DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD, SKILL_FIELD};
 use crate::view_models::tool_avatar::ToolAvatarView;
 
 /// The kinds of stage, as the editor names them.
@@ -102,8 +102,13 @@ pub struct Column {
     /// "An agent does the work", "Every flow starts here".
     pub what: String,
     pub avatar: Option<ToolAvatarView>,
-    /// Its agent ("Strong"), "You" for a check by you.
+    /// Who does it (A-1): its model and effort beside the tool's avatar ("gpt-5.5 · medium"), "You" for a check by
+    /// you.
     pub who: Option<String>,
+    /// The model's tool isn't set up on this Mac (A-4), or the model has its amber mark (AGT-05: refused, no longer
+    /// listed, swapped): the who line in amber with ⚠, this on hover ("Codex isn't set up on this Mac. …", "Codex
+    /// couldn't run gpt-5.5 on SHOP-3").
+    pub who_off: Option<String>,
     pub skill: Option<String>,
     /// "3 rounds · fails go to Dev", "Fails go to Dev".
     pub check_line: Option<String>,
@@ -169,7 +174,8 @@ pub struct Details {
     pub description_label: &'static str,
     pub description: String,
     pub description_hint: &'static str,
-    pub agent: Option<AgentField>,
+    /// Who does the stage (UX-65): Model, Effort and Instructions; the Skill field is [`Self::skill`].
+    pub who: Option<Who>,
     pub skill: Option<SkillField>,
     /// "Otaq's own" beside one of Otaq's skills.
     pub skill_tag: Option<String>,
@@ -177,9 +183,7 @@ pub struct Details {
     pub fail_to: Option<FailToField>,
     pub rounds: Option<Rounds>,
     pub skip: Skip,
-    /// A problem no pick fixes.
     pub problem: Option<String>,
-    pub fixes: Vec<FixRow>,
     pub mark: Option<MarkView>,
     pub remove: &'static str,
     /// [`REMOVING_WAITS`] for a stage the flow has now with tickets in it.
@@ -203,26 +207,17 @@ pub struct DeliveryPanel {
     /// Either is chosen at your click: the modes stay on On Approve, switched off ([`EITHER_NOTE`] says why).
     pub modes_off: bool,
     pub mode_note: Option<&'static str>,
-    /// The delivery's agent, which writes the message and opens the PR.
-    pub agent: DeliveryAgent,
+    /// Who does it (UX-69, A-5): the model, effort and instructions that write the pull request (and a merge's
+    /// message), with the same model menu and effort rules as a stage's. It never fixes a conflict: that goes back to
+    /// the last agent stage (UX-24). `None` for a local merge that names no model (its message is Otaq's plain one).
+    pub who: Option<Who>,
+    /// Under Who does it's heading: what Done's model writes, and when the last agent stage's session writes it
+    /// instead ("Writes the pull request: its title and description. With Dev's model and effort …"). `None` with
+    /// [`Self::who`].
+    pub writes: Option<String>,
     /// The skill it opens a PR with; `None` for a local merge, which opens none.
     pub skill: Option<DeliverySkill>,
     pub note: &'static str,
-}
-
-/// Done panel's Agent: who writes the merge message (and the PR's) when a ticket reaches Review, and opens the PR.
-/// `FlowBoardDeliveryAgent` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowBoardDeliveryAgent")]
-pub struct DeliveryAgent {
-    pub label: &'static str,
-    /// The field `delivery.agent`; an item's id is what picking it sends (`""`: none).
-    pub field: &'static str,
-    /// The agent's name, or "None" for a local merge with none.
-    pub value: String,
-    /// The stored agents, then those the draft brings ("new"); "None" first for a local merge.
-    pub items: Vec<MenuItem>,
-    pub hint: &'static str,
 }
 
 /// Done panel's PR skill: the user's own Open PR skill by name, or empty for Otaq's own. `FlowBoardDeliverySkill` on
@@ -335,7 +330,7 @@ pub struct StartFrom {
     pub others: Vec<Entry>,
     pub import: &'static str,
     pub import_line: &'static str,
-    pub foot: &'static str,
+    pub foot: String,
 }
 
 /// ⋯ in the bar. `FlowBoardMore` on the page.
@@ -503,8 +498,6 @@ pub struct View {
     pub watch: Watch,
     pub saved: Saved,
     pub hint: HintId,
-    /// The picks as Save sends them.
-    pub choices: Choices,
 }
 
 /// What the board's editor reads besides the overlay editor's facts.
@@ -617,6 +610,7 @@ fn columns(f: &Facts) -> Vec<Column> {
         what: STARTS_HERE.to_owned(),
         avatar: None,
         who: None,
+        who_off: None,
         skill: None,
         check_line: None,
         delivery: None,
@@ -634,11 +628,19 @@ fn columns(f: &Facts) -> Vec<Column> {
     }];
     for (i, stage) in stages.iter().enumerate() {
         let next = stages.get(i + 1).map_or("Done", |s| s.name.as_str());
-        let (avatar, who) = match stage.kind {
-            StageKind::Check { by: CheckBy::You } => (None, Some("You".to_owned())),
-            _ => match editor::the_agent(stage) {
-                Some(name) => (editor::agent_on(name, f).0, Some(name.clone())),
-                None => (None, None),
+        let (avatar, who, who_off) = match stage.kind {
+            StageKind::Check { by: CheckBy::You } => (None, Some("You".to_owned()), None),
+            _ => match model_effort::tile(
+                stage.who.model.as_deref(),
+                stage.who.effort.as_deref(),
+                f.tools,
+            ) {
+                Some((avatar, line, off)) => (
+                    avatar,
+                    Some(line),
+                    off.or_else(|| editor::stage_model_mark(f, stage).map(|m| m.text.clone())),
+                ),
+                None => (None, None, None),
             },
         };
         let mark = editor::mark_of(f.marks, &stage.id)
@@ -652,6 +654,7 @@ fn columns(f: &Facts) -> Vec<Column> {
             what: kind_label(stage_kind(stage)).to_owned(),
             avatar,
             who,
+            who_off,
             skill: stage.skill.clone(),
             check_line: check_line(flow, stage),
             delivery: None,
@@ -668,14 +671,28 @@ fn columns(f: &Facts) -> Vec<Column> {
             }),
         });
     }
+    // Done's tile shows the model that writes the pull request (A-5).
+    let (avatar, who, who_off) = match model_effort::tile(
+        flow.delivery.who.model.as_deref(),
+        flow.delivery.who.effort.as_deref(),
+        f.tools,
+    ) {
+        Some((avatar, line, off)) => (
+            avatar,
+            Some(line),
+            off.or_else(|| editor::delivery_model_mark(f).map(|m| m.text.clone())),
+        ),
+        None => (None, None, None),
+    };
     out.push(Column {
         id: DONE.to_owned(),
         kind: ColumnKind::Done,
         name: "Done".to_owned(),
         icon: IconName::CircleCheck,
         what: ENDS_HERE.to_owned(),
-        avatar: None,
-        who: None,
+        avatar,
+        who,
+        who_off,
         skill: None,
         check_line: None,
         delivery: Some(done_line(flow)),
@@ -691,12 +708,28 @@ fn columns(f: &Facts) -> Vec<Column> {
     out
 }
 
+/// Under a stage's Skill field (A-2).
+pub const SKILL_HINT: &str =
+    "How the agent does it. Empty uses the built-in skill for this kind of stage.";
+
 /// How work leaves the flow's last line.
 pub const DELIVERY_NOTE: &str = "Part of the flow, so it travels in the flow file. The project\u{2019}s Repository \
      card shows the same setting.";
 
+/// The model-and-effort pairs the flows in use already have, for the model menu's top (A-3): this project's and every
+/// other project's.
+fn uses(f: &Facts, b: &BoardFacts) -> Vec<model_effort::Use> {
+    let mut out = model_effort::uses_in(f.project_name, &f.in_use.flow);
+    for (_, name, file) in b.others {
+        if let Some(file) = file {
+            out.extend(model_effort::uses_in(name, &file.flow));
+        }
+    }
+    out
+}
+
 fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
-    let d = editor::details(f, stage);
+    let d = editor::details(f, stage, &uses(f, b));
     let kind = stage_kind(stage);
     let has_tickets = f.in_use.flow.stage(&stage.id).is_some() && b.occupied.contains(&stage.id);
     let skill_tag = stage
@@ -730,13 +763,10 @@ fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
         description: stage.description.clone().unwrap_or_default(),
         description_hint: "One or two sentences: what this stage settles, and when it matters. Agents read it to \
              understand the flow; people see it on the column header and when skipping.",
-        agent: d.agent.map(|a| AgentField {
-            hint: "Any of your agents. A ticket may pick another.",
-            ..a
-        }),
+        who: d.who,
         skill: d.skill,
         skill_tag,
-        skill_hint: "How the agent does it.",
+        skill_hint: SKILL_HINT,
         fail_to: d.fail_to,
         rounds: stage.is_agent_check().then(|| Rounds {
             label: "Rounds",
@@ -751,14 +781,14 @@ fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
             on: stage.options.contains(&StageOption::Skip),
         },
         problem: d.problem,
-        fixes: d.fixes,
         mark: d.mark,
         remove: "Remove stage",
         remove_note: has_tickets.then_some(REMOVING_WAITS),
     }
 }
 
-fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
+fn delivery_panel(f: &Facts, b: &BoardFacts) -> DeliveryPanel {
+    let base = b.base_branch;
     let d = &f.file.flow.delivery;
     let choice = |id: &str, label: String, selected: bool| Choice {
         id: id.to_owned(),
@@ -766,6 +796,7 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
         selected,
     };
     let either = d.delivers == Delivers::Either;
+    let names_model = d.can_open_pr() || d.who.model.is_some();
     DeliveryPanel {
         title: "How work leaves the flow",
         delivers_label: "Deliver as",
@@ -793,7 +824,8 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
             ),
         ],
         modes_off: either,
-        agent: delivery_agent(f),
+        who: names_model.then(|| delivery_who(f, &uses(f, b))),
+        writes: names_model.then(|| delivery_writes(&f.file.flow)),
         skill: d.can_open_pr().then(|| delivery_skill(f)),
         mode_note: (!either && d.mode == DeliveryMode::Automatic).then_some(
             "Automatically: delivered as soon as the last stage passes, without Approve. Solo autopilot merges this \
@@ -803,41 +835,60 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
     }
 }
 
-/// Done panel's Agent field: the delivery's agent among the stored agents and those the draft brings.
-fn delivery_agent(f: &Facts) -> DeliveryAgent {
-    let d = &f.file.flow.delivery;
-    let current = d.agent.as_deref().unwrap_or_default();
-    let is = |name: &str| name.eq_ignore_ascii_case(current);
-    let mut items = Vec::new();
-    if !d.can_open_pr() {
-        items.push(MenuItem::new("", "None").checked(d.agent.is_none()));
+/// What Done's model writes, by how work leaves the flow (UX-69). Not conflicts: they go back to the last agent stage
+/// (UX-24).
+pub const DELIVERY_WRITES_PR: &str = "Writes the pull request: its title and description.";
+pub const DELIVERY_WRITES_EITHER: &str =
+    "Writes the pull request\u{2019}s title and description, or the merge message.";
+pub const DELIVERY_WRITES_MERGE: &str = "Writes the merge message.";
+/// Done's Model hint.
+pub fn delivery_hint() -> String {
+    format!(
+        "Any model of a tool on {}. Every ticket\u{2019}s delivery uses it; it changes only here.",
+        this_machine()
+    )
+}
+pub const DELIVERY_INSTRUCTIONS_HINT: &str = "Added to its skill for every ticket it delivers.";
+
+/// What Done's model writes (UX-69) and, with a last agent stage, when that stage's session writes it instead (it has
+/// the context).
+fn delivery_writes(flow: &Flow) -> String {
+    let writes = match flow.delivery.delivers {
+        Delivers::Pr => DELIVERY_WRITES_PR,
+        Delivers::Either => DELIVERY_WRITES_EITHER,
+        Delivers::Local => DELIVERY_WRITES_MERGE,
+    };
+    match otaq_core::flow::engine::back_from_delivery(flow, &[]) {
+        Some(last) => format!(
+            "{writes} With {name}\u{2019}s model and effort and no instructions, {name}\u{2019}s session writes it: \
+             it has the ticket\u{2019}s context.",
+            name = last.name
+        ),
+        None => writes.to_owned(),
     }
-    items.extend(
-        f.stored
-            .iter()
-            .map(|a| MenuItem::new(a.name.clone(), a.name.clone()).checked(is(&a.name))),
+}
+
+/// Done panel's Who does it (UX-69, A-5): Model, Effort and Instructions · optional, the stage's field.
+fn delivery_who(f: &Facts, uses: &[model_effort::Use]) -> Who {
+    let who = &f.file.flow.delivery.who;
+    let mut picker = model_effort::view(
+        who.model.as_deref(),
+        who.effort.as_deref(),
+        uses,
+        f.tools,
+        model_effort::Place {
+            hint: &delivery_hint(),
+            waits_at: None,
+        },
     );
-    items.extend(
-        f.file
-            .agents
-            .iter()
-            .filter(|a| {
-                !f.stored
-                    .iter()
-                    .any(|s| s.name.eq_ignore_ascii_case(&a.name))
-            })
-            .map(|a| {
-                MenuItem::new(a.name.clone(), a.name.clone())
-                    .hint("new")
-                    .checked(is(&a.name))
-            }),
-    );
-    DeliveryAgent {
-        label: "Agent",
-        field: AGENT_FIELD,
-        value: d.agent.clone().unwrap_or_else(|| "None".to_owned()),
-        items,
-        hint: "Writes the merge message when a ticket reaches Review, and opens the PR.",
+    picker.marked = editor::delivery_model_mark(f).map(model_effort::marked);
+    Who {
+        heading: editor::WHO_HEADING,
+        picker,
+        warning: None,
+        instructions_label: editor::INSTRUCTIONS_LABEL,
+        instructions: who.instructions.clone().unwrap_or_default(),
+        instructions_hint: DELIVERY_INSTRUCTIONS_HINT,
     }
 }
 
@@ -1051,6 +1102,40 @@ fn drafting_text(agent: &str, project_name: &str) -> String {
     format!("{agent} is drafting a change to {project_name}\u{2019}s flow\u{2026}")
 }
 
+/// Start from…'s last line (A-7).
+pub fn start_from_foot() -> String {
+    format!(
+        "Replaces the stages between Backlog and Done, and how work is delivered. Shipped flows use the default \
+         model of the tools on {}: what your account is set to. Change any stage after. Nothing changes until you \
+         save.",
+        this_machine()
+    )
+}
+
+/// A shipped flow's line in Start from… (A-7): "Dev → Validate → Review, each on your tools’ default model · merge or
+/// PR on Approve".
+pub fn shipped_chain(flow: &Flow) -> String {
+    with_words(flow, "each on your tools\u{2019} default model")
+}
+
+/// Same as <project>'s line (A-7): "Dev → Validate → Review, each with the model, effort and skill it has there · …".
+pub fn copied_chain(flow: &Flow) -> String {
+    with_words(flow, "each with the model, effort and skill it has there")
+}
+
+/// [`chain`] with `words` after the stages, when an agent works or checks one of them.
+fn with_words(flow: &Flow, words: &str) -> String {
+    if !flow.stages.iter().any(Stage::runs_agent) {
+        return chain(flow);
+    }
+    let stages: Vec<&str> = flow.stages.iter().map(|s| s.name.as_str()).collect();
+    format!(
+        "{}, {words} \u{b7} {}",
+        stages.join(" \u{2192} "),
+        delivery_words(flow)
+    )
+}
+
 fn start_from(b: &BoardFacts) -> StartFrom {
     StartFrom {
         shipped_label: format!(
@@ -1062,7 +1147,7 @@ fn start_from(b: &BoardFacts) -> StartFrom {
             .map(|p| Entry {
                 key: p.file.to_owned(),
                 name: p.name.clone(),
-                line: chain(&p.read().flow),
+                line: shipped_chain(&p.read().flow),
                 pick: Pick::Preset {
                     file: p.file.to_owned(),
                 },
@@ -1076,7 +1161,7 @@ fn start_from(b: &BoardFacts) -> StartFrom {
                 Some(Entry {
                     key: format!("project:{key}"),
                     name: format!("Same as {name}"),
-                    line: chain(&file.as_ref()?.flow),
+                    line: copied_chain(&file.as_ref()?.flow),
                     pick: Pick::Project {
                         project: key.clone(),
                     },
@@ -1085,7 +1170,7 @@ fn start_from(b: &BoardFacts) -> StartFrom {
             .collect(),
         import: "Import a flow file\u{2026}",
         import_line: "A .flow.yaml someone shared",
-        foot: "Replaces the stages between Backlog and Done, and how work is delivered. Nothing changes until you save.",
+        foot: start_from_foot(),
     }
 }
 
@@ -1111,7 +1196,7 @@ fn more(f: &Facts, b: &BoardFacts) -> More {
     let file = export_file(f.project_name);
     More {
         export: "Export flow file\u{2026}",
-        export_line: format!("{file} \u{b7} stages, agents, skills, delivery"),
+        export_line: format!("{file} \u{b7} stages, models, skills, delivery"),
         export_title: format!("Export {}\u{2019}s flow", f.project_name),
         export_file: file,
         import: "Import a flow file\u{2026}",
@@ -1212,7 +1297,8 @@ fn suggestion(f: &Facts) -> Option<Suggestion> {
 
 /// What the pretend ticket's card says in a stage it passes, and what happens there.
 fn pass_step(flow: &Flow, stage: &Stage, round: u32) -> WatchStep {
-    let agent = editor::the_agent(stage).map_or("An agent", String::as_str);
+    let who = editor::stage_who(stage);
+    let agent = who.as_deref().unwrap_or("An agent");
     let (state, text) = match stage.kind {
         StageKind::Agent => {
             let skill = stage
@@ -1330,7 +1416,8 @@ pub fn walk(flow: &Flow, base: &str, fail: bool) -> Vec<WatchStep> {
                 continue;
             };
             let rounds = stage.rounds.unwrap_or(CHECK_ROUNDS);
-            let agent = editor::the_agent(stage).map_or("the checker", String::as_str);
+            let who = editor::stage_who(stage);
+            let agent = who.as_deref().unwrap_or("the checker");
             let (state, text) = match stage.kind {
                 StageKind::Check { by: CheckBy::Agent } => (
                     format!("Checking \u{b7} round 1 of {rounds}"),
@@ -1351,7 +1438,8 @@ pub fn walk(flow: &Flow, base: &str, fail: bool) -> Vec<WatchStep> {
                 state,
                 text,
             });
-            let fixer = editor::the_agent(back).map_or("An agent", String::as_str);
+            let fixer = editor::stage_who(back);
+            let fixer = fixer.as_deref().unwrap_or("An agent");
             steps.push(WatchStep {
                 column: back.id.clone(),
                 name: back.name.clone(),
@@ -1441,7 +1529,7 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         bar: bar(f),
         columns: columns(f),
         details: selected.map(|s| details(f, b, s)),
-        delivery: done_selected(f).then(|| delivery_panel(f, b.base_branch)),
+        delivery: done_selected(f).then(|| delivery_panel(f, b)),
         palette: palette(f),
         start_from: start_from(b),
         more: more(f, b),
@@ -1450,7 +1538,6 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         watch: watch(f, b.base_branch),
         saved: saved(f),
         hint: HintId::FlowColumns,
-        choices: editor::choices_kept(f),
     }
 }
 
@@ -1486,23 +1573,21 @@ mod tests {
     /// stage goes at once, so no note shows (a stage only the draft has never shows it).
     #[test]
     fn the_remove_note_shows_only_with_tickets_in_the_stage() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let f = Facts {
             project: "SHOP",
             project_name: "shop",
             proposal: &draft,
             marks: &[],
+            model_marks: &[],
             swap: false,
             applies: &DraftApplies::Nothing,
             file: &file,
             in_use: &file,
-            stored: &stored,
             tools: &tools,
             skills: &[],
             writing: &[],
@@ -1510,7 +1595,6 @@ mod tests {
             selected: Some("validate"),
             agent: None,
             new_agent: None,
-            choices: &choices,
         };
         let note = |occupied: &[String]| {
             view(&f, &board(occupied))
@@ -1525,6 +1609,407 @@ mod tests {
         assert_eq!(
             panel.remove, "Remove stage",
             "Remove stage stays either way"
+        );
+    }
+
+    /// A-1…A-4: each tile shows its model and effort beside the tool's avatar ("You" for a check by you); the
+    /// panel's Who does it offers the set-up tools with the pairs the flows use on top; a model whose tool isn't set
+    /// up is marked on its tile and in its panel, kept as it is.
+    #[test]
+    fn who_does_it_shows_on_the_tile_and_in_the_panel() {
+        use crate::view_models::agents::fixtures::all_lists;
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
+        use crate::view_models::flow_editor::{StageEdit, edited};
+        use otaq_core::agent_tools::Tool;
+
+        let s = |t: &str| t.to_owned();
+        let (file, _) = edited(
+            &shop_web(),
+            &StageEdit::Pair {
+                stage: s("validate"),
+                model: s("codex:gpt-5.5"),
+                effort: Some(s("medium")),
+            },
+        )
+        .unwrap();
+        let (file, _) = edited(
+            &file,
+            &StageEdit::Pair {
+                stage: s("dev"),
+                model: s("claude:opus"),
+                effort: Some(s("high")),
+            },
+        )
+        .unwrap();
+        let draft = proposal(&file, true);
+        let mut tools = crate::view_models::tool_problems::Tools {
+            connected: vec![Tool::Claude, Tool::Codex],
+            lists: all_lists(),
+            ..Default::default()
+        };
+        let other = (s("BILL"), s("billing-api"), Some(file.clone()));
+        let others = [other];
+        let b = BoardFacts {
+            base_branch: "main",
+            others: &others,
+            previous: false,
+            occupied: &[],
+        };
+        let render = |tools: &crate::view_models::tool_problems::Tools| {
+            view(
+                &Facts {
+                    project: "SHOP",
+                    project_name: "shop-web",
+                    proposal: &draft,
+                    marks: &[],
+                    model_marks: &[],
+                    swap: false,
+                    applies: &DraftApplies::Nothing,
+                    file: &file,
+                    in_use: &file,
+                    tools,
+                    skills: &[],
+                    writing: &[],
+                    written: &[],
+                    selected: Some("validate"),
+                    agent: None,
+                    new_agent: None,
+                },
+                &b,
+            )
+        };
+        let v = render(&tools);
+        let tile = |v: &View, id: &str| {
+            let c = v.columns.iter().find(|c| c.id == id).unwrap();
+            (
+                c.avatar.as_ref().map(|a| a.letters.clone()),
+                c.who.clone(),
+                c.who_off.is_some(),
+            )
+        };
+        assert_eq!(
+            tile(&v, "dev"),
+            (Some(s("CC")), Some(s("opus \u{b7} high")), false)
+        );
+        assert_eq!(
+            tile(&v, "validate"),
+            (Some(s("CX")), Some(s("gpt-5.5 \u{b7} medium")), false)
+        );
+        assert_eq!(tile(&v, "review"), (None, Some(s("You")), false));
+        let who = v
+            .details
+            .as_ref()
+            .unwrap()
+            .who
+            .as_ref()
+            .expect("Validate's Who does it");
+        assert_eq!(who.picker.value.text, "Codex \u{b7} gpt-5.5");
+        assert_eq!(who.instructions_label, "Instructions \u{b7} optional");
+        let places: Vec<&str> = who
+            .picker
+            .menu
+            .pairs
+            .iter()
+            .map(|p| p.places.as_str())
+            .collect();
+        assert_eq!(
+            places,
+            [
+                "Dev in shop-web and billing-api",
+                "Validate in shop-web and billing-api"
+            ]
+        );
+        assert!(who.picker.menu.pairs[1].selected);
+
+        // A-4: Codex signed out. Validate keeps its model, marked; tickets wait there.
+        tools.connected = vec![Tool::Claude];
+        let v = render(&tools);
+        assert_eq!(
+            tile(&v, "validate"),
+            (Some(s("CX")), Some(s("gpt-5.5 \u{b7} medium")), true)
+        );
+        let who = v.details.as_ref().unwrap().who.as_ref().unwrap();
+        let off = who.picker.not_set_up.as_ref().expect("marked");
+        assert_eq!(
+            off.text,
+            format!(
+                "Codex isn\u{2019}t set up on {}. Tickets wait at Validate until you set it up or pick another \
+                 model.",
+                this_machine()
+            )
+        );
+        // Codex's pair isn't offered while Codex isn't set up (tuq 014).
+        assert_eq!(who.picker.menu.pairs.len(), 1);
+    }
+
+    /// AGT-05, plan piece 1 "Marks" (C3b): a model the tool refused marks its stage, not an agent: the tile's who line
+    /// is amber with the mark on hover, and the panel says it under the field with Pick another model. Picking another
+    /// model in the draft takes it off; another stage, another project's or the delivery's mark doesn't show there.
+    #[test]
+    fn a_refused_model_marks_its_stage_with_pick_another_model() {
+        use crate::view_models::agents::fixtures::all_lists;
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
+        use crate::view_models::flow_editor::{StageEdit, edited};
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::{About, Mark, ModelMark};
+
+        let s = |t: &str| t.to_owned();
+        let apply = |file: &FlowFile, edit: StageEdit| edited(file, &edit).unwrap().0;
+        let in_use = apply(
+            &shop_web(),
+            StageEdit::Pair {
+                stage: s("validate"),
+                model: s("codex:gpt-5.5"),
+                effort: Some(s("low")),
+            },
+        );
+        let refused = |about: About| ModelMark {
+            about,
+            mark: Mark {
+                text: s("Codex couldn't run gpt-5.5 on SHOP-3"),
+                model: Some(s("gpt-5.5")),
+                ticket: Some(s("SHOP-3")),
+                message: Some(s(
+                    "The model is not supported when using Codex with a ChatGPT account.",
+                )),
+                at: 1,
+            },
+        };
+        let stage = |project: &str, id: &str| About::Stage {
+            project: s(project),
+            stage: s(id),
+        };
+        let tools = crate::view_models::tool_problems::Tools {
+            connected: vec![Tool::Claude, Tool::Codex],
+            lists: all_lists(),
+            ..Default::default()
+        };
+        let render = |file: &FlowFile, marks: &[ModelMark], selected: &str| {
+            let draft = proposal(file, true);
+            view(
+                &Facts {
+                    project: "SHOP",
+                    project_name: "shop-web",
+                    proposal: &draft,
+                    marks: &[],
+                    model_marks: marks,
+                    swap: false,
+                    applies: &DraftApplies::Nothing,
+                    file,
+                    in_use: &in_use,
+                    tools: &tools,
+                    skills: &[],
+                    writing: &[],
+                    written: &[],
+                    selected: Some(selected),
+                    agent: None,
+                    new_agent: None,
+                },
+                &board(&[]),
+            )
+        };
+        let off = |v: &View, id: &str| {
+            v.columns
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap()
+                .who_off
+                .clone()
+        };
+        let marked = |v: &View| {
+            v.details
+                .as_ref()
+                .and_then(|d| d.who.as_ref())
+                .and_then(|w| w.picker.marked.clone())
+        };
+
+        let marks = [refused(stage("SHOP", "validate"))];
+        let v = render(&in_use, &marks, "validate");
+        assert_eq!(
+            off(&v, "validate").as_deref(),
+            Some("Codex couldn't run gpt-5.5 on SHOP-3")
+        );
+        assert_eq!(off(&v, "dev"), None);
+        let m = marked(&v).expect("Validate's panel shows the mark");
+        assert_eq!(m.text, "Codex couldn't run gpt-5.5 on SHOP-3");
+        assert_eq!(
+            m.message.as_deref(),
+            Some(
+                "\u{201c}The model is not supported when using Codex with a ChatGPT account.\u{201d}"
+            )
+        );
+        assert_eq!(m.pick, "Pick another model");
+        let who = v.details.as_ref().unwrap().who.as_ref().unwrap();
+        assert_eq!(who.picker.not_set_up, None, "Codex is set up");
+        assert_eq!(
+            marked(&render(&in_use, &marks, "dev")),
+            None,
+            "Dev's panel has none"
+        );
+
+        // Another model picked in the draft: the mark goes from the tile and the panel (saving it clears it).
+        let picked = apply(
+            &in_use,
+            StageEdit::Pair {
+                stage: s("validate"),
+                model: s("claude:opus"),
+                effort: None,
+            },
+        );
+        let v = render(&picked, &marks, "validate");
+        assert_eq!((off(&v, "validate"), marked(&v)), (None, None));
+
+        // Another project's stage, and the delivery's mark: not Validate's.
+        let v = render(
+            &in_use,
+            &[
+                refused(stage("BILL", "validate")),
+                refused(About::Delivery { project: s("SHOP") }),
+            ],
+            "validate",
+        );
+        assert_eq!((off(&v, "validate"), marked(&v)), (None, None));
+    }
+
+    /// A-5, UX-69: clicking Done shows, under Deliver as and When, the model, effort and instructions that write the
+    /// pull request, with a stage's menu (the pairs the flows use on top) and Effort; the Done tile shows the model.
+    /// Its text says it writes the pull request and when Dev's session writes it instead; never that it fixes
+    /// conflicts (UX-24).
+    #[test]
+    fn dones_panel_picks_the_model_that_writes_the_pull_request() {
+        use crate::view_models::agents::fixtures::all_lists;
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
+        use crate::view_models::flow_editor::{StageEdit, edited};
+        use otaq_core::agent_tools::Tool;
+
+        let s = |t: &str| t.to_owned();
+        let apply = |file: &FlowFile, edit: StageEdit| edited(file, &edit).unwrap().0;
+        let file = apply(
+            &shop_web(),
+            StageEdit::Pair {
+                stage: s("dev"),
+                model: s("claude:opus"),
+                effort: Some(s("high")),
+            },
+        );
+        let file = apply(
+            &file,
+            StageEdit::DeliveryPair {
+                model: s("codex:gpt-5.5"),
+                effort: Some(s("medium")),
+            },
+        );
+        let file = apply(
+            &file,
+            StageEdit::DeliveryInstructions {
+                instructions: s("Keep the title under 70 characters."),
+            },
+        );
+        let draft = proposal(&file, true);
+        let tools = crate::view_models::tool_problems::Tools {
+            connected: vec![Tool::Claude, Tool::Codex],
+            lists: all_lists(),
+            ..Default::default()
+        };
+        let f = Facts {
+            project: "SHOP",
+            project_name: "shop-web",
+            proposal: &draft,
+            marks: &[],
+            model_marks: &[],
+            swap: false,
+            applies: &DraftApplies::Nothing,
+            file: &file,
+            in_use: &file,
+            tools: &tools,
+            skills: &[],
+            writing: &[],
+            written: &[],
+            selected: Some(DONE),
+            agent: None,
+            new_agent: None,
+        };
+        let v = view(&f, &board(&[]));
+        let done = v.columns.iter().find(|c| c.id == DONE).unwrap();
+        assert_eq!(
+            (
+                done.avatar.as_ref().map(|a| a.letters.as_str()),
+                done.who.as_deref()
+            ),
+            (Some("CX"), Some("gpt-5.5 \u{b7} medium"))
+        );
+        let panel = v.delivery.expect("Done's panel");
+        let who = panel.who.as_ref().expect("a PR names its model");
+        assert_eq!(who.heading, "Who does it");
+        assert_eq!(who.picker.value.text, "Codex \u{b7} gpt-5.5");
+        assert_eq!(who.instructions, "Keep the title under 70 characters.");
+        let effort = who.picker.effort.as_ref().expect("Codex has levels");
+        let picked: Vec<&str> = effort
+            .levels
+            .iter()
+            .filter(|l| l.selected)
+            .map(|l| l.id.as_str())
+            .collect();
+        assert_eq!(picked, ["medium"]);
+        let pairs: Vec<&str> = who
+            .picker
+            .menu
+            .pairs
+            .iter()
+            .map(|p| p.places.as_str())
+            .collect();
+        assert!(pairs.contains(&"Done in shop-web"), "{pairs:?}");
+        assert_eq!(
+            panel.writes.as_deref(),
+            Some(
+                "Writes the pull request: its title and description. With Dev\u{2019}s model and effort and no \
+                 instructions, Dev\u{2019}s session writes it: it has the ticket\u{2019}s context."
+            )
+        );
+        let text = format!(
+            "{:?} {} {}",
+            panel.writes, who.picker.hint, who.instructions_hint
+        )
+        .to_lowercase();
+        assert!(
+            !text.contains("conflict") && !text.contains("merge check"),
+            "{text}"
+        );
+
+        // A local merge's model writes its message.
+        let local = apply(
+            &file,
+            StageEdit::Delivery {
+                field: s(DELIVERS_FIELD),
+                value: s("local"),
+            },
+        );
+        let writes = delivery_writes(&local.flow);
+        assert!(
+            writes.starts_with("Writes the merge message. With Dev"),
+            "{writes}"
+        );
+    }
+
+    /// A-7: shipped flows say each stage is on the tools' default model; Same as <project> copies each stage's.
+    #[test]
+    fn start_from_says_whose_models_each_flow_brings() {
+        let b = board(&[]);
+        let start = start_from(&b);
+        assert_eq!(
+            start.presets[0].line,
+            "Dev \u{2192} Validate \u{2192} Review, each on your tools\u{2019} default model \u{b7} merge or PR on \
+             Approve"
+        );
+        assert_eq!(
+            copied_chain(&default_flow()),
+            "Dev \u{2192} Validate \u{2192} Review, each with the model, effort and skill it has there \u{b7} merge \
+             or PR on Approve"
+        );
+        assert!(
+            start
+                .foot
+                .contains(&format!("default model of the tools on {}", this_machine()))
         );
     }
 
@@ -1604,9 +2089,8 @@ mod tests {
     #[test]
     fn a_stage_whose_skill_has_a_byte_order_mark_warns() {
         use crate::view_models::flow_editor::SkillState;
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored, users_skill};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, users_skill};
         use otaq_core::agent_tools::Tool;
-        use otaq_core::agents::AgentModel;
         use otaq_core::skills::found::{FoundSkill, SkillScope};
 
         let mut file = shop_web();
@@ -1617,15 +2101,10 @@ mod tests {
             .expect("Validate")
             .skill = Some("retest-docs".into());
         let draft = proposal(&file, true);
-        let mut stored = stored();
-        for a in &mut stored {
-            a.model = AgentModel::Tool {
-                tool: Tool::Codex,
-                model: None,
-            };
+        for s in file.flow.stages.iter_mut().filter(|s| s.runs_agent()) {
+            s.who = otaq_core::flow::WhoDoesIt::on(Tool::Codex.as_str());
         }
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let warnings = |skill: &FoundSkill| {
             let skills = [skill.clone()];
             let f = Facts {
@@ -1633,11 +2112,11 @@ mod tests {
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &skills,
                 writing: &[],
@@ -1645,7 +2124,6 @@ mod tests {
                 selected: Some("validate"),
                 agent: None,
                 new_agent: None,
-                choices: &choices,
             };
             let card = columns(&f)
                 .into_iter()
@@ -1689,15 +2167,13 @@ mod tests {
     /// shortcut, and Show conversation opens the agent that made it.
     #[test]
     fn the_box_follows_noyans_conversation() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
         use crate::view_models::noyan_button::fixtures::agent;
         use otaq_core::flow::draft::StageMark;
 
         let file = shop_web();
         let mut draft = proposal(&file, false);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let marks = [StageMark {
             stage_id: "review".into(),
             stage: "Review".into(),
@@ -1714,11 +2190,11 @@ mod tests {
                 project_name: "shop-web",
                 proposal: draft,
                 marks,
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -1726,7 +2202,6 @@ mod tests {
                 selected: None,
                 agent: a,
                 new_agent: None,
-                choices: &choices,
             })
         };
 
@@ -1784,11 +2259,11 @@ mod tests {
             project_name: "shop-web",
             proposal: &draft,
             marks: &marks,
+            model_marks: &[],
             swap: false,
             applies: &DraftApplies::Nothing,
             file: &file,
             in_use: &file,
-            stored: &stored,
             tools: &tools,
             skills: &[],
             writing: &[],
@@ -1796,7 +2271,6 @@ mod tests {
             selected: None,
             agent: Some(&a),
             new_agent: None,
-            choices: &choices,
         })
         .map(|s| s.title);
         assert_eq!(
@@ -1838,24 +2312,22 @@ mod tests {
     /// keeps its Needs you with Answer. Once answered, the agent drafts again.
     #[test]
     fn the_box_answers_noyans_question() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let box_of = |a: &otaq_core::project_agents::ProjectAgent| {
             ask(&Facts {
                 project: "SHOP",
                 project_name: "shop-web",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -1863,7 +2335,6 @@ mod tests {
                 selected: None,
                 agent: Some(a),
                 new_agent: None,
-                choices: &choices,
             })
         };
 
@@ -1944,24 +2415,22 @@ mod tests {
     /// be asked again.
     #[test]
     fn the_drafting_line_goes_when_the_draft_does() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let line = |a: &otaq_core::project_agents::ProjectAgent| {
             let f = Facts {
                 project: "SHOP",
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -1969,7 +2438,6 @@ mod tests {
                 selected: None,
                 agent: Some(a),
                 new_agent: None,
-                choices: &choices,
             };
             (drafting(&f).map(|d| d.text), suggest_off(&f))
         };
@@ -2000,7 +2468,7 @@ mod tests {
     /// warns that the skill is written but not committed yet (Apply doesn't commit it), still only a warning.
     #[test]
     fn a_written_skill_warns_it_is_not_committed_yet() {
-        use crate::view_models::flow_editor::fixtures::{plan_draft, stored, written_plan};
+        use crate::view_models::flow_editor::fixtures::{plan_draft, written_plan};
         use otaq_core::flow::proposal::{Level, Warning};
 
         let (file, mut draft) = plan_draft(Some("plan-ticket"));
@@ -2009,9 +2477,7 @@ mod tests {
             stage: Some("Plan".into()),
             text: "You don't have the skill `plan-ticket`".into(),
         }];
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let written = [written_plan()];
         let plan_warning = |written: &[otaq_core::flow::draft::WrittenSkill]| {
             let f = Facts {
@@ -2019,11 +2485,11 @@ mod tests {
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::AtOnce,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -2031,7 +2497,6 @@ mod tests {
                 selected: None,
                 agent: None,
                 new_agent: None,
-                choices: &choices,
             };
             columns(&f)
                 .into_iter()
@@ -2052,24 +2517,22 @@ mod tests {
     /// place (Suggest stays off); once the user answers and it works again, "drafting a change" comes back.
     #[test]
     fn needs_you_replaces_the_drafting_line_while_the_agent_waits() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let line = |a: &otaq_core::project_agents::ProjectAgent| {
             let f = Facts {
                 project: "SHOP",
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -2077,7 +2540,6 @@ mod tests {
                 selected: None,
                 agent: Some(a),
                 new_agent: None,
-                choices: &choices,
             };
             let d = drafting(&f).unwrap();
             (d.needs_you, d.text, d.show, suggest_off(&f))
@@ -2141,24 +2603,22 @@ mod tests {
     /// has it whole.
     #[test]
     fn needs_you_for_a_long_command_stays_one_line() {
-        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web};
 
         let file = shop_web();
         let draft = proposal(&file, true);
-        let stored = stored();
         let tools = crate::view_models::tool_problems::Tools::default();
-        let choices = Choices::default();
         let line = |a: &otaq_core::project_agents::ProjectAgent| {
             let d = drafting(&Facts {
                 project: "SHOP",
                 project_name: "shop",
                 proposal: &draft,
                 marks: &[],
+                model_marks: &[],
                 swap: false,
                 applies: &DraftApplies::Nothing,
                 file: &file,
                 in_use: &file,
-                stored: &stored,
                 tools: &tools,
                 skills: &[],
                 writing: &[],
@@ -2166,7 +2626,6 @@ mod tests {
                 selected: None,
                 agent: Some(a),
                 new_agent: None,
-                choices: &choices,
             })
             .unwrap();
             (d.text, d.tooltip.unwrap_or_default())

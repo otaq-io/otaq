@@ -2,7 +2,8 @@
 import type { IconName } from "./IconName";
 
 /**
- * The muted line under the status line, only when set: "Dev: Light instead of Strong", "Skips Product spec".
+ * The muted line under the status line, only when set: "Skips Product spec" (a ticket picks no model of its own,
+ * UX-65).
  * `CardNote` on the page.
  */
 export type CardNote = { icon: IconName, text: string, };

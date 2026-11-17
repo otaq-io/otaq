@@ -110,7 +110,7 @@ mod tests {
                 agent_names: &[],
                 was_validating: &[],
                 agents: None,
-                agent_list: None,
+                default_model: None,
                 starts_held: None,
                 paused: false,
                 helpers: &[],

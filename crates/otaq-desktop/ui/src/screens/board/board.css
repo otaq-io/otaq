@@ -1007,7 +1007,7 @@ button.board-search-option[data-highlighted] {
   white-space: nowrap;
 }
 
-/* "Filters: is:needs-you · is:working · in:review · by:strong" under the tickets. */
+/* "Filters: is:needs-you · is:working · in:review · by:claude-code" under the tickets. */
 .board-search-hint {
   padding: 6px 8px 2px;
   color: var(--text-muted);

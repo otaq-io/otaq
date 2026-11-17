@@ -93,31 +93,31 @@ mod tests {
   - id: spec
     name: Spec
     kind: agent
-    agent: Developer
+    model: claude
     skill: product-spec
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: claude
     skill: work-ticket
   - id: validate
     name: Validate
     kind: check
     by: agent
-    agent: Checker
+    model: claude
     skill: validate
     rounds: 3
   - id: team
     name: Team check
     kind: check
     by: agent
-    agent: Checker
+    model: claude
     skill: team-validate
     rounds: 2
 delivery:
   delivers: pr
   mode: click
-  agent: Developer
+  model: claude
   skill: open-pr
 ";
 

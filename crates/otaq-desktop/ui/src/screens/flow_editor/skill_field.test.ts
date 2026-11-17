@@ -13,7 +13,7 @@ import { Menu } from "../../components/Menu";
 import { type EditorActions, SkillField } from "./FlowEditor";
 
 const ignore = () => undefined;
-const actions: EditorActions = { edit: ignore, write: ignore, skill: ignore, fix: ignore };
+const actions: EditorActions = { edit: ignore, write: ignore, skill: ignore };
 const FIX = { pick: "Pick one", or: ", or ", ask: "Ask the agent to write it", end: "." };
 const PREFILL = "Write a skill for the Plan stage: ";
 

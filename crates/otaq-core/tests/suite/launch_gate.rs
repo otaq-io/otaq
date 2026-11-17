@@ -1,18 +1,17 @@
 //! The check before every launch (T-0357, T-0405; SCH-04 `[M23]`, AGM-05, USG-10; d0108, d0086, d0088, d0018): a
-//! tool that isn't available or is at its limit holds only the agents that would use it, a model no longer listed
-//! holds with "Model unavailable", **a held agent waits for its own tool** (nothing ever moves to another tool),
+//! tool that isn't available or is at its limit holds only the stages that would use it, a model no longer listed
+//! holds with "Model unavailable", **a held stage waits for its own tool** (nothing ever moves to another tool),
 //! resumes are never checked, and a hold lifts once when its cause goes, never on a timer.
 //!
 //! The decision is tested as a table (each reason × another tool free or blocked); the service's side with stand-in
 //! tool states (the tools' "programs" are scripts printing a version: no tool runs) and lists recorded by hand.
 //! `claude` stands in as `sh` printing its arguments; a Codex launch runs a script that exits at once. SHOP runs the
-//! default flow (Developer, on the default model: Claude Code); BILL runs it with its Agent stage on "Codex
-//! developer" (Codex), so each tool has tickets of its own.
+//! default flow (every stage on the default model's tool: Claude Code); BILL runs it with its Agent stage on Codex, so
+//! each tool has tickets of its own.
 
 use otaq_core::service::testing::said;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use otaq_core::agent_tools::claude::ClaudeLaunch;
@@ -21,13 +20,12 @@ use otaq_core::agent_tools::models::{ModelCopy, ModelEntry, ModelKind, ModelList
 use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::agents::gate::{Blocked, Decision, Facts, check, decide};
 use otaq_core::agents::{
-    Agent, AgentFields, AgentHold, AgentModel, Agents, CameFrom, FixedModels, HoldReason, ModelRef,
-    SessionRole, ToolModel,
+    About, AgentHold, AgentModel, HoldReason, Mark, ModelRef, SessionRole, Who,
 };
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::domain::{Actor, StartStep, Status};
-use otaq_core::flow::FlowAgent;
+use otaq_core::flow::WhoDoesIt;
 use otaq_core::protocol::Event;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
@@ -40,17 +38,15 @@ use tempfile::TempDir;
 const A: Tool = Tool::Claude;
 const B: Tool = Tool::Codex;
 
-fn agent(id: &str, model: AgentModel) -> Agent {
-    Agent {
-        id: id.into(),
-        name: id.into(),
-        instructions: String::new(),
+fn agent(stage: &str, model: AgentModel) -> Who {
+    Who {
         model,
         effort: None,
-        came_from: CameFrom::You,
-        mark: None,
-        created_at: 0,
-        updated_at: 0,
+        instructions: String::new(),
+        about: About::Stage {
+            project: "SHOP".into(),
+            stage: stage.into(),
+        },
     }
 }
 
@@ -109,14 +105,14 @@ fn facts(reason: Reason, other_blocked: bool) -> Facts {
     facts
 }
 
-/// A held agent waits for its own tool, whatever the reason and whether another tool could run it.
+/// A held stage waits for its own tool, whatever the reason and whether another tool could run it.
 #[test]
 fn every_reason_holds_on_its_own_tool_whatever_other_tools_can_do() {
     let model = AgentModel::Tool {
         tool: A,
         model: Some("m1".into()),
     };
-    let developer = agent("developer", model);
+    let developer = agent("dev", model);
     for reason in [Reason::Unavailable, Reason::Limit, Reason::Model] {
         for other_blocked in [false, true] {
             let decision = decide(
@@ -134,7 +130,7 @@ fn every_reason_holds_on_its_own_tool_whatever_other_tools_can_do() {
                 panic!("{case}: {decision:?}")
             };
             assert_eq!(held.blocked.reason(), expect_reason, "{case}");
-            assert_eq!(held.agent.id, "developer", "{case}");
+            assert_eq!(held.who, developer, "{case}");
             assert_eq!(held.on, on(A, Some("m1")), "{case}");
         }
     }
@@ -223,29 +219,46 @@ fn me() -> Actor {
 
 struct World {
     w: TestService,
-    rules: Agents,
-    /// BILL's key: its Agent stage runs "Codex developer".
+    /// BILL's key: its Agent stage runs on Codex.
     bill: String,
     /// The stand-in tools' folder (their scripts in `bin`).
     tools: TempDir,
 }
 
 impl World {
-    async fn agent(&self, name: &str) -> Agent {
-        self.rules
-            .list()
+    /// The mark on BILL's Dev stage's model.
+    async fn bill_dev_mark(&self) -> Option<Mark> {
+        let about = About::Stage {
+            project: self.bill.clone(),
+            stage: "dev".into(),
+        };
+        otaq_core::agents::mark::get(self.w.board.store(), &about)
             .await
             .unwrap()
-            .agents
-            .into_iter()
-            .find(|a| a.name == name)
-            .unwrap_or_else(|| panic!("no agent {name}"))
     }
 
-    /// Saves `model` on the agent `name` as Settings → Agents does (its list check aside: the tests read no list) and
-    /// says so as `agents.edit` does (`agents_changed`: the holds are checked again).
-    async fn set_model(&self, name: &str, model: AgentModel) {
-        self.w.set_agent_model(name, model).await;
+    /// Saves `model` as Edit flow does (its list check aside: the tests read no list) and says so as Apply does
+    /// (`agents_changed`: the holds are checked again): `bill dev` on BILL's Dev stage, `shop dev` on SHOP's, `Noyan`
+    /// on "Noyan starts on".
+    async fn set_model(&self, on: &str, model: AgentModel) {
+        let key = match on {
+            "bill dev" => Some(self.bill.clone()),
+            "shop dev" => Some("SHOP".to_owned()),
+            _ => None,
+        };
+        match key {
+            Some(key) => {
+                self.w
+                    .board
+                    .edit_flow_for_tests(&key, |file| {
+                        for stage in file.flow.stages.iter_mut().filter(|s| s.id == "dev") {
+                            stage.who = WhoDoesIt::on(&model.text());
+                        }
+                    })
+                    .await
+            }
+            None => self.w.set_agent_model(on, model).await,
+        }
         self.w.events.publish(Event::AgentsChanged);
     }
 
@@ -282,8 +295,8 @@ impl World {
 const ARGS: &str = "printf 'ARGS %s\\n' \"$*\"; exec cat";
 
 /// Claude Code and Codex found and connected (stand-ins printing a version and a signed-in status), so the default model is Claude Code's
-/// own. Project SHOP (`shop-web`, the default flow) and BILL
-/// (`billing-api`, its Agent stage on "Codex developer", Codex's default model).
+/// own. Project SHOP (`shop-web`, the default flow, on Claude Code) and BILL (`billing-api`, its Agent stage on Codex's
+/// default model).
 async fn world() -> World {
     let tools = TempDir::new().unwrap();
     let bin = tools.path().join("bin");
@@ -336,34 +349,11 @@ async fn world() -> World {
     w.add_project("shop-web").await;
     let bill = w.add_project("billing-api").await.key;
     let mut file = otaq_core::flow::default_file().clone();
-    for stage in &mut file.flow.stages {
-        if stage.agent.as_deref() == Some("Developer") {
-            stage.agent = Some("Codex developer".into());
-        }
+    for stage in file.flow.stages.iter_mut().filter(|s| s.id == "dev") {
+        stage.who = WhoDoesIt::on("codex");
     }
-    file.agents = vec![FlowAgent {
-        name: "Codex developer".into(),
-        instructions: String::new(),
-        model: "codex".into(),
-        why: None,
-    }];
     w.board.use_flow_for_tests(&bill, &file).await;
-    let rules = Agents::new(
-        w.board.clone(),
-        Arc::new(FixedModels::new(vec![
-            ToolModel::ToolDefault,
-            ToolModel::Follow("sonnet".into()),
-            ToolModel::Exact("gpt-5.3".into()),
-            ToolModel::Exact("gpt-5.4".into()),
-            ToolModel::Exact("gpt-5.5".into()),
-        ])),
-    );
-    World {
-        w,
-        rules,
-        bill,
-        tools,
-    }
+    World { w, bill, tools }
 }
 
 async fn until<F, Fut>(what: &str, done: F)
@@ -471,7 +461,6 @@ async fn a_tool_that_isnt_available_holds_only_its_tickets_until_it_is_back() {
             .and_then(|w| w.worktree.as_ref())
             .is_none()
     );
-    let codex_developer = world.agent("Codex developer").await;
     let [hold] = &holds(w, &bill).await[..] else {
         panic!("one hold")
     };
@@ -479,7 +468,6 @@ async fn a_tool_that_isnt_available_holds_only_its_tickets_until_it_is_back() {
         (hold.role, hold.reason, hold.tool),
         (SessionRole::Developer, HoldReason::ToolUnavailable, B)
     );
-    assert_eq!(hold.agent_id.as_deref(), Some(codex_developer.id.as_str()));
     assert!(
         !w.board.store().developer_started(&held.id).await.unwrap(),
         "nothing locks"
@@ -542,7 +530,7 @@ async fn a_model_no_longer_listed_holds_marks_and_lifts_on_the_list_or_an_edit()
         .await;
     world
         .set_model(
-            "Codex developer",
+            "bill dev",
             AgentModel::Tool {
                 tool: B,
                 model: Some("gpt-5.4".into()),
@@ -562,11 +550,11 @@ async fn a_model_no_longer_listed_holds_marks_and_lifts_on_the_list_or_an_edit()
         panic!("one hold")
     };
     assert_eq!(hold.reason, HoldReason::ModelUnavailable);
-    let codex_developer = world.agent("Codex developer").await;
-    let mark = codex_developer.mark.clone().expect("marked");
+    // The mark is on the stage whose model it is (UX-65).
+    let mark = world.bill_dev_mark().await.expect("marked");
     assert_eq!(mark.text, "Codex no longer lists gpt-5.4");
     assert_eq!(mark.model.as_deref(), Some("gpt-5.4"));
-    // The card names the agent to open (Open agent…, AGM-03).
+    // The card names the stage to open in Edit flow.
     let cards = otaq_core::agents::facts::board_agents(&w.board, &world.bill)
         .await
         .unwrap();
@@ -575,10 +563,7 @@ async fn a_model_no_longer_listed_holds_marks_and_lifts_on_the_list_or_an_edit()
         .iter()
         .find(|c| c.key.to_string() == first)
         .unwrap();
-    assert_eq!(
-        card.holds[0].agent_id.as_deref(),
-        Some(codex_developer.id.as_str())
-    );
+    assert_eq!(card.holds[0].stage_id.as_deref(), Some("dev"));
 
     // The list has the model again: the mark clears and the start runs.
     w.models
@@ -586,14 +571,14 @@ async fn a_model_no_longer_listed_holds_marks_and_lifts_on_the_list_or_an_edit()
         .await;
     until_started(w, &first).await;
     until("the mark cleared", || async {
-        world.agent("Codex developer").await.mark.is_none()
+        world.bill_dev_mark().await.is_none()
     })
     .await;
 
-    // Open agent…: another model saved on the agent lifts the next hold.
+    // Edit flow…: another model saved on the stage lifts the next hold.
     world
         .set_model(
-            "Codex developer",
+            "bill dev",
             AgentModel::Tool {
                 tool: B,
                 model: Some("gpt-5.3".into()),
@@ -608,7 +593,7 @@ async fn a_model_no_longer_listed_holds_marks_and_lifts_on_the_list_or_an_edit()
     until_status(w, &second, Status::Held).await;
     world
         .set_model(
-            "Codex developer",
+            "bill dev",
             AgentModel::Tool {
                 tool: B,
                 model: Some("gpt-5.5".into()),
@@ -757,7 +742,7 @@ async fn a_held_validator_waits_in_dev_and_starts_once_its_tool_is_back() {
 async fn a_project_agent_is_held_too() {
     let world = world().await;
     let w = &world.w;
-    // The agent Noyan uses on Codex, with Claude Code free: it is held all the same.
+    // Noyan starts on Codex, with Claude Code free: it is held all the same.
     world.hide(B, true).await;
     world
         .set_model(
@@ -799,7 +784,7 @@ async fn a_project_agent_is_held_too() {
 }
 
 /// A swap (AGT-05, Q-J): on a tool that quietly runs another model (OpenCode here), only an exact model asked for
-/// and another one run marks the agent; a follow choice choosing a model never does (a tool that refuses instead is
+/// and another one run marks the stage; a follow choice choosing a model never does (a tool that refuses instead is
 /// `mark.rs`'s unit test).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_swap_mark_is_only_for_an_exact_model_on_a_swapping_tool() {
@@ -821,27 +806,20 @@ async fn the_swap_mark_is_only_for_an_exact_model_on_a_swapping_tool() {
     .into_iter()
     .enumerate()
     {
-        let name = format!("OC {n}");
-        let agent = world
-            .rules
-            .add(&AgentFields {
-                name: name.clone(),
-                instructions: String::new(),
-                model: AgentModel::Tool { tool, model: None },
-                effort: None,
-            })
-            .await
-            .unwrap();
+        let about = About::Stage {
+            project: "SHOP".into(),
+            stage: ["dev", "validate"][n].into(),
+        };
         let t = w.create("SHOP", "Order totals rounding").await;
         w.force_status(&t, Status::Working).await;
         let shell = w.agent_shell(&t).await;
         sqlx::query(
-            "UPDATE sessions SET tool = ?, model = ?, agent_id = ?, agent_name = ? WHERE id = ?",
+            "UPDATE sessions SET tool = ?, model = ?, runs_for = ?, agent_name = ? WHERE id = ?",
         )
         .bind(tool.as_str())
         .bind(asked)
-        .bind(&agent.id)
-        .bind(&name)
+        .bind(about.scope())
+        .bind(tool.display_name())
         .bind(&shell.session)
         .execute(w.board.store().pool())
         .await
@@ -855,7 +833,12 @@ async fn the_swap_mark_is_only_for_an_exact_model_on_a_swapping_tool() {
             .hook(&caller, tool, "session.step.started", &payload)
             .await
             .unwrap();
-        marks.push(world.agent(&name).await.mark.map(|m| m.text));
+        marks.push(
+            otaq_core::agents::mark::get(w.board.store(), &about)
+                .await
+                .unwrap()
+                .map(|m| m.text),
+        );
     }
     assert_eq!(
         marks,
@@ -869,13 +852,10 @@ async fn the_swap_mark_is_only_for_an_exact_model_on_a_swapping_tool() {
     world.w.stop().await;
 }
 
-/// Change agent… on a card held for its tool's limit: the held Dev hasn't started, so its choice isn't locked and the
-/// user's pick of an agent on a tool that can run (`ticket.set_choice`) starts it on that agent at once; the agents
-/// offered are those whose tool has Dev's skill. The ticket's own agent can't make that pick.
+/// Edit flow… on a card held for its tool's limit (UX-65: a ticket can't pick its own model): the held Dev hasn't
+/// started, so another model saved on the stage, on a tool that can run, starts it there at once.
 #[tokio::test(flavor = "multi_thread")]
-async fn change_agent_on_a_card_held_for_a_limit_starts_it_on_the_chosen_agent() {
-    use otaq_core::client::{Client, ClientConfig};
-    use otaq_core::protocol::{Reply, Request, SetChoiceParams};
+async fn another_model_on_a_stage_held_for_a_limit_starts_it_there() {
     let world = world().await;
     let w = &world.w;
     w.create("SHOP", "Checkout flow").await;
@@ -883,29 +863,19 @@ async fn change_agent_on_a_card_held_for_a_limit_starts_it_on_the_chosen_agent()
     queue(w, "SHOP-1").await;
     until_status(w, "SHOP-1", Status::Held).await;
     let held = w.board.ticket_choices("SHOP-1").await.unwrap();
-    let dev = held.stages.iter().find(|s| s.stage_id == "dev").unwrap();
-    assert!(dev.held && !dev.locked, "{dev:?}");
-    let codex = dev
-        .agents
-        .iter()
-        .find(|a| a.name == "Codex developer")
-        .expect("an agent on Codex is offered: Dev runs one of Otaq's own skills");
-    assert_eq!(codex.tool, Some(B));
-
-    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
-    let reply = client
-        .request(Request::TicketSetChoice(SetChoiceParams {
-            key: "SHOP-1".into(),
-            stage: "Dev".into(),
-            choice: "Codex developer".into(),
-        }))
-        .await
-        .unwrap();
-    let Reply::TicketChoices(after) = reply else {
-        panic!("{reply:?}")
-    };
-    let dev = after.stages.iter().find(|s| s.stage_id == "dev").unwrap();
-    assert_eq!(dev.label(), "Codex developer");
+    assert!(
+        held.stages.iter().all(|s| s.stage_id != "dev"),
+        "Dev has no choice to make: {held:?}"
+    );
+    world
+        .set_model(
+            "shop dev",
+            AgentModel::Tool {
+                tool: B,
+                model: None,
+            },
+        )
+        .await;
     // It starts on Codex (whose stand-in exits at once, so the card then stops as an interrupted start).
     until_started(w, "SHOP-1").await;
     assert!(holds(w, "SHOP-1").await.is_empty());
@@ -920,13 +890,9 @@ async fn change_agent_on_a_card_held_for_a_limit_starts_it_on_the_chosen_agent()
     assert_eq!(
         started,
         [(
-            Some("Codex developer".to_owned()),
+            Some(B.display_name().to_owned()),
             Some(B.as_str().to_owned())
         )]
     );
-    // Started now: the choice is locked.
-    let locked = w.board.ticket_choices("SHOP-1").await.unwrap();
-    let dev = locked.stages.iter().find(|s| s.stage_id == "dev").unwrap();
-    assert!(dev.locked && !dev.held, "{dev:?}");
     world.w.stop().await;
 }

@@ -314,10 +314,7 @@ pub mod held_fixture {
     /// The cards' agents: NOTE-12 starts at Dev, past the planning stages it skips.
     pub fn starts_at_dev() -> BoardAgents {
         BoardAgents {
-            agent_count: 2,
             cards: vec![CardAgents {
-                instead_of: None,
-                own_agent: None,
                 skips: Vec::new(),
                 key: KEY.parse().unwrap(),
                 running_developer: None,
@@ -330,8 +327,9 @@ pub mod held_fixture {
                     agent: "Developer".into(),
                     model: None,
                 }),
-                refused_agent: None,
+                refused_stage: None,
                 stage_agent: Some("Developer".into()),
+                at_check: false,
             }],
             connected: Vec::new(),
         }
@@ -470,7 +468,7 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(core)
-            .join("tests/flows/several-check-agents.yaml");
+            .join("tests/flows/older/several-check-agents.yaml");
         let file = otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
         let columns = Columns::of(&file.flow);
         assert!(ids(&columns).contains(&"validate".to_owned()));

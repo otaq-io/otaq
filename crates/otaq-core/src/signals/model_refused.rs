@@ -15,7 +15,7 @@
 
 use super::{Signal, Signals};
 use crate::agent_tools::Tool;
-use crate::agents::mark;
+use crate::agents::{About, mark};
 use crate::board::BoardError;
 use crate::caller::Caller;
 use crate::session::{END_MODEL_REFUSED, Sessions};
@@ -39,7 +39,8 @@ struct Stored {
     kind: String,
     ticket_id: Option<String>,
     project_agent_id: Option<String>,
-    agent_id: Option<String>,
+    /// What the session ran for ([`crate::agents::About::scope`]); a Noyan conversation's is Noyan's.
+    runs_for: Option<String>,
     model: Option<String>,
     model_ran: Option<String>,
     started_at: i64,
@@ -49,8 +50,9 @@ struct Stored {
 impl Stored {
     async fn of(signals: &Signals, session: &str) -> Result<Option<Self>, BoardError> {
         Ok(sqlx::query_as(
-            "SELECT s.kind, s.ticket_id, s.project_agent_id, COALESCE(s.agent_id, a.agent_id) AS
-                    agent_id, s.model, COALESCE(s.model_ran, a.model_ran) AS model_ran, s.started_at,
+            "SELECT s.kind, s.ticket_id, s.project_agent_id,
+                    COALESCE(s.runs_for, CASE WHEN s.project_agent_id IS NOT NULL THEN 'noyan' END) AS runs_for,
+                    s.model, COALESCE(s.model_ran, a.model_ran) AS model_ran, s.started_at,
                     p.name AS project_name
              FROM sessions s JOIN projects p ON p.id = s.project_id
              LEFT JOIN project_agents a ON a.id = s.project_agent_id
@@ -73,8 +75,8 @@ impl Signals {
         self.inner.turned.lock().expect("turned").contains(session)
     }
 
-    /// A turn of `session` ended normally: on its first, the session's agent loses its mark when the session
-    /// started after the mark and ran on the model the entry has now (AGT-05).
+    /// A turn of `session` ended normally: on its first, what it ran for (its stage, the delivery, Noyan's setting)
+    /// loses its mark when the session started after the mark (AGT-05).
     pub(super) async fn turn_got_through(&self, session: &str) -> Result<(), BoardError> {
         if !self
             .inner
@@ -88,19 +90,14 @@ impl Signals {
         let Some(stored) = Stored::of(self, session).await? else {
             return Ok(());
         };
-        if let Some(agent) = &stored.agent_id
-            && mark::clear_after_first_turn(
-                self.inner.board.store(),
-                agent,
-                stored.model.as_deref(),
-                stored.started_at,
-            )
-            .await?
+        if let Some(about) = stored.runs_for.as_deref().and_then(About::parse)
+            && mark::clear_after_first_turn(self.inner.board.store(), &about, stored.started_at)
+                .await?
         {
             tracing::info!(
                 session,
-                agent,
-                "the agent's mark cleared: a first turn got through"
+                runs_for = about.scope(),
+                "the model's mark cleared: a first turn got through"
             );
             self.inner
                 .events
@@ -109,7 +106,7 @@ impl Signals {
         Ok(())
     }
 
-    /// `tool` refused `session`'s model (`model`: the one its message names). Marks the session's agent and
+    /// `tool` refused `session`'s model (`model`: the one its message names). Marks what the session ran for and
     /// applies the refusal; returns the failed turn's signal for a resumed session or a later turn, `None` when the
     /// refusal was applied as not started or No result.
     pub(super) async fn model_refused(
@@ -135,10 +132,10 @@ impl Signals {
             Caller::ProjectAgent { .. } | Caller::User => stored.project_name.clone(),
         };
         let tool = self.inner.adapters.get(tool).display_name();
-        if let Some(agent) = &stored.agent_id
+        if let Some(about) = stored.runs_for.as_deref().and_then(About::parse)
             && mark::set(
                 self.inner.board.store(),
-                agent,
+                &about,
                 &mark::mark(tool, named, &on, message),
             )
             .await?

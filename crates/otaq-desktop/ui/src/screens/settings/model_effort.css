@@ -1,0 +1,85 @@
+/* Model and Effort (`ModelEffort.tsx`). */
+.me-model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.me-model .select-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+
+.me-model[data-off] .select-value,
+.me-model[data-off] > svg:first-of-type {
+  color: var(--st-paused);
+}
+
+.me-off-message {
+  color: var(--text-muted);
+}
+
+.me-off-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* A tool with many levels (Copilot's seven) wraps instead of widening the panel. */
+.me-effort .segmented {
+  flex-wrap: wrap;
+}
+
+.me-missing {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 6px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.me-foot {
+  font-size: 11.5px;
+}
+
+/* The compact button of `ModelEffortButton` and the read-only label (the Noyan panel's header, A-6). */
+.me-compact {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  max-width: 160px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  font: 400 12px/16px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.me-compact[data-read-only] {
+  cursor: default;
+}
+
+.me-compact > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.me-compact-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+button.me-compact:hover,
+.me-compact[data-open] {
+  background: var(--bg-hover);
+}

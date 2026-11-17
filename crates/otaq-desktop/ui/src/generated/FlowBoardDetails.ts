@@ -2,12 +2,11 @@
 import type { FlowBoardKindOption } from "./FlowBoardKindOption";
 import type { FlowBoardRounds } from "./FlowBoardRounds";
 import type { FlowBoardSkip } from "./FlowBoardSkip";
-import type { FlowEditorAgentField } from "./FlowEditorAgentField";
 import type { FlowEditorFailTo } from "./FlowEditorFailTo";
-import type { FlowEditorFix } from "./FlowEditorFix";
 import type { FlowEditorKind } from "./FlowEditorKind";
 import type { FlowEditorMark } from "./FlowEditorMark";
 import type { FlowEditorSkillField } from "./FlowEditorSkillField";
+import type { FlowEditorWho } from "./FlowEditorWho";
 
 /**
  * A stage's details. `FlowBoardDetails` on the page.
@@ -16,15 +15,15 @@ export type FlowBoardDetails = { stage: string,
 /**
  * "Validate", or "New stage" for one this draft adds.
  */
-title: string, name_label: string, name: string, kind_label: string, kinds: Array<FlowBoardKindOption>, kind: FlowEditorKind | null, description_label: string, description: string, description_hint: string, agent: FlowEditorAgentField | null, skill: FlowEditorSkillField | null, 
+title: string, name_label: string, name: string, kind_label: string, kinds: Array<FlowBoardKindOption>, kind: FlowEditorKind | null, description_label: string, description: string, description_hint: string, 
+/**
+ * Who does the stage (UX-65): Model, Effort and Instructions; the Skill field is [`Self::skill`].
+ */
+who: FlowEditorWho | null, skill: FlowEditorSkillField | null, 
 /**
  * "Otaq's own" beside one of Otaq's skills.
  */
-skill_tag: string | null, skill_hint: string, fail_to: FlowEditorFailTo | null, rounds: FlowBoardRounds | null, skip: FlowBoardSkip, 
-/**
- * A problem no pick fixes.
- */
-problem: string | null, fixes: Array<FlowEditorFix>, mark: FlowEditorMark | null, remove: string, 
+skill_tag: string | null, skill_hint: string, fail_to: FlowEditorFailTo | null, rounds: FlowBoardRounds | null, skip: FlowBoardSkip, problem: string | null, mark: FlowEditorMark | null, remove: string, 
 /**
  * [`REMOVING_WAITS`] for a stage the flow has now with tickets in it.
  */

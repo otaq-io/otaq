@@ -29,6 +29,9 @@ import {
   RecheckButton,
   stepOf,
 } from "./AgentTools";
+import type { NoyanSettingsPage } from "../../generated/NoyanSettingsPage";
+import { ModelEffortField } from "./ModelEffort";
+import { effortEdit, NoyanSettingsBody, noyanEdit } from "./NoyanSettings";
 
 const html = (element: ReactElement) => renderToStaticMarkup(element);
 
@@ -79,11 +82,11 @@ describe("the Settings screen", () => {
   it("registers the overlay, its sections and ⌘,", () => {
     const app = registerScreens({ settings });
     expect(app.overlays.get("settings")).toBeDefined();
-    // Eight topics: Agents (its tools, then the agents), Git & pull requests, Limits & usage (the limit, then usage),
+    // Nine topics: Tools, Noyan, Git & pull requests, Limits & usage (the limit, then usage),
     // Notifications, Appearance, Keyboard, Data, About.
     expect(app.settings.global.ids()).toEqual([
-      "agent_tools",
-      "agents",
+      "tools",
+      "noyan",
       "git",
       "agent_limits",
       "usage",
@@ -255,10 +258,10 @@ describe("the Settings screen", () => {
       icon: "bot",
       target: { page: "global", section: sections[0] ?? "about", sections },
     });
-    const rows = [row("Agent tools", ["agent_tools"]), row("Agents", ["agents", "agent_limits"])];
-    expect(topicRow(rows, "agent_limits")?.label).toBe("Agents");
-    expect(topicRow(rows, "agents")?.label).toBe("Agents");
-    expect(topicRow(rows, null)?.label).toBe("Agent tools");
+    const rows = [row("Tools", ["tools"]), row("Limits", ["usage", "agent_limits"])];
+    expect(topicRow(rows, "agent_limits")?.label).toBe("Limits");
+    expect(topicRow(rows, "usage")?.label).toBe("Limits");
+    expect(topicRow(rows, null)?.label).toBe("Tools");
     expect(topicRow([], null)).toBeUndefined();
   });
 });
@@ -358,8 +361,10 @@ const ROWS = {
 };
 
 const toolsPage = (rows: AgentToolRow[]): AgentToolsPage => ({
-  title: "Agent tools",
-  intro: "The AI tools already on your machine.",
+  title: "Tools",
+  intro: "The AI tools on this Mac.",
+  rows_heading: "TOOLS",
+  used: null,
   rows,
   recheck: "Re-check",
   checked: "Checked 2 minutes ago",
@@ -386,7 +391,173 @@ const drawRow = (row: AgentToolRow) =>
     }),
   );
 
-describe("Settings → Agent tools", () => {
+const AVATAR = {
+  tool: "claude_code",
+  letters: "CC",
+  background: "#000",
+  foreground: "#fff",
+  hover: "#111",
+} as const;
+
+// Settings → Noyan, as `noyan_settings.rs` sends it (UX-70).
+const NOYAN_PAGE: NoyanSettingsPage = {
+  title: "Noyan",
+  label: "Noyan starts on",
+  picker: {
+    model_label: "Model",
+    value: { avatar: AVATAR, text: "Claude Code · opus", no_longer_listed: null },
+    menu: {
+      title: "Pick a model…",
+      pairs_heading: null,
+      pairs: [],
+      groups: [],
+      missing: null,
+      another: null,
+      set_up: "Set up…",
+      foot: "",
+    },
+    hint: "For new conversations. Switch for one conversation in the Noyan panel.",
+    not_set_up: null,
+    marked: null,
+    effort: {
+      label: "Effort",
+      levels: [
+        { id: "", label: "Default", selected: false },
+        { id: "medium", label: "Medium", selected: false },
+        { id: "high", label: "High", selected: true },
+      ],
+      hint: "How hard the model thinks.",
+    },
+  },
+};
+
+// Where they're used, as `agent_tools_page.rs`'s `with_flows` sends it (canvas A-8).
+const withFlows = (page: AgentToolsPage): AgentToolsPage => ({
+  ...page,
+  used: {
+    heading: "WHERE THEY’RE USED",
+    rows: [
+      {
+        tool: "claude",
+        avatar: AVATAR,
+        name: "Claude Code",
+        places: "shop-web: Dev · billing-api: Dev, Security review · Noyan",
+        off: null,
+      },
+      {
+        tool: "codex",
+        avatar: { ...AVATAR, tool: "codex", letters: "CX" },
+        name: "Codex",
+        places: "shop-web: Validate",
+        off: "Codex isn’t set up on this Mac: these wait until you set it up or pick another model.",
+      },
+    ],
+    note: "To change one, open its project’s flow. Signing out of a tool makes its stages wait until you pick another model.",
+  },
+});
+
+describe("Settings → Tools: where they're used", () => {
+  it("draws each tool's stages and Noyan under the tools, read-only, and no Noyan block", () => {
+    const drawn = html(
+      createElement(AgentToolsPageBody, {
+        page: withFlows(toolsPage([ROWS.connected])),
+        onAction: () => undefined,
+        onRecheck: () => undefined,
+      }),
+    );
+    const at = (text: string) => drawn.indexOf(text);
+    expect(at("TOOLS")).toBeGreaterThan(-1);
+    // Noyan starts on is Settings → Noyan's (UX-70), not a block of Tools.
+    expect(drawn).not.toContain("NOYAN");
+    expect(drawn).not.toContain("Noyan starts on");
+    expect(at("WHERE THEY’RE USED")).toBeGreaterThan(at("TOOLS"));
+    expect(drawn).toContain("shop-web: Dev · billing-api: Dev, Security review · Noyan");
+    expect(drawn).toContain("Codex isn’t set up on this Mac");
+    expect(drawn).toContain("To change one, open its project’s flow.");
+    // Read-only: no button in Where they're used.
+    const used = drawn.slice(at("WHERE THEY’RE USED"), at("Not shown here"));
+    expect(used).not.toContain("<button");
+  });
+});
+
+describe("Settings → Noyan", () => {
+  it("draws Noyan starts on and nothing else", () => {
+    const drawn = html(createElement(NoyanSettingsBody, { page: NOYAN_PAGE }));
+    expect(drawn).toContain('data-section="noyan"');
+    expect(drawn).toContain("Noyan starts on");
+    expect(drawn).toContain("Claude Code · opus");
+    expect(drawn).toContain("For new conversations. Switch for one conversation in the Noyan panel.");
+    expect(drawn).not.toContain("WHERE THEY’RE USED");
+    expect(drawn).not.toContain("TOOLS");
+  });
+
+  it("a pick or an Effort level becomes noyan_settings.edit's edit", () => {
+    expect(noyanEdit({ kind: "model", model: "codex" })).toEqual({ edit: "model", model: "codex" });
+    expect(noyanEdit({ kind: "pair", model: "claude:opus", effort: "high" })).toEqual({
+      edit: "pair",
+      model: "claude:opus",
+      effort: "high",
+    });
+    expect(noyanEdit({ kind: "pair", model: "opencode", effort: null })).toEqual({
+      edit: "pair",
+      model: "opencode",
+    });
+    expect(effortEdit(null)).toEqual({ edit: "effort" });
+    expect(effortEdit("low")).toEqual({ edit: "effort", effort: "low" });
+  });
+});
+
+describe("Model and Effort: a marked model (AGT-05, C3b)", () => {
+  const field = (picker: NoyanSettingsPage["picker"]) =>
+    html(
+      createElement(ModelEffortField, {
+        view: picker,
+        onPick: () => undefined,
+        onEffort: () => undefined,
+        onSetUp: () => undefined,
+      }),
+    );
+  const marked = {
+    text: "Codex couldn't run gpt-5.5 on SHOP-3",
+    message: "“The model is not supported when using Codex with a ChatGPT account.”",
+    pick: "Pick another model",
+  };
+
+  it("a model the tool refused shows its mark, the tool's words and Pick another model in the hint's place", () => {
+    const drawn = field({ ...NOYAN_PAGE.picker, marked });
+    expect(drawn).toContain("data-off");
+    expect(drawn).toContain('data-tone="amber"');
+    expect(drawn).toContain("Codex couldn&#x27;t run gpt-5.5 on SHOP-3");
+    expect(drawn).toContain("The model is not supported when using Codex with a ChatGPT account.");
+    expect(drawn).toContain("Pick another model");
+    expect(drawn).not.toContain("Set up Codex");
+    expect(drawn).not.toContain(NOYAN_PAGE.picker.hint);
+  });
+
+  it("an unmarked model shows its hint, no warning", () => {
+    const drawn = field(NOYAN_PAGE.picker);
+    expect(drawn).not.toContain("data-off");
+    expect(drawn).not.toContain("Pick another model");
+    expect(drawn).toContain(NOYAN_PAGE.picker.hint);
+  });
+
+  it("a tool that isn't set up says so instead of the mark", () => {
+    const drawn = field({
+      ...NOYAN_PAGE.picker,
+      marked,
+      not_set_up: {
+        tool: "codex",
+        text: "Codex isn’t set up on this Mac. Set it up or pick another model.",
+        set_up: "Set up Codex",
+        pick: "Pick another model",
+      },
+    });
+    expect(drawn).toContain("Set up Codex");
+    expect(drawn).not.toContain("SHOP-3");
+  });
+});
+
+describe("Settings → Tools", () => {
   it("each state shows its pill and its own actions", () => {
     const connected = drawRow(ROWS.connected);
     expect(connected).toContain('data-look="connected"');

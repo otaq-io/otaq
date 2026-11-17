@@ -8,7 +8,7 @@
 //!
 //! - `show`: `{project, version, yaml, document}`, `document` the YAML as JSON.
 //! - `presets`: `[{file, name, line, stages, yaml}]`, `stages` the preset's stage names in order, `yaml` its file
-//!   (every field: an agent check's `agents`, a check's `fail_to`).
+//!   (every field: a stage's `model`, a check's `fail_to`).
 //! - `propose`: the proposal as the flow editor shows it (`id`, `problems`, `diff`, …).
 //! - `write-skill`: `{stage, folder, skill?, text}`; `--quiet` prints the folder (the skill's name with `--done`).
 

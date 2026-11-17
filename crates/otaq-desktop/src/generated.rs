@@ -31,6 +31,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::events::PageEvent::export_all(&cfg)?;
     crate::api::RequestError::export_all(&cfg)?;
     otaq_view::icons::IconName::export_all(&cfg)?;
+    // The model picker (kept for Edit flow's Who does it, UX-65): the dropdown and the picker's view.
+    otaq_view::view_models::agents::ModelDropdown::export_all(&cfg)?;
+    otaq_view::view_models::model_picker::Picker::export_all(&cfg)?;
     crate::api::ThemeParams::export_all(&cfg)?;
     crate::api::ActiveTheme::export_all(&cfg)?;
     crate::window::Chrome::export_all(&cfg)?;
@@ -194,9 +197,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::keyboard_page::Press::export_all(&cfg)?;
     otaq_view::view_models::keyboard_page::RecordAnswer::export_all(&cfg)?;
     otaq_view::view_models::keyboard_page::Gallery::export_all(&cfg)?;
-    // Settings → Agents and one agent's page (T-0410): the page writes its rows and marks too.
-    crate::api::export_agent_types(&cfg)?;
-    crate::api::AgentsOpen::export_all(&cfg)?;
     // Settings → Flow, Use a preset… and the flow banner's requests (T-0422).
     crate::api::export_flow_types(&cfg)?;
     // Overview's Messages sections and Activity (History) (T-0223, T-0466).
@@ -215,9 +215,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::EditorSourceModeParams::export_all(&cfg)?;
     // The stage choices' and the path's gallery (T-0411); their views come with the editor and sheet views.
     otaq_view::view_models::stage_choices::Gallery::export_all(&cfg)?;
-    // Change agent… (a stage waiting for its tool): its request and its dialog.
-    crate::api::SheetChangeAgentParams::export_all(&cfg)?;
-    otaq_view::view_models::stage_choices::ChangeAgentDialog::export_all(&cfg)?;
     // The Files tab (T-0468): the tab, the tree, the search, All changes, a file, its diff's lines, the review notes,
     // the comments and the review bar; then the requests' own types.
     crate::api::FilesLoad::export_all(&cfg)?;
@@ -322,6 +319,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::agent_tools_page::Page::export_all(&cfg)?;
     otaq_view::view_models::agent_tools_page::DisconnectDialog::export_all(&cfg)?;
     otaq_view::view_models::agent_tools_page::Gallery::export_all(&cfg)?;
+    // Settings → Noyan (UX-70): its page and the edit of Noyan starts on.
+    otaq_view::view_models::noyan_settings::Page::export_all(&cfg)?;
+    otaq_view::view_models::noyan_settings::Edit::export_all(&cfg)?;
     crate::api::AgentToolsViewParams::export_all(&cfg)?;
     crate::api::AgentToolsRecheckParams::export_all(&cfg)?;
     crate::api::AgentToolParams::export_all(&cfg)?;

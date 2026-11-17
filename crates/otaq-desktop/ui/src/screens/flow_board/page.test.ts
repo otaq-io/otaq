@@ -13,6 +13,7 @@ import type { FlowBoardView } from "../../generated/FlowBoardView";
 import type { SheetAnswer } from "../../generated/SheetAnswer";
 import { request } from "../../tauri";
 import CHECK_FIRST from "./check_first.view.json";
+import DONE_PANEL from "./done_panel.view.json";
 import { FlowBoard } from "./FlowBoard";
 
 vi.mock("../../tauri", async (original) => ({
@@ -531,5 +532,54 @@ describe("Edit flow's box asks Noyan", () => {
     const main = host.querySelector(".fb-main");
     expect([...(main?.children ?? [])].map((c) => c.className)).toEqual(["fb-columns", "fb-noyan"]);
     expect(host.querySelector(".fb-columns .fb-noyan")).toBeNull();
+  });
+});
+
+describe("Done's panel", () => {
+  // Rust's view with Done open: a pull request written on Codex · gpt-5.5 · medium, with instructions.
+  const DONE = DONE_PANEL as unknown as FlowBoardView;
+  const panel = () => host.querySelector<HTMLElement>('aside[aria-label="How work leaves the flow"]');
+
+  it("shows, under Deliver as and When, the model, effort and instructions that write the pull request", async () => {
+    await mount(() => Promise.resolve(DONE));
+    const text = panel()?.textContent ?? "";
+    const at = (s: string) => text.indexOf(s);
+    expect(at("Deliver as")).toBeLessThan(at("When"));
+    expect(at("When")).toBeLessThan(at("Who does it"));
+    expect(text).toContain("Codex · gpt-5.5");
+    expect(text).toContain("Writes the pull request");
+    expect(text.toLowerCase()).not.toContain("conflict");
+    expect(panel()?.querySelector("textarea")?.value).toBe("Keep the title under 70 characters.");
+    const done = [...host.querySelectorAll(".fb-column")].find(
+      (c) => c.getAttribute("aria-label") === "Done",
+    );
+    expect(done?.textContent).toContain("gpt-5.5 · medium");
+  });
+
+  it("sends Done's effort and instructions as the delivery's own edits", async () => {
+    await mount(() => Promise.resolve(DONE));
+    const high = [...(panel()?.querySelectorAll<HTMLButtonElement>(".segmented button") ?? [])].find(
+      (b) => b.textContent === "High",
+    );
+    await act(async () => {
+      high?.click();
+      await Promise.resolve();
+    });
+    expect(request).toHaveBeenCalledWith("flow_editor.edit", {
+      project: "SHOP",
+      edit: { edit: "delivery_effort", effort: "high" },
+    });
+    const instructions = panel()?.querySelector("textarea");
+    if (!instructions) throw new Error("no instructions");
+    await act(async () => {
+      Reflect.set(HTMLTextAreaElement.prototype, "value", "Use the PR template.", instructions);
+      instructions.dispatchEvent(new Event("input", { bubbles: true }));
+      instructions.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(request).toHaveBeenCalledWith("flow_editor.edit", {
+      project: "SHOP",
+      edit: { edit: "delivery_instructions", instructions: "Use the PR template." },
+    });
   });
 });

@@ -320,6 +320,16 @@ const EXCEPTIONS: &[Exception] = &[
         pattern: "Tool::Claude",
         reason: "`docs_url`: only Claude Code's docs explain allowlists and auto mode for the permission warning's link (SET-02, T-0360)",
     },
+    Exception {
+        path: "otaq-view/src/view_models/agent_tools_page.rs",
+        pattern: "\"claude\"",
+        reason: "`sample_uses`, Where they're used's sample stages for tests and the design gallery (canvas A-8)",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/agent_tools_page.rs",
+        pattern: "Tool::Codex",
+        reason: "`gallery`, the Tools page's two sample tools set up for tests and the design gallery (canvas A-8)",
+    },
 ];
 
 /// Folders under `crates/` that are read.

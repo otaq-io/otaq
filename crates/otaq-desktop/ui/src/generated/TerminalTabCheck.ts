@@ -21,7 +21,7 @@ agent: string | null,
  */
 terminal_label: string, 
 /**
- * "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19".
+ * "Claude Code · sonnet · high": the tool, model and effort it runs on (UX-65).
  */
 line: string, 
 /**

@@ -65,7 +65,7 @@ fn with_review() -> FlowFile {
             id: "review".into(),
             name: "Review".into(),
             kind: StageKind::Check { by: CheckBy::You },
-            agent: None,
+            who: Default::default(),
             skill: None,
             options: Vec::new(),
             rounds: None,

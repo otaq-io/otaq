@@ -26,7 +26,7 @@ use crate::icons::IconName;
 use crate::view_models::agent_tools_page::and_list;
 use crate::view_models::limit_banner::LineView;
 
-/// Where Settings → Agent tools' Read the docs goes for Claude Code (allowlists and auto mode).
+/// Where Settings → Tools' Read the docs goes for Claude Code (allowlists and auto mode).
 pub const PERMISSION_DOCS_URL: &str = "https://code.claude.com/docs/en/permission-modes";
 
 /// The situations a banner can stand for. The order of the variants is the stacking order (first = top).

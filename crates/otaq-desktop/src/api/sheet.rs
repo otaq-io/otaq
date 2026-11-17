@@ -81,7 +81,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "sheet.answer_agent" => reply(&answer_agent(app, parse(params)?).await?),
         "sheet.set_choice" => reply(&set_choice(app, parse(params)?).await?),
         "sheet.check_again" => reply(&check_again(app, parse(params)?).await?),
-        "sheet.change_agent_dialog" => reply(&change_agent_dialog(app, parse(params)?).await?),
         "sheet.move_menu" => reply(&move_menu(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
@@ -130,19 +129,8 @@ pub struct ChoiceParams {
     pub key: String,
     /// The stage's id.
     pub stage: String,
-    /// An agent's name, `skip`, or `required` on a check of yours.
+    /// `skip`, or `required`.
     pub choice: String,
-}
-
-/// `sheet.change_agent_dialog`: the ticket, and the stage (its id) whose agent to change; without one, the stage that
-/// waits for its tool.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "SheetChangeAgentParams")]
-pub struct ChangeAgentParams {
-    pub key: String,
-    #[serde(default)]
-    #[ts(optional)]
-    pub stage: Option<String>,
 }
 
 /// A tooltip: its name and the user's key for it.
@@ -457,7 +445,7 @@ pub struct View {
     /// The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
     pub refusal: Option<Refusal>,
     /// The held roles (§7.2, SCH-04 `[M23]`): "Model unavailable", "Codex isn't available · logged out", "Claude
-    /// Code limit reached · resets 3:45 pm", with Open agent…, Sign in….
+    /// Code limit reached · resets 3:45 pm", with Edit flow…, Sign in….
     pub holds: Vec<Callout>,
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & sheet-overview-header controls*).
@@ -466,8 +454,8 @@ pub struct View {
     pub sheet: SheetFrame,
     /// The ticket's agent session runs.
     pub live_agent: bool,
-    /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
-    pub open_agent: Option<String>,
+    /// The stage (its id) Edit flow… opens on: a held session's, or the one whose model the tool refused.
+    pub edit_flow_stage: Option<String>,
     /// "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125):
     /// on the Overview and at the top of the Run and Shell.
     pub build_aside: Option<BuildAsideLine>,
@@ -638,8 +626,8 @@ fn notice_of(ticket: &Ticket, tickets: &[Ticket]) -> Option<Notice> {
     })
 }
 
-/// "Validate waits for Codex checker": a check held before its checker started (its tool lacks the skill, isn't
-/// available…), as Change agent… says it; `None` when it isn't held.
+/// "Validate waits for Codex": a check held before its checker started (its tool lacks the skill, isn't available…);
+/// `None` when it isn't held.
 fn held_check_label(f: &Facts) -> Option<String> {
     if f.ticket.status != otaq_core::domain::Status::Checking {
         return None;
@@ -649,11 +637,7 @@ fn held_check_label(f: &Facts) -> Option<String> {
         .holds
         .iter()
         .find(|h| h.role == otaq_core::agents::SessionRole::Validator)?;
-    let agent = hold
-        .agent_id
-        .as_deref()
-        .and_then(|id| agents.agents.iter().find(|a| a.id == id))
-        .map_or("its agent", |a| a.name.as_str());
+    let agent = hold.tool.display_name();
     Some(format!("{} waits for {agent}", stage_name(f).unwrap_or("The check")))
 }
 
@@ -835,7 +819,7 @@ pub fn view_of(f: &Facts) -> View {
         }),
         sheet: sheet_of(f),
         live_agent: live,
-        open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
+        edit_flow_stage: f.agents.and_then(|t| edit_flow_stage(ticket, t)),
         build_aside: build_aside::line(ticket),
     }
 }
@@ -1957,17 +1941,14 @@ pub async fn send_again(app: &App, params: SendAgainParams) -> Result<Sent, Requ
     }
 }
 
-/// The agent Open agent… opens (AGM-03, d0108 second gap review rule 7): a held session's agent, else the agent of the
-/// last session of the role whose model the tool refused (AGT-05).
-fn open_agent(ticket: &Ticket, t: &TicketAgents) -> Option<String> {
-    t.holds.iter().find_map(|h| h.agent_id.clone()).or_else(|| {
-        let role = otaq_core::board::needs_you::change_agent(ticket)?;
-        t.sessions
-            .iter()
-            .rev()
-            .find(|s| s.role == role)
-            .and_then(|s| s.agent_id.clone())
-    })
+/// The stage Edit flow… opens on (AGM-03, UX-65): a held session's stage, else the stage of the role whose model the
+/// tool refused (AGT-05).
+fn edit_flow_stage(ticket: &Ticket, t: &TicketAgents) -> Option<String> {
+    use otaq_view::view_models::stage_choices::held_stage;
+    t.holds
+        .iter()
+        .find_map(|h| held_stage(t, h.role))
+        .or_else(|| held_stage(t, otaq_core::board::needs_you::fix_model(ticket)?))
 }
 
 /// `sheet.set_choice`: the user's pick in the sheet's Choices (`ticket.set_choice`); refused (a stage that started
@@ -1989,27 +1970,6 @@ pub async fn set_choice(app: &App, params: ChoiceParams) -> Result<(), RequestEr
             Err(e)
         }
     }
-}
-
-/// `sheet.change_agent_dialog` (Change agent…, on a card or a hold's callout): the dialog for the stage that waits for
-/// its tool, offering the agents whose tool has its skill and can run now; `None` when no stage waits (it started
-/// meanwhile). The pick is a `sheet.set_choice`: the service starts the waiting stage on it.
-pub async fn change_agent_dialog(
-    app: &App,
-    params: ChangeAgentParams,
-) -> Result<Option<otaq_view::view_models::stage_choices::ChangeAgentDialog>, RequestError> {
-    let Some(choices) = super::editor::stage_choices_of(app, Some(&params.key), None).await else {
-        return Err(RequestError::plain(format!(
-            "{}\u{2019}s stage choices can\u{2019}t be read",
-            params.key
-        )));
-    };
-    let tools = super::editor::agent_tools(app).await;
-    Ok(otaq_view::view_models::stage_choices::change_agent_dialog(
-        &choices,
-        params.stage.as_deref(),
-        &tools,
-    ))
 }
 
 /// What `sheet.reopen_parent` and `sheet.remove_dependency` take.
@@ -2451,7 +2411,7 @@ mod tests {
             let mut s = agent(SessionState::Running);
             s.kind = kind;
             s.agent = Some(SessionAgent {
-                id: name.to_lowercase(),
+                runs_for: name.to_lowercase(),
                 name: name.into(),
             });
             s
@@ -2493,8 +2453,7 @@ mod tests {
         assert!(view.permission_prompt.is_none());
     }
 
-    /// A check held before its checker started says it waits ("Validate waits for Codex checker", as Change agent…
-    /// says it), not "Validating · round 1 of 1", and offers no checker's terminal: there is no session to open.
+    /// A check held before its checker started says it waits ("Validate waits for Codex"), not "Validating · round 1 of 1", and offers no checker's terminal: there is no session to open.
     /// Once a checker runs, both are back.
     #[test]
     fn a_held_check_waits_and_has_no_terminal_to_open() {
@@ -2502,7 +2461,6 @@ mod tests {
         use otaq_core::agents::facts::{PathKind, PathStage};
         use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
         use otaq_core::domain::{Place, ValidationRound};
-        use otaq_view::view_models::agents::fixtures::agent as named_agent;
         let mut checking = fixture("SHOP-19", "Price table", Status::Checking);
         checking.place = Place::of(Status::Checking, Some("validate"), None);
         checking.flags.validating_round = Some(ValidationRound { round: 1, of: 1 });
@@ -2510,7 +2468,6 @@ mod tests {
         let held = TicketAgents {
             key: Some(checking.key.clone()),
             status: Some(Status::Checking),
-            agents: vec![named_agent("cx", "Codex checker", None)],
             stages: Vec::new(),
             sessions: Vec::new(),
             tokens: Vec::new(),
@@ -2522,7 +2479,6 @@ mod tests {
                 reason: HoldReason::MissingSkill,
                 tool: Tool::Codex,
                 model: None,
-                agent_id: Some("cx".into()),
                 skill: Some("team-validate".into()),
                 since: 1,
             }],
@@ -2533,14 +2489,14 @@ mod tests {
                 kind: PathKind::AgentCheck,
                 rounds: Some(1),
                 delivery: None,
-                agent: None,
+                who: None,
                 skipped: false,
             }],
             runs: Vec::new(),
             choices: Vec::new(),
         };
         let view = view_of(&Facts { agents: Some(&held), ..facts(&checking, &all, &[]) });
-        assert_eq!(view.pill.label, "Validate waits for Codex checker");
+        assert_eq!(view.pill.label, "Validate waits for Codex");
         assert!(!labels(&view).contains(&"Open terminal \u{b7} Checker"), "{:?}", labels(&view));
 
         // Running: the round and the checker's terminal.
@@ -3021,7 +2977,7 @@ mod tests {
                 id: "v1".into(),
                 kind: SessionKind::Validator,
                 agent: Some(otaq_core::session::SessionAgent {
-                    id: "validator".into(),
+                    runs_for: "validator".into(),
                     name: "Validator".into(),
                 }),
                 ..agent(SessionState::Running)
@@ -3087,33 +3043,33 @@ mod tests {
     }
 
     /// T-0345 (AGT-05), d0108 second gap review rule 7: a refused model's callout above the bar, in place of the
-    /// start callout, with Open agent… first; No result's too.
+    /// start callout, with Edit flow… first (UX-65); No result's too.
     #[test]
-    fn a_refused_model_has_its_callout_and_open_agent() {
+    fn a_refused_model_has_its_callout_and_edit_flow() {
         use otaq_view::view_models::card_fixtures::agent_variants;
         let fixture = |name: &str| agent_variants().into_iter().find(|v| v.name == name).unwrap().ticket;
         let t = fixture("Start failed on the model");
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
-        assert_eq!(labels(&view), ["Open agent\u{2026}", "Retry start"]);
+        assert_eq!(labels(&view), ["Edit flow\u{2026}", "Retry start"]);
         assert_eq!(view.start_problem, None);
         let r = view.refusal.unwrap();
         assert_eq!(r.heading, "Claude Code couldn\u{2019}t run the model", "no sessions in these facts");
         assert!(r.message.starts_with('\u{201c}') && r.error);
         let t = fixture("No result \u{b7} the checker\u{2019}s model");
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
-        assert_eq!(labels(&view), ["Open agent\u{2026}", "Retry validation"], "Validate not skippable");
+        assert_eq!(labels(&view), ["Edit flow\u{2026}", "Retry validation"], "Validate not skippable");
         let view = view_of(&Facts {
             skippable_check: true,
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
         assert_eq!(
             labels(&view),
-            ["Open agent\u{2026}", "Retry validation", "Move on anyway"]
+            ["Edit flow\u{2026}", "Retry validation", "Move on anyway"]
         );
         assert!(!view.refusal.unwrap().error, "turquoise, not red");
     }
 
-    /// AGM-03 (`s03-54`): no callout mid-flow; a held session's callout with Open agent…, which opens the held agent.
+    /// AGM-03 (`s03-54`): no callout mid-flow; a held session's callout with Edit flow…, which opens the held stage.
     #[test]
     fn the_panel_shows_the_holds() {
         use otaq_core::agent_tools::Tool;
@@ -3128,7 +3084,7 @@ mod tests {
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
         assert!(view.holds.is_empty());
-        assert_eq!(view.open_agent, None);
+        assert_eq!(view.edit_flow_stage, None);
         let mut held = shop_29();
         held.runs.clear();
         held.holds = vec![AgentHold {
@@ -3139,7 +3095,6 @@ mod tests {
             reason: HoldReason::ToolUnavailable,
             tool: Tool::Claude,
             model: Some("sonnet".into()),
-            agent_id: Some("spec-writer".into()),
             skill: None,
             since: 0,
         }];
@@ -3150,8 +3105,8 @@ mod tests {
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
         let labels: Vec<&str> = view.holds[0].buttons.iter().map(|b| b.label.as_str()).collect();
-        assert_eq!(labels, ["Open agent\u{2026}", "Change agent\u{2026}"]);
-        assert_eq!(view.open_agent.as_deref(), Some("spec-writer"));
+        assert_eq!(labels, ["Edit flow\u{2026}"]);
+        assert_eq!(view.edit_flow_stage.as_deref(), Some("dev"));
     }
 
     #[test]
@@ -3330,7 +3285,7 @@ mod tests {
         let mut session = agent(SessionState::Running);
         session.ticket = Some(t.key.clone());
         session.agent = Some(otaq_core::session::SessionAgent {
-            id: "dev".into(),
+            runs_for: "dev".into(),
             name: "Developer".into(),
         });
         let sessions = [session];

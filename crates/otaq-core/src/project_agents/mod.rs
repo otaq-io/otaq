@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent_tools::{
     Adapters, FirstPrompt, LaunchRequest, LaunchRole, Launched, PROJECT_AGENT_SKILL, Tool,
 };
-use crate::agents::{Agent, RunsOn, SessionRole, resolve};
+use crate::agents::{RunsOn, SessionRole, Who, resolve};
 use crate::board::questions::{Choice, HumanQuestion};
 use crate::board::tickets::{EventKind, Field, FieldChange};
 use crate::board::{Board, BoardError, Refusal};
@@ -383,18 +383,18 @@ impl ProjectAgents {
         let _ = self.inner.gate.set(gate);
     }
 
-    /// The check before a new session of `role` in `scope` on `agent`: what it runs on, or refused with why it is
+    /// The check before a new session of `role` in `scope` as `agent`: what it runs on, or refused with why it is
     /// held (the hold is written).
     async fn checked(
         &self,
         role: SessionRole,
         scope: crate::agents::gate::Scope<'_>,
-        agent: &Agent,
+        agent: &Who,
     ) -> Result<RunsOn, BoardError> {
         use crate::agents::gate::Gated;
         let Some(gate) = self.inner.gate.get() else {
             let default = self.inner.board.store().default_model().await?;
-            return Ok(RunsOn::agent(agent, default.as_ref()));
+            return Ok(RunsOn::who(agent, default.as_ref()));
         };
         match gate.before_launch(role, scope, agent).await? {
             Gated::Launch(runs_on) => Ok(runs_on),
@@ -440,27 +440,30 @@ impl ProjectAgents {
         self.open_on(project, message, None).await
     }
 
-    /// [`Self::open`] on the agent `agent` instead of the agent Noyan uses: the agent the user picked when starting
-    /// this conversation.
+    /// [`Self::open`] on `pick` instead of "Noyan starts on": the model and effort the user picked for this
+    /// conversation before its first message (UX-70).
     pub async fn open_on(
         &self,
         project: &str,
         message: &str,
-        agent: Option<&str>,
+        pick: Option<&crate::agents::NoyanStartsOn>,
     ) -> Result<ProjectAgent, BoardError> {
         let project = self.inner.board.project(project).await?;
         let message = message.trim();
         if message.is_empty() {
             return Err(BoardError::refused(Refusal::EmptyField, EMPTY_MESSAGE));
         }
-        // The agent the user picked for this conversation, else the agent Noyan uses (AGM-05).
+        // The model the user picked for this conversation, else "Noyan starts on" (AGM-05, UX-70).
         let store = self.inner.board.store();
-        let agent = match agent {
-            Some(id) => store
-                .agent(id)
-                .await?
-                .ok_or_else(|| BoardError::NotFound(format!("no agent {id}")))?,
-            None => resolve::noyan_agent(store).await?,
+        let agent = match pick {
+            Some(pick) => {
+                if let Some(model) = pick.model.as_deref() {
+                    crate::agents::AgentModel::parse(model)
+                        .map_err(|e| BoardError::refused(Refusal::ModelNotListed, e))?;
+                }
+                pick.who()
+            }
+            None => resolve::noyan_who(store).await?,
         };
         let runs_on = self
             .checked(
@@ -505,16 +508,15 @@ impl ProjectAgents {
             },
         )?;
         sqlx::query(
-            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_name, effort,
                                          state, first_request, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
         .bind(launched.tool.as_str())
         .bind(&launched.tool_session_id)
         .bind(&launched.model)
-        .bind(runs_on.agent.as_ref().map(|a| &a.id))
         .bind(runs_on.agent.as_ref().map(|a| &a.name))
         .bind(&runs_on.effort)
         .bind(AgentState::Running.as_str())
@@ -573,20 +575,23 @@ impl ProjectAgents {
         self.get(id).await
     }
 
-    /// What an ended agent's Resume runs on (ADP-04, d0088): the tool, model, effort and agent its row stored at its
-    /// start, whatever the agent is set to now.
+    /// What an ended conversation's Resume runs on (ADP-04, d0088): the tool, model and effort its row stored at its
+    /// start, whatever "Noyan starts on" is now.
     async fn runs_on(&self, agent: &ProjectAgent) -> Result<RunsOn, BoardError> {
-        let stored: Option<(Option<String>, Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT agent_id, agent_name, effort FROM project_agents WHERE id = ?")
+        let stored: Option<(Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT agent_name, effort FROM project_agents WHERE id = ?")
                 .bind(&agent.id)
                 .fetch_optional(self.inner.board.store().pool())
                 .await?;
-        let (id, name, effort) = stored.unwrap_or_default();
+        let (name, effort) = stored.unwrap_or_default();
         Ok(RunsOn {
             tool: Some(agent.tool),
             model: agent.model.clone(),
             effort,
-            agent: id.zip(name).map(|(id, name)| SessionAgent { id, name }),
+            agent: Some(SessionAgent {
+                runs_for: crate::agents::About::Noyan.scope(),
+                name: name.unwrap_or_else(|| agent.tool.display_name().to_owned()),
+            }),
         })
     }
 

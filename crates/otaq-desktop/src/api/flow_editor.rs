@@ -1,6 +1,6 @@
 //! `flow_editor.*`: the requests Edit flow on the board (`flow_board.*`, `otaq-view`'s `flow_board.rs`) sends for the
 //! project's draft (`flow.draft`, T-0470). **Every one of the user's edits goes through `flow.draft_update`**:
-//! `flow_editor.edit` (a stage's name, kind, agent, options, a move, a ready stage added or a stage removed: the whole
+//! `flow_editor.edit` (a stage's name, kind, options, a move, a ready stage added or a stage removed: the whole
 //! document), `flow_editor.pick` (Start from) and `flow_editor.import` (a file). `flow_editor.apply` and
 //! `flow_editor.cancel` are Save flow and Cancel.
 //!
@@ -11,11 +11,9 @@
 //! `flow_editor.stop_writing` is Stop (it interrupts the agent's turn), `flow_editor.undo_skill` the written skill's
 //! Undo (its folder goes only while it is uncommitted and unchanged, else the field just clears) and
 //! `flow_editor.open_skill` its Open (its folder in the project's checkout, in the file manager).
-//!
-//! Problems that need a pick (Q426): `flow_board.view` takes the page's picks (`choices`) and `flow_editor.apply`
-//! sends them with the draft (`flow.apply`'s `ApplyChoices`, as FLW-04's preview did).
 
-use otaq_core::agents::Agent;
+
+use otaq_core::agents::NoyanStartsOn;
 use otaq_core::flow::apply::{ApplyParams, ProposeFrom};
 use otaq_core::flow::draft::{Draft, DraftEdit, DraftUpdateParams};
 use otaq_core::flow::model::FlowFile;
@@ -24,7 +22,7 @@ use otaq_core::flow::yaml;
 use otaq_core::project_agents::{AgentState, FLOW_COMMAND};
 use otaq_core::protocol::{InputParams, ProjectParams, Reply, Request, encode_bytes};
 use otaq_core::skills::found::{self, FoundSkill, Homes};
-use otaq_view::view_models::flow_editor::{self as vm, Choices, Pick, StageEdit};
+use otaq_view::view_models::flow_editor::{self as vm, Pick, StageEdit};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -99,7 +97,7 @@ pub struct ImportParams {
     pub path: String,
 }
 
-/// Save flow and Cancel: the project, the draft Save applies and the picks it sends (the view's `choices`).
+/// Save flow and Cancel: the project and the draft Save applies.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowEditorProjectFrom")]
 pub struct ProjectFrom {
@@ -107,9 +105,6 @@ pub struct ProjectFrom {
     #[serde(default)]
     #[ts(optional)]
     pub proposal: Option<u32>,
-    #[serde(default)]
-    #[ts(optional)]
-    pub choices: Option<Choices>,
 }
 
 /// The Skill field's buttons on a stage: Stop, Undo, Open.
@@ -215,17 +210,31 @@ async fn skills(app: &App, project: &str) -> Vec<FoundSkill> {
     }
 }
 
+/// The amber marks on the project's models (`flow.model_marks`, AGT-05): none when the service can't say.
+async fn model_marks(app: &App, project: &str) -> Vec<otaq_core::agents::ModelMark> {
+    let marks = app
+        .service
+        .send(Request::FlowModelMarks(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await;
+    match marks {
+        Ok(Reply::ModelMarks(marks)) => marks,
+        _ => Vec::new(),
+    }
+}
+
 /// Everything the board's editor reads for a project, owned.
 pub(super) struct Gathered {
     pub draft: Draft,
     pub file: FlowFile,
     pub in_use: FlowFile,
     pub project_name: String,
-    pub stored: Vec<Agent>,
     pub tools: otaq_view::view_models::tool_problems::Tools,
     pub skills: Vec<FoundSkill>,
+    pub model_marks: Vec<otaq_core::agents::ModelMark>,
     pub open: Vec<otaq_core::project_agents::ProjectAgent>,
-    pub new_agent: Option<Agent>,
+    pub new_agent: Option<NoyanStartsOn>,
 }
 
 pub(super) async fn gather(app: &App, project: &str) -> Result<Gathered, RequestError> {
@@ -237,9 +246,9 @@ pub(super) async fn gather(app: &App, project: &str) -> Result<Gathered, Request
         file,
         in_use: in_use(app, project).await,
         project_name: project_name(app, project).await,
-        stored: super::settings::agent_list(app).await?.agents,
         tools: super::agent_panel::tools(app).await,
         skills: skills(app, project).await,
+        model_marks: model_marks(app, project).await,
         open: super::agent_panel::agents(app, project).await?.open,
         new_agent: super::agent_panel::project_agent(app).await?,
     })
@@ -251,18 +260,17 @@ impl Gathered {
         project: &'a str,
         selected: Option<&'a str>,
         agent: Option<&str>,
-        choices: &'a Choices,
     ) -> vm::Facts<'a> {
         vm::Facts {
             project,
             project_name: &self.project_name,
             proposal: &self.draft.proposal,
             marks: &self.draft.marks,
+            model_marks: &self.model_marks,
             swap: self.draft.swap,
             applies: &self.draft.applies,
             file: &self.file,
             in_use: &self.in_use,
-            stored: &self.stored,
             tools: &self.tools,
             skills: &self.skills,
             writing: &self.draft.writing,
@@ -277,7 +285,6 @@ impl Gathered {
                 })
                 .and_then(|id| self.open.iter().find(|a| a.id == id)),
             new_agent: self.new_agent.as_ref(),
-            choices,
         }
     }
 }
@@ -287,8 +294,7 @@ async fn edit(app: &App, params: EditParams) -> Result<Edited, RequestError> {
     let draft = draft(app, &params.project).await?;
     let file = yaml::read(&draft.proposal.yaml)
         .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
-    let stored = super::settings::agent_list(app).await?.agents;
-    let (file, selected) = vm::edited(&file, &params.edit, &stored).map_err(|why| {
+    let (file, selected) = vm::edited(&file, &params.edit).map_err(|why| {
         let e = RequestError::plain(why);
         toast_error(app, "The flow didn\u{2019}t change", &e);
         e
@@ -338,7 +344,7 @@ async fn apply(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
     let request = Request::FlowApply(ApplyParams {
         project: params.project,
         proposal,
-        choices: params.choices.unwrap_or_default().apply_choices(),
+        choices: vm::apply_choices(),
     });
     match app.service.send(request).await {
         Ok(Reply::FlowApplied(_)) => Ok(()),
@@ -417,7 +423,7 @@ async fn write_skill(app: &App, params: WriteParams) -> Result<Started, RequestE
         super::agent_panel::SendParams {
             project: params.project.clone(),
             message: flow_message(&params.text),
-            agent: None,
+            on: None,
         },
     )
     .await?;
@@ -562,7 +568,6 @@ mod tests {
                 project: "SHOP".into(),
                 selected: selected.map(str::to_owned),
                 agent: None,
-                choices: None,
             },
         )
         .await
@@ -654,8 +659,9 @@ mod tests {
         assert_eq!(names(&v)[1], "Product spec", "in use");
     }
 
-    /// T-0529 (d0131): another agent for Validate (a check has one) and Code review's fails sent to Product spec go
-    /// through the draft, apply, and read back from the flow in use.
+    /// T-0529 (d0131): Code review's fails sent to Product spec go through the draft, apply, and read back from the
+    /// flow in use. Who does it (UX-65, UX-67): Codex · gpt-5.5 · medium and an instruction picked on Validate are
+    /// written on that stage of the flow file; Codex isn't set up here, so Validate is marked and still saves (A-4).
     #[tokio::test(flavor = "multi_thread")]
     async fn a_check_agent_and_fails_go_to_apply() {
         let h = Harness::new(None);
@@ -679,8 +685,10 @@ mod tests {
         apply(load(&h, None).await.proposal).await.unwrap();
 
         for edit in [
-            json!({ "edit": "agent", "stage": "validate", "agent": "Developer" }),
             json!({ "edit": "fail_to", "stage": "code-review", "to": "product-spec" }),
+            json!({ "edit": "model", "stage": "validate", "model": "codex:gpt-5.5" }),
+            json!({ "edit": "effort", "stage": "validate", "effort": "medium" }),
+            json!({ "edit": "instructions", "stage": "validate", "instructions": "Run the tests the ticket touches first." }),
         ] {
             request(
                 &h.app,
@@ -697,7 +705,7 @@ mod tests {
         let v = load(&h, Some("validate")).await;
         assert_eq!(v.proposal, 0, "applied");
         let column = |name: &str| v.columns.iter().find(|c| c.name == name).unwrap();
-        assert_eq!(column("Validate").who.as_deref(), Some("Developer"));
+        assert!(column("Validate").who.is_some());
         assert!(
             column("Code review")
                 .check_line
@@ -706,8 +714,23 @@ mod tests {
             "{:?}",
             column("Code review").check_line
         );
-        let agent = v.details.unwrap().agent.unwrap();
-        assert_eq!(agent.name, "Developer");
+        let who = v.details.unwrap().who.unwrap();
+        assert_eq!(who.picker.value.text, "Codex \u{b7} gpt-5.5");
+        assert_eq!(who.instructions, "Run the tests the ticket touches first.");
+        assert!(
+            who.picker.not_set_up.is_some() == column("Validate").who_off.is_some(),
+            "the tile and the panel agree on the mark"
+        );
+        let file = in_use(&h.app, "SHOP").await;
+        let validate = &file.flow.stage("validate").unwrap().who;
+        assert_eq!(validate.model.as_deref(), Some("codex:gpt-5.5"));
+        assert_eq!(validate.effort.as_deref(), Some("medium"));
+        assert_eq!(
+            validate.instructions.as_deref(),
+            Some("Run the tests the ticket touches first.")
+        );
+        let yaml = otaq_core::flow::yaml::write(&file);
+        assert!(yaml.contains("model: codex:gpt-5.5") && yaml.contains("effort: medium"), "{yaml}");
     }
 
     /// A Blank stage with no skill saves: Otaq's own skill for the stage runs; a skill typed for it is kept, and it
@@ -955,10 +978,10 @@ mod tests {
         std::fs::write(
             &file,
             "agents:\n  - name: Security reviewer\n    skills: [team-security-review]\n    model: default\nflow:\n  - \
-             name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - name: Security\n    \
+             name: Dev\n    kind: agent\n    model: claude\n    skill: work-ticket\n  - name: Security\n    \
              kind: check\n    by: agent\n    agents: [Security reviewer]\n    skill: team-security-review\n    rounds: 2\n  \
              - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    column: \
-             with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n",
+             with-previous\n    model: claude\n    mode: click\n    delivers: either\n",
         )
         .unwrap();
         request(
@@ -989,15 +1012,10 @@ mod tests {
         request(
             &h.app,
             "flow_editor.apply",
-            json!({ "project": "SHOP", "proposal": v.proposal, "choices": v.choices }),
+            json!({ "project": "SHOP", "proposal": v.proposal }),
         )
         .await
         .unwrap();
-        let agents = super::super::settings::agent_list(&h.app)
-            .await
-            .unwrap()
-            .agents;
-        assert!(agents.iter().any(|a| a.name == "Security reviewer"));
     }
 
     /// A flow file naming a tool's built-in command as a stage's skill opens with the problem on that stage (not a
@@ -1012,10 +1030,10 @@ mod tests {
         let file = dir.path().join("team.yaml");
         std::fs::write(
             &file,
-            "flow:\n  - name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - name: \
-             Security\n    kind: check\n    by: agent\n    agent: Developer\n    skill: security-review\n    \
+            "flow:\n  - name: Dev\n    kind: agent\n    model: claude\n    skill: work-ticket\n  - name: \
+             Security\n    kind: check\n    by: agent\n    model: claude\n    skill: security-review\n    \
              rounds: 2\n  - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    \
-             column: with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n",
+             column: with-previous\n    model: claude\n    mode: click\n    delivers: either\n",
         )
         .unwrap();
         request(

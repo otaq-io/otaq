@@ -10,7 +10,7 @@ export type TicketSendBackPrView = {
  */
 title: string, 
 /**
- * "The comments on PR #481 go to Dev (Rust developer) with the ticket."
+ * "The comments on PR #481 go to Dev with the ticket."
  */
 text: string, 
 /**

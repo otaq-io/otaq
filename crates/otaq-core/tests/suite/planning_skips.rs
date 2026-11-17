@@ -39,21 +39,21 @@ flow:
     name: Product spec
     kind: agent
     column: own
-    agent: Spec writer
+    model: claude
     skill: product-spec
     options: [skip]
   - id: tech-spec
     name: Tech spec
     kind: agent
     column: own
-    agent: Architect
+    model: claude
     skill: tech-spec
     options: [skip]
   - id: milestone-plan
     name: Milestone plan
     kind: agent
     column: own
-    agent: Milestone planner
+    model: claude
     skill: milestone-plan
     options: [skip]
   - id: spec-review
@@ -67,14 +67,14 @@ flow:
     name: Dev
     kind: agent
     column: own
-    agent: Developer
+    model: claude
     skill: work-ticket
   - id: validate
     name: Validate
     kind: check
     by: agent
     column: own
-    agent: Validator
+    model: claude
     skill: validate
     rounds: 3
     fail_to: Dev
@@ -88,7 +88,7 @@ flow:
     name: Done
     kind: delivery
     column: with-previous
-    agent: Developer
+    model: claude
     skill: open-pr
     mode: click
     delivers: either
@@ -335,7 +335,7 @@ async fn skipping_every_planning_stage_waits_in_spec_review() {
 
 /// "required" is a human check's choice: `Spec review=required` with every planning stage skipped is taken and
 /// skips nothing more (the check happens, as the flow says); "you" is no choice and is refused, nothing written; on an
-/// Agent stage "required" is refused too (its usual choice is its agent). A `usual` row on the check (a "required"
+/// Agent stage "required" is its usual choice too. A `usual` row on the check (a "required"
 /// stored) changes nothing, and the check can still be skipped.
 #[tokio::test(flavor = "multi_thread")]
 async fn required_keeps_the_check_and_you_is_not_a_choice() {
@@ -347,18 +347,19 @@ async fn required_keeps_the_check_and_you_is_not_a_choice() {
     assert_eq!(refused.refusal(), Some(Refusal::NotAnOption));
     assert_eq!(
         refused.to_string(),
-        "Spec review runs no agent: its choices are required (you check it) and skip"
+        "you isn't one of Spec review's choices: required, skip"
     );
     assert!(skips(&w, &t).await.is_empty());
-    let refused = choose(
+    // On an Agent stage "required" is its usual choice too (UX-72: no model to pick): taken, nothing skipped.
+    choose(
         &w,
         &t,
         &[pick("Product spec", "required", None)],
         &Chooser::User,
     )
     .await
-    .unwrap_err();
-    assert_eq!(refused.refusal(), Some(Refusal::NotAnOption));
+    .unwrap();
+    assert!(skips(&w, &t).await.is_empty());
     let mut picks = skip_planning();
     picks.push(pick("Spec review", "required", None));
     choose(&w, &t, &picks, &Chooser::User).await.unwrap();

@@ -7,7 +7,7 @@ import type { ToolProblemAction } from "./ToolProblemAction";
  */
 export type LimitLineButton = { label: string, icon: IconName, 
 /**
- * `resume_tool` → `limits.resume_tool { tool }`; `sign_in` → `agent_tools.sign_in`; `show_in_agent_tools` →
- * Settings → Agent tools.
+ * `resume_tool` → `limits.resume_tool { tool }`; `sign_in` → `agent_tools.sign_in`; `show_in_tools` →
+ * Settings → Tools.
  */
 action: ToolProblemAction, enabled: boolean, primary: boolean, };

@@ -4,8 +4,6 @@
 // user's words (Q441); nothing starts before they send. The picks a problem needs (Q426) stay on the page until Save
 // sends them. What the editor says and every rule are Rust's (`flow_board.view`).
 import { createStore, type Store } from "../../app/store";
-import type { FlowEditorChoices } from "../../generated/FlowEditorChoices";
-import type { FlowEditorClashPick } from "../../generated/FlowEditorClashPick";
 import type { FlowEditorEdited } from "../../generated/FlowEditorEdited";
 import type { FlowEditorPick } from "../../generated/FlowEditorPick";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
@@ -44,18 +42,6 @@ export function pickEntry(project: string, pick: FlowEditorPick, ask: Ask = requ
   return ask("flow_editor.pick", { project, pick });
 }
 
-/** No picks yet. */
-export const NO_CHOICES: FlowEditorChoices = { clashes: {}, models: {} };
-
-/** An import clash picked: Keep mine, Take theirs or Add as. */
-export function withClash(
-  choices: FlowEditorChoices,
-  agent: string,
-  pick: FlowEditorClashPick,
-): FlowEditorChoices {
-  return { ...choices, clashes: { ...choices.clashes, [agent]: pick } };
-}
-
 /**
  * Pick a skill…'s item for a name typed by hand: "Use `<typed text>`" (`template`'s `{name}` is the text), its id the
  * text. None for an empty search.
@@ -75,20 +61,6 @@ export function typedItem(template: string, text: string): MenuItem | null {
     checked: false,
     header: false,
   };
-}
-
-/**
- * A local model picked for an agent: the default model (`default`), a tool (`claude`, its default model) or one of
- * its models (`claude:opus`).
- */
-export function withModel(
-  choices: FlowEditorChoices,
-  agent: string,
-  tool: string,
-  model: string | null = null,
-): FlowEditorChoices {
-  const value = tool === "default" || model === null ? tool : `${tool}:${model}`;
-  return { ...choices, models: { ...choices.models, [agent]: value } };
 }
 
 /** The words on their way, by project: a second Return while one is sending starts nothing. */

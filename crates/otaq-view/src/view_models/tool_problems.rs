@@ -6,8 +6,8 @@
 //! - **The tools** ([`Tools`]): which are connected, each one's state and active limit, and each one's cached model
 //!   list. With one tool connected every screen reads as M22: no tool names, no avatars ([`Tools::several`]).
 //! - **A hold** ([`hold_callout`]): a role that would start but waits for its tool or its model (SCH-04 `[M23]`):
-//!   "Codex isn't available · logged out" with Open agent… and Sign in…; "Claude Code limit reached · resets 3:45
-//!   pm"; "Model unavailable" with Open agent…. It waits for its own tool: nothing moves to another one.
+//!   "Codex isn't available · logged out" with Edit flow… and Sign in…; "Claude Code limit reached · resets 3:45
+//!   pm"; "Model unavailable" with Edit flow…. It waits for its own tool: nothing moves to another one.
 //! - **A running or ended agent** whose tool isn't available or is at its limit ([`agent_notice`]):
 //!   it waits, since a conversation never moves tools; the agent panel offers Sign in… (or Resume after reset), and
 //!   never another agent in its place.
@@ -17,7 +17,7 @@
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::connected::{AgentToolState, NotAvailable, ToolStatus};
 use otaq_core::agent_tools::models::ModelList;
-use otaq_core::agents::{Agent, AgentHold, HoldReason, ModelRef, SessionRole};
+use otaq_core::agents::{AgentHold, HoldReason, ModelRef, SessionRole};
 use otaq_core::usage::plan::ActiveLimit;
 use serde::Serialize;
 use ts_rs::TS;
@@ -87,11 +87,6 @@ impl Tools {
 
     pub fn status(&self, tool: Tool) -> Option<&ToolStatus> {
         self.statuses.iter().find(|s| s.tool == tool)
-    }
-
-    /// The tool `agent` runs on now: its own, or the default model's.
-    pub fn tool_of(&self, agent: &Agent) -> Option<Tool> {
-        agent.model.on(self.default_model.as_ref()).map(|m| m.tool)
     }
 
     /// The avatar of `tool`, only with several tools connected (SHL-08).
@@ -172,24 +167,16 @@ pub fn limit_text(tool: Tool, resets_at: Option<i64>, now: i64) -> String {
 pub enum Action {
     /// `agent_tools.sign_in { tool }`: the tool's own login in a terminal (`tool` as stored, `codex`).
     SignIn { tool: String },
-    /// Settings → Agent tools, for a tool hidden there (Q-E).
-    ShowInAgentTools,
+    /// Settings → Tools, for a tool hidden there (Q-E).
+    ShowInTools,
     /// `limits.resume_tool { tool }`.
     ResumeTool { tool: String },
-    /// Open agent…: Settings → Agents on `agent`'s page (AGM-03, d0108 second gap review rule 7; replaces Change
-    /// agent, Q280); the list when the agent isn't known.
-    OpenAgent { agent: Option<String> },
-    /// Change agent…: the ticket's dialog that picks another agent for the waiting stage, one whose tool has the
-    /// stage's skill and can run now (`sheet.change_agent_dialog`, then `sheet.set_choice`).
-    ChangeAgent,
+    /// Edit flow…: the project's flow editor, on the stage whose model can't run (`stage`, its id; Done when it is
+    /// the delivery's, the board when it isn't known): a stage says who does it (UX-65).
+    EditFlow { stage: Option<String> },
     /// Check again on a stage held because its tool doesn't have the stage's skill: Otaq's finder is asked again and
     /// the stage starts if the skill is found (`ticket.check_again`).
     CheckAgain,
-    /// Settings → Agents at the project's Project agent default, `agent` (Q-O).
-    AgentSettings {
-        project: String,
-        agent: Option<String>,
-    },
 }
 
 /// A button. `ToolProblemButton` on the page.
@@ -230,30 +217,20 @@ pub struct Callout {
     pub buttons: Vec<Button>,
 }
 
-pub const OPEN_AGENT: &str = "Open agent\u{2026}";
-pub const CHANGE_AGENT: &str = "Change agent\u{2026}";
+pub const EDIT_FLOW: &str = "Edit flow\u{2026}";
 pub const CHECK_AGAIN: &str = "Check again";
 pub const SIGN_IN: &str = "Sign in\u{2026}";
-pub const SHOW_IN_AGENT_TOOLS: &str = "Show in Agent tools";
+pub const SHOW_IN_TOOLS: &str = "Show in Tools";
 pub const MODEL_UNAVAILABLE: &str = "Model unavailable";
 pub const RESUME_AFTER_RESET: &str = "Resume after reset";
 
-/// Open agent… on `agent` (its id).
-fn open_agent(agent: Option<&str>) -> Button {
+/// Edit flow… on the stage `stage` (its id).
+fn edit_flow(stage: Option<&str>) -> Button {
     Button {
-        label: OPEN_AGENT.to_owned(),
-        action: Action::OpenAgent {
-            agent: agent.map(str::to_owned),
+        label: EDIT_FLOW.to_owned(),
+        action: Action::EditFlow {
+            stage: stage.map(str::to_owned),
         },
-        primary: false,
-    }
-}
-
-/// Change agent… on a ticket's waiting stage.
-fn change_agent() -> Button {
-    Button {
-        label: CHANGE_AGENT.to_owned(),
-        action: Action::ChangeAgent,
         primary: false,
     }
 }
@@ -268,21 +245,17 @@ fn sign_in(tool: Tool) -> Button {
     }
 }
 
-/// The buttons of a tool that isn't available: Sign in… where it applies, Show in Agent tools for a hidden one.
+/// The buttons of a tool that isn't available: Sign in… where it applies, Show in Tools for a hidden one.
 fn unavailable_buttons(tool: Tool, problem: Option<&Problem>) -> Vec<Button> {
     match problem {
         Some(Problem::Unavailable { sign_in: true, .. }) => vec![self::sign_in(tool)],
         Some(Problem::Unavailable { hidden: true, .. }) => vec![Button {
-            label: SHOW_IN_AGENT_TOOLS.to_owned(),
-            action: Action::ShowInAgentTools,
+            label: SHOW_IN_TOOLS.to_owned(),
+            action: Action::ShowInTools,
             primary: false,
         }],
         _ => Vec::new(),
     }
-}
-
-fn find<'a>(agents: &'a [Agent], id: Option<&str>) -> Option<&'a Agent> {
-    id.and_then(|id| agents.iter().find(|a| a.id == id))
 }
 
 /// The model as Settings shows it, for "Codex no longer lists gpt-5.4".
@@ -300,7 +273,7 @@ fn missing_skill_hint(tool: Tool, skill: &str) -> String {
     if otaq_core::tuq::is_tuq(skill) {
         return format!(
             "Nothing started. {} couldn\u{2019}t install or update tuq on {}, or no tuq release has this skill yet: \
-             the ticket\u{2019}s History says which. Check again tries again; or give the stage an agent whose tool \
+             the ticket\u{2019}s History says which. Check again tries again; or give the stage a model whose tool \
              has it.",
             otaq_core::naming::PRODUCT_NAME,
             tool_word(tool)
@@ -313,20 +286,19 @@ fn missing_skill_hint(tool: Tool, skill: &str) -> String {
     };
     format!(
         "Nothing started. Link the skill into {}\u{2019}s skills folder{saved} or commit it to the project \
-         (a ticket already started needs it on its own branch), then Check again; or give the stage an agent whose \
+         (a ticket already started needs it on its own branch), then Check again; or give the stage a model whose \
          tool has it.",
         tool_word(tool)
     )
 }
 
-/// The callout of a held role (§7.2, SCH-04 `[M23]`, AGT-08; *05 → Model unavailable (SHOP-49)*): `agents` is every
-/// agent (the held one). It waits for its own tool; Open agent… leads, and a ticket's waiting stage offers Change
-/// agent… (it hasn't started, so its agent can still change).
-pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callout {
+/// The callout of a held role (§7.2, SCH-04 `[M23]`, AGT-08; *05 → Model unavailable (SHOP-49)*), held at the stage
+/// `stage` (its id). It waits for its own tool; Edit flow… leads, on that stage (UX-65: the stage says who does it).
+pub fn hold_callout(hold: &AgentHold, stage: Option<&str>, tools: &Tools) -> Callout {
     let tool = hold.tool;
-    let name = find(agents, hold.agent_id.as_deref()).map_or("The agent", |a| a.name.as_str());
+    let name = "the stage";
     let problem = tools.problem(tool);
-    // A stage held for its skill: Check again leads, then Change agent… (only agents whose tool has the skill).
+    // A stage held for its skill: Check again leads, then Edit flow….
     if hold.reason == HoldReason::MissingSkill {
         let skill = hold.skill.as_deref().unwrap_or_default();
         return Callout {
@@ -342,14 +314,14 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
                     action: Action::CheckAgain,
                     primary: true,
                 }),
-                hold.ticket_id.is_some().then(change_agent),
+                hold.ticket_id.is_some().then(|| edit_flow(stage)),
             ]
             .into_iter()
             .flatten()
             .collect(),
         };
     }
-    let mut open = open_agent(hold.agent_id.as_deref());
+    let mut open = edit_flow(stage);
     open.primary = true;
     let mut buttons = vec![open];
     let (tone, heading, text) = match hold.reason {
@@ -359,8 +331,7 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
                 Tone::Amber,
                 MODEL_UNAVAILABLE.to_owned(),
                 Some(format!(
-                    "{} no longer lists {model}, the model of {name}. Give {name} another model in Settings \u{2192} \
-                     Agents.",
+                    "{} no longer lists {model}, the model of {name}. Give {name} another model in Edit flow.",
                     tool_word(tool),
                 )),
             )
@@ -375,7 +346,7 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
                 Tone::Amber,
                 heading,
                 Some(format!(
-                    "Nothing started and nothing is locked. {name} starts once {} is available again.",
+                    "Nothing started and nothing is locked. The stage starts once {} is available again.",
                     tool_word(tool)
                 )),
             )
@@ -390,15 +361,12 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
                 Tone::Neutral,
                 limit_text(tool, resets_at, tools.now),
                 Some(format!(
-                    "Nothing started and nothing is locked. {name} starts when you resume {} after its reset.",
+                    "Nothing started and nothing is locked. The stage starts when you resume {} after its reset.",
                     tool_word(tool)
                 )),
             )
         }
     };
-    if hold.ticket_id.is_some() {
-        buttons.push(change_agent());
-    }
     Callout {
         role: Some(hold.role.into()),
         tone,
@@ -410,13 +378,17 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
     }
 }
 
-/// Every held role's callout, in the order of the rows (Developer, Validator).
-pub fn hold_callouts(holds: &[AgentHold], agents: &[Agent], tools: &Tools) -> Vec<Callout> {
+/// Every held role's callout, in the order of the rows (Developer, Validator); `stage_of` the stage each is held at.
+pub fn hold_callouts(
+    holds: &[AgentHold],
+    stage_of: &dyn Fn(&AgentHold) -> Option<String>,
+    tools: &Tools,
+) -> Vec<Callout> {
     let mut holds: Vec<&AgentHold> = holds.iter().collect();
     holds.sort_by_key(|h| SessionRole::ALL.iter().position(|r| *r == h.role));
     holds
         .into_iter()
-        .map(|h| hold_callout(h, agents, tools))
+        .map(|h| hold_callout(h, stage_of(h).as_deref(), tools))
         .collect()
 }
 
@@ -514,16 +486,10 @@ pub fn stopped_callout(tool: Tool, error: &str, tools: &Tools) -> Callout {
     }
 }
 
-/// The empty agent panel's notice for a held first message (Q-O): Model unavailable opens Settings → Agents at the
-/// agent it would start on; a tool that can't run waits like a running conversation.
-pub fn first_message_notice(
-    hold: &AgentHold,
-    project: &str,
-    agents: &[Agent],
-    tools: &Tools,
-) -> Callout {
+/// The empty agent panel's notice for a held first message (Q-O): Model unavailable says to start a new conversation
+/// on another model; a tool that can't run waits like a running conversation.
+pub fn first_message_notice(hold: &AgentHold, tools: &Tools) -> Callout {
     let tool = hold.tool;
-    let name = find(agents, hold.agent_id.as_deref()).map_or("The agent", |a| a.name.as_str());
     if hold.reason == HoldReason::ModelUnavailable {
         let model = model_text(hold, tools);
         return Callout {
@@ -532,19 +498,12 @@ pub fn first_message_notice(
             avatar: tools.avatar(tool, hold.model.as_deref()),
             heading: MODEL_UNAVAILABLE.to_owned(),
             text: Some(format!(
-                "{} no longer lists {model}, the model of {name}. Your message is kept: it starts once you edit \
-                 {name} in Settings \u{2192} Agents.",
+                "{} no longer lists {model}, the model this conversation starts on. Start a new conversation on \
+                 another model.",
                 tool_word(tool)
             )),
             model: Some(model),
-            buttons: vec![Button {
-                label: OPEN_AGENT.to_owned(),
-                action: Action::AgentSettings {
-                    project: project.to_owned(),
-                    agent: hold.agent_id.clone(),
-                },
-                primary: true,
-            }],
+            buttons: Vec::new(),
         };
     }
     let mut notice = agent_notice(tool, tools).unwrap_or_else(|| Callout {
@@ -676,7 +635,6 @@ pub mod fixtures {
             reason,
             tool,
             model: model.map(str::to_owned),
-            agent_id: Some(agent.into()),
             skill: None,
             since: 0,
         }
@@ -689,17 +647,7 @@ mod tests {
 
     use super::fixtures::*;
     use super::*;
-    use crate::view_models::agents::fixtures::{agent, on};
-
-    fn agents() -> Vec<Agent> {
-        vec![
-            agent("strong", "Strong", Some("opus")),
-            on(CODEX, agent("standard", "Standard", None)),
-            agent("sonnet", "Sonnet", Some("sonnet")),
-            on(CODEX, agent("old-gpt", "Old GPT", Some("gpt-5.4"))),
-            on(COPILOT, agent("verifier", "Verifier", Some("gpt-5.5"))),
-        ]
-    }
+    const DEV: Option<&str> = Some("dev");
 
     fn labels(c: &Callout) -> Vec<&str> {
         c.buttons.iter().map(|b| b.label.as_str()).collect()
@@ -733,13 +681,13 @@ mod tests {
             None,
         );
         held.skill = Some("team-validate".into());
-        let c = hold_callout(&held, &agents(), &several());
+        let c = hold_callout(&held, DEV, &several());
         assert_eq!(
             c.heading,
             "Codex doesn\u{2019}t have the skill `$team-validate`"
         );
         assert_eq!(c.tone, Tone::Amber);
-        assert_eq!(labels(&c), [CHECK_AGAIN, CHANGE_AGENT]);
+        assert_eq!(labels(&c), [CHECK_AGAIN, EDIT_FLOW]);
         assert_eq!(c.buttons[0].action, Action::CheckAgain);
         assert!(c.buttons[0].primary);
         // Codex skips a SKILL.md with a byte order mark, so a skill already in its folder may still be missing.
@@ -748,16 +696,16 @@ mod tests {
             Some(
                 "Nothing started. Link the skill into Codex\u{2019}s skills folder (a SKILL.md saved without a byte \
                  order mark: Windows PowerShell 5 writes one) or commit it to the project (a ticket already started \
-                 needs it on its own branch), then Check again; or give the stage an agent whose tool has it."
+                 needs it on its own branch), then Check again; or give the stage a model whose tool has it."
             )
         );
         held.tool = CLAUDE;
-        let c = hold_callout(&held, &agents(), &several());
+        let c = hold_callout(&held, DEV, &several());
         assert_eq!(
             c.text.as_deref(),
             Some(
                 "Nothing started. Link the skill into Claude Code\u{2019}s skills folder or commit it to the project \
-                 (a ticket already started needs it on its own branch), then Check again; or give the stage an agent \
+                 (a ticket already started needs it on its own branch), then Check again; or give the stage a model \
                  whose tool has it."
             )
         );
@@ -776,29 +724,29 @@ mod tests {
             None,
         );
         held.skill = Some("tuq:product-spec".into());
-        let c = hold_callout(&held, &agents(), &several());
+        let c = hold_callout(&held, DEV, &several());
         assert_eq!(c.heading, "Your tuq doesn\u{2019}t have `tuq:product-spec`");
         assert_eq!(c.tone, Tone::Amber);
-        assert_eq!(labels(&c), [CHECK_AGAIN, CHANGE_AGENT]);
+        assert_eq!(labels(&c), [CHECK_AGAIN, EDIT_FLOW]);
         assert_eq!(
             c.text.unwrap(),
             format!(
                 "Nothing started. {} couldn\u{2019}t install or update tuq on Claude Code, or no tuq release has \
                  this skill yet: the ticket\u{2019}s History says which. Check again tries again; or give the stage \
-                 an agent whose tool has it.",
+                 a model whose tool has it.",
                 otaq_core::naming::PRODUCT_NAME
             )
         );
         // Codex: no byte order mark advice either, since nothing is linked.
         held.tool = CODEX;
-        let text = hold_callout(&held, &agents(), &several()).text.unwrap();
+        let text = hold_callout(&held, DEV, &several()).text.unwrap();
         assert!(text.contains("install or update tuq on Codex"), "{text}");
         assert!(!text.contains("Link the skill"), "{text}");
         assert!(!text.contains("byte order mark"), "{text}");
         // A user's skill named like tuq's but without its namespace keeps the user-skill advice.
         held.tool = CLAUDE;
         held.skill = Some("product-spec".into());
-        let text = hold_callout(&held, &agents(), &several()).text.unwrap();
+        let text = hold_callout(&held, DEV, &several()).text.unwrap();
         assert!(
             text.starts_with(
                 "Nothing started. Link the skill into Claude Code\u{2019}s skills folder"
@@ -819,22 +767,22 @@ mod tests {
             None,
         );
         held.skill = Some("retest-docs".into());
-        let c = hold_callout(&held, &agents(), &several());
+        let c = hold_callout(&held, DEV, &several());
         assert_eq!(
             c.heading,
             "Codex doesn\u{2019}t have the skill `$retest-docs`"
         );
         held.tool = CLAUDE;
-        let c = hold_callout(&held, &agents(), &several());
+        let c = hold_callout(&held, DEV, &several());
         assert_eq!(
             c.heading,
             "Claude Code doesn\u{2019}t have the skill `/retest-docs`"
         );
     }
 
-    /// *SHOP-49 · Model unavailable*: amber, the model on hover, Open agent… on the held agent's page, for any held session (d0108 second gap review rule 7).
+    /// *SHOP-49 · Model unavailable*: amber, the model on hover, Edit flow… on the held stage, for any held session (UX-65).
     #[test]
-    fn a_model_no_longer_listed_offers_open_agent() {
+    fn a_model_no_longer_listed_offers_edit_flow() {
         let hold = hold(
             SessionRole::Developer,
             HoldReason::ModelUnavailable,
@@ -842,7 +790,7 @@ mod tests {
             "old-gpt",
             Some("gpt-5.4"),
         );
-        let c = hold_callout(&hold, &agents(), &several());
+        let c = hold_callout(&hold, DEV, &several());
         assert_eq!(
             (c.tone, c.heading.as_str()),
             (Tone::Amber, "Model unavailable")
@@ -850,39 +798,32 @@ mod tests {
         assert_eq!(
             c.text.as_deref(),
             Some(
-                "Codex no longer lists gpt-5.4, the model of Old GPT. Give Old GPT another model in Settings \
-                 \u{2192} Agents."
+                "Codex no longer lists gpt-5.4, the model of the stage. Give the stage another model in Edit flow."
             )
         );
         assert_eq!(c.model.as_deref(), Some("gpt-5.4"));
-        // A ticket's waiting stage hasn't started: Change agent… picks another agent for it.
-        assert_eq!(c.buttons[1].action, Action::ChangeAgent);
-        assert_eq!(labels(&c), ["Open agent\u{2026}", "Change agent\u{2026}"]);
+        assert_eq!(labels(&c), [EDIT_FLOW]);
         assert!(c.buttons[0].primary);
         assert!(c.avatar.is_some());
         let validator = AgentHold {
             role: SessionRole::Validator,
             ..hold.clone()
         };
-        let c = hold_callout(&validator, &agents(), &several());
-        assert_eq!(labels(&c), ["Open agent\u{2026}", "Change agent\u{2026}"]);
+        let c = hold_callout(&validator, DEV, &several());
+        assert_eq!(labels(&c), [EDIT_FLOW]);
         assert_eq!(
             c.buttons[0].action,
-            Action::OpenAgent {
-                agent: Some("old-gpt".into())
+            Action::EditFlow {
+                stage: Some("dev".into())
             }
         );
         // One tool connected: no avatar.
-        assert!(
-            hold_callout(&hold, &agents(), &Tools::one(None))
-                .avatar
-                .is_none()
-        );
+        assert!(hold_callout(&hold, DEV, &Tools::one(None)).avatar.is_none());
     }
 
-    /// "Codex isn't available · logged out" · Open agent… · Sign in…: it waits for Codex, whatever other tool runs.
+    /// "Codex isn't available · logged out" · Edit flow… · Sign in…: it waits for Codex, whatever other tool runs.
     #[test]
-    fn a_tool_that_isnt_available_offers_open_agent_and_sign_in() {
+    fn a_tool_that_isnt_available_offers_edit_flow_and_sign_in() {
         let hold = hold(
             SessionRole::Developer,
             HoldReason::ToolUnavailable,
@@ -890,20 +831,13 @@ mod tests {
             "standard",
             None,
         );
-        let c = hold_callout(&hold, &agents(), &codex_logged_out());
+        let c = hold_callout(&hold, DEV, &codex_logged_out());
         assert_eq!(c.heading, "Codex isn\u{2019}t available \u{b7} signed out");
         assert_eq!(c.tone, Tone::Amber);
-        assert_eq!(
-            labels(&c),
-            [
-                "Open agent\u{2026}",
-                "Sign in\u{2026}",
-                "Change agent\u{2026}"
-            ]
-        );
+        assert_eq!(labels(&c), [EDIT_FLOW, "Sign in\u{2026}"]);
         assert_eq!(
             c.buttons.iter().map(|b| b.primary).collect::<Vec<_>>(),
-            [true, false, false]
+            [true, false]
         );
         assert_eq!(
             c.buttons[1].action,
@@ -914,28 +848,21 @@ mod tests {
         assert_eq!(
             c.text.as_deref(),
             Some(
-                "Nothing started and nothing is locked. Standard starts once Codex is available again."
+                "Nothing started and nothing is locked. The stage starts once Codex is available again."
             )
         );
-        // Hidden in Settings (Q-E): Show in Agent tools, no Sign in….
+        // Hidden in Settings (Q-E): Show in Tools, no Sign in….
         let mut hidden = several();
         hidden.statuses[1] = status(CODEX, AgentToolState::Hidden { version: None });
-        let c = hold_callout(&hold, &agents(), &hidden);
+        let c = hold_callout(&hold, DEV, &hidden);
         assert_eq!(
             c.heading,
             "Codex isn\u{2019}t available \u{b7} hidden in Settings"
         );
-        assert_eq!(
-            labels(&c),
-            [
-                "Open agent\u{2026}",
-                "Show in Agent tools",
-                "Change agent\u{2026}"
-            ]
-        );
+        assert_eq!(labels(&c), [EDIT_FLOW, "Show in Tools"]);
     }
 
-    /// A limit is neutral with its reset; it waits for its own tool, with Open agent….
+    /// A limit is neutral with its reset; it waits for its own tool, with Edit flow….
     #[test]
     fn a_limit_is_neutral_and_waits_for_its_tool() {
         let hold = hold(
@@ -945,16 +872,17 @@ mod tests {
             "strong",
             Some("opus"),
         );
-        let c = hold_callout(&hold, &agents(), &at_limit(CLAUDE, None));
+        let c = hold_callout(&hold, DEV, &at_limit(CLAUDE, None));
         assert_eq!(
             (c.tone, c.heading.as_str()),
             (Tone::Neutral, "Claude Code limit reached")
         );
-        assert_eq!(labels(&c), ["Open agent\u{2026}", "Change agent\u{2026}"]);
+        assert_eq!(labels(&c), [EDIT_FLOW]);
         assert_eq!(
             c.text.as_deref(),
             Some(
-                "Nothing started and nothing is locked. Strong starts when you resume Claude Code after its reset."
+                "Nothing started and nothing is locked. The stage starts when you resume Claude Code after its \
+                 reset."
             )
         );
     }
@@ -977,7 +905,7 @@ mod tests {
                 Some("gpt-5.4"),
             ),
         ];
-        let roles: Vec<_> = hold_callouts(&holds, &agents(), &several())
+        let roles: Vec<_> = hold_callouts(&holds, &|_| None, &several())
             .into_iter()
             .map(|c| c.role)
             .collect();
@@ -1053,18 +981,11 @@ mod tests {
         );
         h.ticket_id = None;
         h.project_id = Some("p".into());
-        let c = first_message_notice(&h, "SHOP", &agents(), &several());
+        let c = first_message_notice(&h, &several());
         assert_eq!(c.heading, "Model unavailable");
-        assert_eq!(labels(&c), ["Open agent\u{2026}"]);
-        assert_eq!(
-            c.buttons[0].action,
-            Action::AgentSettings {
-                project: "SHOP".into(),
-                agent: Some("standard".into())
-            }
-        );
+        assert!(labels(&c).is_empty());
         h.reason = HoldReason::ToolUnavailable;
-        let c = first_message_notice(&h, "SHOP", &agents(), &codex_logged_out());
+        let c = first_message_notice(&h, &codex_logged_out());
         assert_eq!(
             c.heading,
             "Codex isn\u{2019}t available \u{b7} signed out. Your message is kept: it starts after you sign in."

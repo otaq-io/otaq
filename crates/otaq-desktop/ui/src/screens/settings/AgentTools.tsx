@@ -1,13 +1,14 @@
-// Settings → Agent tools (T-0365; §20 Agent tools, SET-02, UI-08; d0086, d0085, d0077; *15* `bGHVl` / `ehz4J`): one
-// row per tool with its avatar, state pill and line, Sign in…, Show, How to install and the update command (copy
+// Settings → Tools (T-0365; §20 Agent tools, SET-02, UI-08; d0086, d0085, d0077; UX-65; *15* `bGHVl` /
+// `ehz4J`, canvas A-8): one row per tool with its avatar, state pill and line, Sign in…, Show, How to install and the update command (copy
 // only), "Otaq can see" and its chips, the quiet notes, what Otaq added and what stays, a setup that failed and the
 // tool's permission warning (both amber, never turquoise), and the … menu (Hide / Show, Re-check this tool,
 // Disconnect…, which asks first). Re-check under the list, with when it last checked. Opening the section rechecks
 // every tool (`agent_tools.view {recheck: true}`); the service's `agent_tools_changed` asks the page again. Sign in…
 // (`agent_tools.sign_in`) and Install (`agent_tools.install`, the How to install command, on the user's click) open
 // a short terminal under the row (`onboarding/RowTerminal.tsx`), and the row updates when it ends. The onboarding
-// Tools step draws the same rows in its compact form (`onboarding/Tools.tsx`). Every word is
-// `agent_tools_page.rs`'s; this keeps the open menu and dialogs.
+// Tools step draws the same rows in its compact form (`onboarding/Tools.tsx`). Under the rows, **Where they're used**,
+// read-only (Noyan among them, under the tool it starts on; "Noyan starts on" itself is Settings → Noyan's,
+// `NoyanSettings.tsx`). Every word is `agent_tools_page.rs`'s; this keeps the open menu and dialogs.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AnchoredMenu, Button, ConfirmDialog, Dialog, IconButton, ToolAvatar } from "../../components";
@@ -28,6 +29,7 @@ import { request } from "../../tauri";
 import { Terminal } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
 import type { ToolTerminalTexts } from "../../generated/ToolTerminalTexts";
+import type { ToolsUsed } from "../../generated/ToolsUsed";
 import { RowTerminal, type RowTerminals, useRowTerminals } from "../onboarding/RowTerminal";
 
 /** What a click on a row asks for. */
@@ -281,7 +283,7 @@ export function DetailLine({
   );
 }
 
-/** One tool's row on Settings → Agent tools. */
+/** One tool's row on Settings → Tools. */
 /** A row's Install / Sign in… terminal, when the page has one (not the gallery). */
 export interface AgentRowTerminal {
   texts: ToolTerminalTexts;
@@ -337,7 +339,7 @@ export function AgentToolRowView({
   terminal?: AgentRowTerminal;
 }) {
   return (
-    <li className="agent-tool-row" data-look={row.pill?.look}>
+    <li className="agent-tool-row" data-look={row.pill?.look} data-tool={row.tool}>
       <div className="agent-tool-line">
         <span className="agent-tool-avatar">
           <ToolAvatar avatar={row.avatar} />
@@ -398,6 +400,35 @@ export function AgentToolRowView({
   );
 }
 
+/** Where they're used (A-8), read-only: per tool, the projects' stages and Noyan on it. */
+function WhereUsed({ used }: { used: ToolsUsed }) {
+  return (
+    <div className="tools-used">
+      <h4 className="settings-section-title">{used.heading}</h4>
+      {used.rows.length > 0 && (
+        <ul className="agent-tool-rows tools-used-rows">
+          {used.rows.map((row) => (
+            <li key={row.tool} className="tools-used-row" data-tool={row.tool}>
+              <ToolAvatar avatar={row.avatar} />
+              <span className="tools-used-main">
+                <span className="agent-tool-name">{row.name}</span>
+                <span className="tools-used-places">{row.places}</span>
+                {row.off !== null && (
+                  <span className="tools-used-off">
+                    <Icon name="triangle-alert" size={12} />
+                    {row.off}
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="settings-intro tools-used-note">{used.note}</p>
+    </div>
+  );
+}
+
 /** The section as the view says, with the page's calls. */
 export function AgentToolsPageBody({
   page,
@@ -414,9 +445,10 @@ export function AgentToolsPageBody({
   terminals?: RowTerminals;
 }) {
   return (
-    <section className="settings-section agent-tools" data-section="agent_tools" aria-label={page.title}>
+    <section className="settings-section agent-tools" data-section="tools" aria-label={page.title}>
       <h3 className="settings-section-title">{page.title}</h3>
       <p className="settings-intro">{page.intro}</p>
+      <h4 className="settings-section-title">{page.rows_heading}</h4>
       {page.error !== null && (
         <p className="settings-error" role="alert">
           {page.error}
@@ -448,6 +480,7 @@ export function AgentToolsPageBody({
         />
         {page.checked !== null && <span className="agent-tool-quiet">{page.checked}</span>}
       </div>
+      {page.used !== null && <WhereUsed used={page.used} />}
       <div className="agent-tools-not-shown">
         <h4 className="settings-section-title">{page.not_shown_title}</h4>
         <p className="settings-intro">{page.not_shown}</p>
@@ -607,7 +640,8 @@ export function AgentToolsSection() {
           first.current = false;
           return request("agent_tools.view", { recheck }) as Promise<AgentToolsPage>;
         },
-        ["agent_tools_changed"],
+        // A tool rechecked or set up; Noyan starts on, a flow or a project changed where they're used.
+        ["agent_tools_changed", "agents_changed", "flow_changed", "projects_changed"],
         (state) => {
           if (state.view) setPage(state.view);
           setError(state.error?.message ?? null);

@@ -1,6 +1,6 @@
 //! The board card's plain words: a card is at most four lines plus one action. Its key, its title, one status line,
-//! who and how long; only when set, one muted note under the line (the ticket's own agent for a stage, or the stages
-//! it skips). A coloured edge only while the card needs the user: turquoise asks or decides, magenta is the user's
+//! who (the tool, never the model: UX-65) and how long; only when set, one muted note under the line (the stages it
+//! skips). A coloured edge only while the card needs the user: turquoise asks or decides, magenta is the user's
 //! review, red broke and waits. Waiting is the status line itself, with an amber hourglass ("Waits for SHOP-27 to
 //! merge"). Tokens, models, rounds, Plan pieces, Run ports, decision counts and conflict details are the sheet's,
 //! never the card's.
@@ -8,7 +8,6 @@
 //! [`words`] words the states the board draws; a state it doesn't word keeps the line the card's parts build
 //! ([`super::card::status_line`]), so every state the app has keeps a card.
 
-use otaq_core::agents::facts::OwnAgent;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{AutoMergeStop, MergeCheckState, ReviewEntry, Status};
@@ -59,7 +58,8 @@ pub struct Words {
     pub edge: Option<Tone>,
 }
 
-/// The muted line under the status line, only when set: "Dev: Light instead of Strong", "Skips Product spec".
+/// The muted line under the status line, only when set: "Skips Product spec" (a ticket picks no model of its own,
+/// UX-65).
 /// `CardNote` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardNote")]
@@ -434,25 +434,13 @@ pub fn action(status: Status, ticket: &Ticket, action: Option<CardAction>) -> Op
     }
 }
 
-/// The ticket's own agent for a stage as one line, on its card and on Overview: "Dev: Light instead of Strong".
-pub fn own_agent_line(own: &OwnAgent) -> String {
-    format!("{}: {} instead of {}", own.stage, own.agent, own.instead_of)
-}
-
-/// The muted note under the line, only when set: the ticket's own agent for a stage, from the moment it is set, Backlog
-/// included ("Dev: Light instead of Strong"), else the stages the user chose to skip ("Skips Product spec"). Never on a
-/// finished card.
+/// The muted note under the line, only when set: the stages the user chose to skip ("Skips Product spec"). Never on
+/// a finished card.
 pub fn note(ticket: &Ticket, x: &CardExtras) -> Option<Note> {
     if ticket.place.is_done() {
         return None;
     }
     let a = &x.agents;
-    if let Some(own) = &a.own_agent {
-        return Some(Note {
-            icon: IconName::User,
-            text: own_agent_line(own),
-        });
-    }
     (!a.skips.is_empty()).then(|| Note {
         icon: IconName::SkipForward,
         text: format!("Skips {}", and_list(&a.skips)),

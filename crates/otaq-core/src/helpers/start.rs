@@ -10,7 +10,7 @@ use super::{
     piece_env_var, piece_label, ticket_branch, ticket_worktree,
 };
 use crate::agent_tools::{FirstPrompt, LaunchRequest, LaunchRole};
-use crate::agents::{RunsOn, SessionRole, resolve};
+use crate::agents::RunsOn;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
 use crate::caller::Caller;
@@ -196,23 +196,12 @@ impl Helpers {
         )
         .await?;
 
-        // The stage's agent, on the tool and model the agent in charge runs on (Q513 may add a pick per piece).
-        let agent = match &in_charge.agent {
-            Some(agent) => board.store().agent(&agent.id).await?,
-            None => None,
-        };
-        let agent = match agent {
-            Some(agent) => agent,
-            None => resolve::session_agent(board, ticket, SessionRole::Developer).await?,
-        };
+        // The tool, model and effort the session in charge runs on (UX-66: a helper has no choice of its own).
         let runs_on = RunsOn {
             tool: in_charge.tool,
             model: in_charge.model.clone(),
             effort: in_charge.effort.clone(),
-            agent: in_charge
-                .agent
-                .clone()
-                .or_else(|| Some(agent.session_agent())),
+            agent: in_charge.agent.clone(),
         };
         let tool = runs_on
             .tool

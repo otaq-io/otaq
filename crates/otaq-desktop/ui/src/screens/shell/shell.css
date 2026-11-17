@@ -312,6 +312,53 @@ button.header-activity[data-open] {
   font: 400 12px/1.4 var(--font-ui);
 }
 
+/* A limit line in the popover's 360 px: the banner's one 36 px row can't hold the tool's avatar, "Codex limit
+   reached", "0% left · reset time unknown" and Resume Codex, so here the line wraps: the avatar and the title, then
+   the text, what's left and the buttons, each under the title. The board's banner keeps its one row. */
+.activity .notices-line {
+  --line-indent: 26px; /* the 16 px avatar and the row's 10 px gap */
+  flex-wrap: wrap;
+  row-gap: 2px;
+  height: auto;
+  min-height: 36px;
+  padding: 8px 12px;
+}
+
+.activity .notices-line > .banner-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.activity .notices-line > .banner-text,
+.activity .notices-line > .banner-aside {
+  flex: 1 0 100%;
+  box-sizing: border-box;
+  padding-left: var(--line-indent);
+  white-space: normal;
+}
+
+.activity .notices-line > .banner-text {
+  order: 1;
+}
+
+.activity .notices-line > .banner-aside {
+  order: 2;
+}
+
+.activity .notices-line > .banner-text:empty {
+  display: none;
+}
+
+.activity .notices-line > button {
+  order: 3;
+  margin-top: 4px;
+}
+
+.activity .notices-line > .banner-text + button,
+.activity .notices-line > .banner-aside + button {
+  margin-left: var(--line-indent);
+}
+
 .activity-section {
   display: flex;
   flex-direction: column;

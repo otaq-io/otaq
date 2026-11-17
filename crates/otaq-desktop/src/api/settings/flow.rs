@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
 
-use super::{RequestError, agent_list, agent_tools, parse, reply, unexpected, unknown};
+use super::{RequestError, agent_tools, parse, reply, unexpected, unknown};
 use crate::App;
 
 /// The largest file Import flow… reads: a flow document is a few kilobytes.
@@ -93,8 +93,6 @@ pub enum Source {
     Preset { file: String },
     /// Reset to the default flow.
     Default,
-    /// Apply the shipped agents file again (Settings → Agents).
-    AgentsFile,
 }
 
 impl From<Source> for ProposeFrom {
@@ -106,7 +104,6 @@ impl From<Source> for ProposeFrom {
             Source::Default => Self::Preset {
                 file: vm::RESET_FILE.to_owned(),
             },
-            Source::AgentsFile => Self::AgentsFile,
         }
     }
 }
@@ -169,14 +166,14 @@ async fn section(app: &App, key: &str) -> Result<vm::Section, RequestError> {
             Reply::FlowWaiting(waiting) => waiting.map(|w| *w),
             other => return Err(unexpected("flow.waiting", &other)),
         };
-    let agents = agent_list(app).await?;
     let tools = agent_tools(app, false).await?;
+    let default_model = super::super::editor::tool_states(app).await.default_model;
     Ok(vm::section(&vm::Inputs {
         project: &project,
         current: &current,
         versions: versions.len(),
         waiting: waiting.as_ref(),
-        agents: &agents,
+        default_model: default_model.as_ref(),
         tools: &tools,
         other_projects: all.len().saturating_sub(1),
         now_ms: otaq_core::store::now_ms(),
@@ -325,7 +322,7 @@ mod tests {
         .await
         .unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
-        assert!(text.contains("name: Developer"), "the agents too: {text}");
+        assert!(text.contains("model: "), "each stage's model too: {text}");
         request(
             &h.app,
             "settings.flow_import",

@@ -119,7 +119,7 @@ export const VIEW: SheetView = {
   run: null,
   sheet: SHEET,
   live_agent: true,
-  open_agent: null,
+  edit_flow_stage: null,
   build_aside: null,
   refusal: null,
   holds: [],
