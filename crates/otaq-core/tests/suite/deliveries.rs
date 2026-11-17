@@ -782,14 +782,19 @@ async fn a_key_a_closing_prompt_took_leaves_no_unsent_text_and_the_note_goes() {
     };
     let pending = async || w.deliveries.pending(&agent.session).await.unwrap().len();
 
-    // A prompt that takes one key without showing it, then closes back to the empty line.
+    // A prompt that takes one key without showing it, then closes back to the empty line. It is open once it says so
+    // on a row of its own: the command line's echo shows earlier, and a key typed before `stty -echo` ran would be
+    // echoed into the line, which then holds text (`y> `) and the note rightly waits.
     w.sessions
         .write(
             &agent.session,
-            b"stty -echo -icanon min 1; dd bs=1 count=1 >/dev/null 2>&1; stty echo icanon\r",
+            b"stty -echo -icanon min 1; printf 'prompt %s\\n' open; dd bs=1 count=1 >/dev/null 2>&1; stty echo icanon\r",
         )
         .unwrap();
-    wait_until("the prompt is open", || input_row().trim_end().is_empty()).await;
+    wait_until("the prompt is open", || {
+        shown().contains("prompt open") && input_row().trim_end().is_empty()
+    })
+    .await;
     client.request(typing(b"y")).await.unwrap();
     // Just typed, the screen may not show what became of the key yet: a note waits.
     let note = "The user added comment 2. Run otaq prime to read it.";
@@ -837,6 +842,88 @@ async fn a_key_a_closing_prompt_took_leaves_no_unsent_text_and_the_note_goes() {
         "the line is empty"
     );
     assert!(waiting_sent(), "the tab was told the note went");
+    drop(client);
+    w.stop().await;
+}
+
+/// A prompt of the program's own that takes a key and draws the empty input line again only after the key's look,
+/// [`otaq_core::session::KEY_SETTLE`] after it (a slow or busy program): the note queued meanwhile goes once the line
+/// shows empty, though no key, signal or other delivery says so. The note used to wait for the next key or turn end.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_note_goes_once_a_prompt_that_took_a_key_draws_the_empty_line_late() {
+    use otaq_core::caller::Caller;
+    use otaq_core::client::{Client, ClientConfig};
+    use otaq_core::protocol::{InputParams, Request, encode_bytes};
+    use otaq_core::service::testing::TestService;
+
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Split user full name").await;
+    let agent = w.agent_shell(&t).await;
+    let shown = || {
+        String::from_utf8_lossy(&w.sessions.attach(&agent.session).unwrap().scrollback).into_owned()
+    };
+    let input_row = || {
+        let mut screen = vt100::Parser::new(24, 80, 0);
+        screen.process(shown().as_bytes());
+        let (row, _) = screen.screen().cursor_position();
+        screen
+            .screen()
+            .rows(0, 80)
+            .nth(usize::from(row))
+            .unwrap_or_default()
+    };
+    w.sessions.write(&agent.session, b"PS1='> '\r").unwrap();
+    wait_until("the prompt marker shows", || input_row().trim_end() == ">").await;
+    let caller = Caller::Agent {
+        ticket: t.key.clone(),
+        ticket_id: t.id.clone(),
+        session: agent.session.clone(),
+    };
+    w.signals
+        .hook(
+            &caller,
+            Tool::Claude,
+            "Stop",
+            &serde_json::json!({"background_tasks": [], "session_crons": []}),
+        )
+        .await
+        .unwrap();
+    assert!(w.deliveries.is_ready(&agent.session).unwrap());
+
+    // The prompt takes one key without showing it and draws the line again well after the key's look.
+    let late = otaq_core::session::KEY_SETTLE * 3;
+    let command = format!(
+        "stty -echo -icanon min 1; printf 'prompt %s\\n' open; dd bs=1 count=1 >/dev/null 2>&1; sleep {}; stty echo icanon\r",
+        late.as_secs_f32()
+    );
+    w.sessions
+        .write(&agent.session, command.as_bytes())
+        .unwrap();
+    wait_until("the prompt is open", || {
+        shown().contains("prompt open") && input_row().trim_end().is_empty()
+    })
+    .await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    client
+        .request(Request::SessionInput(InputParams {
+            session: agent.session.clone(),
+            data: encode_bytes(b"y"),
+            reply: false,
+            if_empty: false,
+        }))
+        .await
+        .unwrap();
+    let note = "The user added comment 2. Run otaq prime to read it.";
+    w.deliveries
+        .queue_delivery(&agent.session, DeliveryKind::AgentMessage, note)
+        .await
+        .unwrap();
+    // The key's look comes and goes with the prompt still open: the note waits.
+    tokio::time::sleep(otaq_core::session::KEY_SETTLE * 2).await;
+    assert!(!shown().contains(note), "typed into the open prompt");
+    assert_eq!(w.deliveries.pending(&agent.session).await.unwrap().len(), 1);
+    wait_until("the note is typed", || shown().contains(note)).await;
     drop(client);
     w.stop().await;
 }
