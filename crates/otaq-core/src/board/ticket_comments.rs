@@ -64,19 +64,19 @@ pub fn tell_agent_line(n: u32) -> String {
 }
 
 /// The session a ticked comment tells (d0123): the check's while the ticket is checking (its status says so), or while
-/// it is in an agent check stage (`at_check`, [`crate::agents::facts::at_agent_check`]) under an Agent stage's status:
-/// its check waits for its tool's limit or was interrupted, and the check, not the developer, has it (C3c). Else the
-/// ticket's agent's, a check that ended without passing included (its findings go to the agent). A check that has just
+/// its check waits in an agent check stage (`check_waits`, [`crate::agents::facts::check_waits`]: its tool's limit, an
+/// interruption), when the check, not the developer, has it (C3c). Else the ticket's agent's: the developer asking
+/// while the check runs, and a check that ended without passing (its findings go to the agent). A check that has just
 /// passed may still be closing while the ticket is in Review; it isn't told.
 pub fn told_session_kind(
     status: crate::domain::Status,
-    at_check: bool,
+    check_waits: bool,
 ) -> crate::session::SessionKind {
-    use crate::domain::{Status, StatusSet};
+    use crate::domain::Status;
     use crate::session::SessionKind;
     match status {
         Status::Checking | Status::CheckerNeedsYou => SessionKind::Validator,
-        _ if at_check && status.set() == StatusSet::AgentStage => SessionKind::Validator,
+        _ if check_waits => SessionKind::Validator,
         _ => SessionKind::Agent,
     }
 }
@@ -1116,49 +1116,58 @@ async fn live_row(
 
 #[cfg(test)]
 mod tests {
-    /// d0123: a ticked comment tells the check only while the ticket is checking; else the agent.
+    /// d0123: a ticked comment tells the check while the ticket is checking; else the agent. C3c: in an agent check
+    /// stage, also the check while its checker waits for its tool's limit or was interrupted while checking; but the
+    /// developer while it asks there (its permission prompt or question while the check runs: Needs you, Asks you,
+    /// Idle, or Interrupted from one), as the checker's own prompts read Checker needs you.
     #[test]
     fn the_told_session_follows_the_status() {
+        use crate::agents::facts::check_waits;
         use crate::domain::Status;
         use crate::session::SessionKind;
+        let told = |at_check: bool, status: Status, from: Option<Status>| {
+            told_session_kind(status, check_waits(at_check, status, from))
+        };
         for at_check in [false, true] {
             assert_eq!(
-                told_session_kind(Status::Checking, at_check),
+                told(at_check, Status::Checking, None),
                 SessionKind::Validator
             );
             assert_eq!(
-                told_session_kind(Status::CheckerNeedsYou, at_check),
+                told(at_check, Status::CheckerNeedsYou, None),
                 SessionKind::Validator
             );
             for status in [
                 Status::WaitingForYou,
                 Status::CheckFailed,
                 Status::CheckNoResult,
+                Status::NeedsYou,
+                Status::AsksYou,
+                Status::Idle,
             ] {
                 assert_eq!(
-                    told_session_kind(status, at_check),
+                    told(at_check, status, None),
                     SessionKind::Agent,
                     "{status:?}"
                 );
             }
-        }
-        // C3c: in an agent check whose checker waits for its tool's limit, or was interrupted: the check.
-        for status in [Status::WaitingForLimitReset, Status::Interrupted] {
             assert_eq!(
-                told_session_kind(status, true),
+                told(at_check, Status::Interrupted, Some(Status::NeedsYou)),
+                SessionKind::Agent
+            );
+        }
+        for (status, from) in [
+            (Status::WaitingForLimitReset, None),
+            (Status::Interrupted, Some(Status::Checking)),
+        ] {
+            assert_eq!(
+                told(true, status, from),
                 SessionKind::Validator,
                 "{status:?}"
             );
-            assert_eq!(
-                told_session_kind(status, false),
-                SessionKind::Agent,
-                "{status:?}"
-            );
+            assert_eq!(told(false, status, from), SessionKind::Agent, "{status:?}");
         }
-        assert_eq!(
-            told_session_kind(Status::Working, false),
-            SessionKind::Agent
-        );
+        assert_eq!(told(false, Status::Working, None), SessionKind::Agent);
     }
 
     use super::*;

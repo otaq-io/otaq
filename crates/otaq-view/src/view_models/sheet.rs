@@ -214,15 +214,19 @@ fn next_stage<'a>(ticket: &Ticket, path: &'a [PathStage]) -> Option<&'a PathStag
     }
 }
 
-/// Who is on the ticket: the check stage's tool while the check has it (C3c: in an agent check stage under any status,
-/// its checker waiting for its tool's limit included, or a check that ended without passing), else the agent on it now
-/// (its running session), else the agent its next stage runs, else the last one that ran; `None` when no one can be
-/// named.
+/// Who is on the ticket: the check stage's tool while the check has it (C3c: it checks, its checker waits in an agent
+/// check stage for its tool's limit or was interrupted, or a check ended without passing), else the agent on it now
+/// (its running session; the developer's while it asks, also while its check runs), else the agent its next stage
+/// runs, else the last one that ran; `None` when no one can be named.
 fn assignee(f: &DetailFacts) -> Option<String> {
     let agents = f.agents?;
-    let in_check = matches!(f.ticket.place, Place::InStage(_))
-        && next_stage(f.ticket, &agents.path).is_some_and(|s| s.kind == PathKind::AgentCheck);
-    if in_check || crate::view_models::card::check_holds(f.ticket.status) {
+    let ticket = f.ticket;
+    let in_check = matches!(ticket.place, Place::InStage(_))
+        && next_stage(ticket, &agents.path).is_some_and(|s| s.kind == PathKind::AgentCheck);
+    // The developer asking while its check runs (Asks you, Needs you, Idle there) is the developer's (C3c).
+    let check_has_it = matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou)
+        || otaq_core::agents::facts::check_waits(in_check, ticket.status, ticket.interrupted_from);
+    if (in_check && check_has_it) || crate::view_models::card::check_holds(ticket.status) {
         let stage_tool = next_stage(f.ticket, &agents.path)
             .filter(|s| s.kind == PathKind::AgentCheck)
             .and_then(|s| s.who.as_ref())
@@ -239,7 +243,19 @@ fn assignee(f: &DetailFacts) -> Option<String> {
             return Some(tool.display_name().to_owned());
         }
     }
-    if let Some(session) = running(agents) {
+    // Asks you, Needs you, Idle: the developer's own wait, though the checker's session may be the later one.
+    let developer = ticket
+        .status
+        .is_agent_waiting()
+        .then(|| {
+            agents
+                .sessions
+                .iter()
+                .rev()
+                .find(|s| s.running && s.role == SessionRole::Developer)
+        })
+        .flatten();
+    if let Some(session) = developer.or_else(|| running(agents)) {
         return session.agent_name.clone();
     }
     if let Some(stage) = next_stage(f.ticket, &agents.path)
@@ -859,6 +875,20 @@ mod tests {
             line(&t, &agents),
             "In Validate \u{b7} Codex \u{b7} started by you 1 min ago"
         );
+        // Dev's session asks while the check runs (the place stays Validate): the developer, though the checker's
+        // session is the later one.
+        let mut asking = agents.clone();
+        for s in &mut asking.sessions {
+            s.running = true;
+        }
+        for status in [Status::NeedsYou, Status::AsksYou] {
+            t.status = status;
+            assert_eq!(
+                line(&t, &asking),
+                "In Validate \u{b7} Claude Code \u{b7} started by you 1 min ago",
+                "{status:?}"
+            );
+        }
         // Working again: the developer's session.
         t.status = Status::Working;
         t.place = Place::InStage("dev".into());

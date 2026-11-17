@@ -2501,7 +2501,8 @@ async fn tell_running_agent(shared: &Shared, key: &str, n: u32) {
         Ok(flow) => crate::agents::facts::at_agent_check(&ticket, &flow),
         Err(_) => false,
     };
-    let kind = crate::board::ticket_comments::told_session_kind(ticket.status, at_check);
+    let waits = crate::agents::facts::check_waits(at_check, ticket.status, ticket.interrupted_from);
+    let kind = crate::board::ticket_comments::told_session_kind(ticket.status, waits);
     let Some(session) = shared.sessions.running_of(&ticket.id, kind) else {
         return;
     };

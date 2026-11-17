@@ -2163,7 +2163,7 @@ pub fn who(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<String> {
     match status {
         Status::Checking | Status::CheckerNeedsYou => named(&a.running_validator, &a.validator_on),
         // The check has it (C3c): the check stage's tool, not the developer's live session.
-        _ if check_has_it(status, x) => a
+        _ if check_has_it(ticket, status, x) => a
             .stage_agent
             .clone()
             .or_else(|| named(&a.running_validator, &a.validator_on)),
@@ -2188,17 +2188,21 @@ pub fn check_holds(status: Status) -> bool {
     matches!(status, Status::CheckNoResult | Status::CheckFailed)
 }
 
-/// The check, not the developer, has the ticket (C3c): a check that ended without passing ([`check_holds`]), or the
-/// ticket is in an agent check stage under any status, its checker waiting for its tool's limit or interrupted
-/// included. A ticket sent back to Dev is in Dev: the developer has it.
-pub fn check_has_it(status: Status, x: &CardExtras) -> bool {
-    check_holds(status) || x.agents.at_check
+/// The check, not the developer, has the ticket (C3c): a check that ended without passing ([`check_holds`]), or its
+/// checker waits in an agent check stage for its tool's limit or was interrupted
+/// ([`otaq_core::agents::facts::check_waits`]). Not the developer asking while the check runs (Asks you, Needs you,
+/// Idle there), and not a ticket sent back to Dev, which is in Dev. Checking and Checker needs you name the checker
+/// on their own.
+pub fn check_has_it(ticket: &Ticket, status: Status, x: &CardExtras) -> bool {
+    check_holds(status)
+        || otaq_core::agents::facts::check_waits(x.agents.at_check, status, ticket.interrupted_from)
 }
 
 /// Whose avatar the head shows (*Has the turn*): the validator while the ticket validates, the validator asks or
 /// its round is held, the check stage's tool while the check holds it ([`check_holds`]), else the developer.
 fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarView> {
-    if check_has_it(status, x) && held(ticket, status, x).is_none_or(|h| h.role == Role::Validator)
+    if check_has_it(ticket, status, x)
+        && held(ticket, status, x).is_none_or(|h| h.role == Role::Validator)
     {
         return x.validator.clone().or_else(|| {
             let name = x.agents.stage_agent.as_deref()?;
@@ -6320,9 +6324,9 @@ mod tests {
         assert!(!at(&t, Place::Waiting(Some("dev".into()))));
     }
 
-    /// C3c follow-up (Windows VM, R7): in an agent check stage the check has the ticket under any status, so a checker
-    /// waiting for its tool's plan limit names the check's tool ("CX Codex"), not the developer's live session; the
-    /// same ticket back in Dev (sent back, not in the check) names the developer.
+    /// C3c follow-up (Windows VM, R7): in an agent check stage a checker waiting for its tool's plan limit (or
+    /// interrupted) names the check's tool ("CX Codex"), not the developer's live session; the developer asking there
+    /// while the check runs (Needs you, Asks you, Idle) and the same ticket back in Dev name the developer.
     #[test]
     fn a_check_waiting_for_its_tools_limit_names_the_checks_tool() {
         use crate::view_models::card_page::TicketCardView;
@@ -6378,6 +6382,10 @@ mod tests {
             Status::Checking,
         ] {
             assert_eq!(face(&at_validate, status), codex, "{status:?}");
+        }
+        // The developer asking while its check runs (its prompt or question; the place stays Validate): Claude Code.
+        for status in [Status::NeedsYou, Status::AsksYou, Status::Idle] {
+            assert_eq!(face(&at_validate, status), claude, "{status:?}");
         }
         for status in [Status::Working, Status::WaitingForLimitReset] {
             assert_eq!(face(&in_dev, status), claude, "{status:?}");

@@ -418,6 +418,18 @@ pub fn at_agent_check(ticket: &Ticket, flow: &Flow) -> bool {
             .is_some_and(|s| s.is_agent_check())
 }
 
+/// Whether an Agent stage's `status` in an agent check stage (`at_check`, [`at_agent_check`]) is the check's (C3c): its
+/// checker waits for its tool's limit or was interrupted while checking. Not the developer's own waits (Asks you,
+/// Needs you, Idle, or Interrupted from one: `interrupted_from`): its live session raises them while the check runs
+/// (signals' `validating`, the place staying the check), and the developer is the one asking. The checker's own
+/// prompts read Checker needs you.
+pub fn check_waits(at_check: bool, status: Status, interrupted_from: Option<Status>) -> bool {
+    at_check
+        && status.set() == crate::domain::StatusSet::AgentStage
+        && !status.is_agent_waiting()
+        && !interrupted_from.is_some_and(Status::is_agent_waiting)
+}
+
 /// The tool the stage `ticket` is in runs on ([`CardAgents::stage_agent`]), by its name.
 fn stage_tool_of(ticket: &Ticket, flow: &Flow, default: Option<&ModelRef>) -> Option<String> {
     let stage = match &ticket.place {

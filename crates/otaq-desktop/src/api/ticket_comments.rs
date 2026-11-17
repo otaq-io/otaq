@@ -129,10 +129,10 @@ async fn comments(
 }
 
 /// The agent working on the ticket now: its running check session's agent while the ticket is checking or its check
-/// waits in an agent check stage (`at_check`, C3c), else its running agent session's (d0123: the session a ticked
+/// waits in an agent check stage (`check_waits`, C3c), else its running agent session's (d0123: the session a ticked
 /// comment tells, [`told_session_kind`]).
-fn working(status: Option<Status>, at_check: bool, sessions: &[SessionInfo]) -> Option<&str> {
-    let kind = told_session_kind(status?, at_check);
+fn working(status: Option<Status>, check_waits: bool, sessions: &[SessionInfo]) -> Option<&str> {
+    let kind = told_session_kind(status?, check_waits);
     sessions
         .iter()
         .filter(|s| s.kind == kind && s.is_running())
@@ -162,7 +162,11 @@ pub async fn thread(app: &App, params: ThreadParams) -> Result<ThreadView, Reque
     let at_check = match &ticket {
         Some(t) if t.status.set() == otaq_core::domain::StatusSet::AgentStage => {
             match super::flow_board::flow_of(app, t.key.project.as_str()).await {
-                Some(file) => otaq_core::agents::facts::at_agent_check(t, &file.flow),
+                Some(file) => otaq_core::agents::facts::check_waits(
+                    otaq_core::agents::facts::at_agent_check(t, &file.flow),
+                    t.status,
+                    t.interrupted_from,
+                ),
                 None => false,
             }
         }
