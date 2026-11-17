@@ -214,10 +214,27 @@ fn next_stage<'a>(ticket: &Ticket, path: &'a [PathStage]) -> Option<&'a PathStag
     }
 }
 
-/// Who is on the ticket: the agent on it now (its running session), else the agent its next stage runs, else the last
-/// one that ran; `None` when no one can be named.
+/// Who is on the ticket: the check stage's tool while an ended check holds it (C3c), else the agent on it now (its
+/// running session), else the agent its next stage runs, else the last one that ran; `None` when no one can be named.
 fn assignee(f: &DetailFacts) -> Option<String> {
     let agents = f.agents?;
+    if crate::view_models::card::check_holds(f.ticket.status) {
+        let stage_tool = next_stage(f.ticket, &agents.path)
+            .filter(|s| s.kind == PathKind::AgentCheck)
+            .and_then(|s| s.who.as_ref())
+            .and_then(|w| w.model.tool());
+        let checker = || {
+            agents
+                .sessions
+                .iter()
+                .rev()
+                .find(|s| s.role == SessionRole::Validator)
+                .and_then(|s| s.tool)
+        };
+        if let Some(tool) = stage_tool.or_else(checker) {
+            return Some(tool.display_name().to_owned());
+        }
+    }
     if let Some(session) = running(agents) {
         return session.agent_name.clone();
     }
@@ -754,6 +771,80 @@ mod tests {
                 "Done \u{b7} nothing to merge".into(),
                 "Done \u{b7} nothing to merge".into()
             )
+        );
+    }
+
+    /// C3c (the maintainer's 2026-11-17 choice under UX-65): while a check that ended without passing holds the ticket,
+    /// the line names the check stage's tool, not the developer's live session; without a tool on the stage, the
+    /// last checker's.
+    #[test]
+    fn the_line_names_the_checks_tool_while_the_check_holds_it() {
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::AgentModel;
+        let mut t = ticket("SHOP-4", "Fix the broken docs link", Status::CheckNoResult);
+        t.place = Place::InStage("validate".into());
+        t.started_at = Some(100 * MIN);
+        let mut dev = session(
+            "s1",
+            SessionRole::Developer,
+            "Claude Code",
+            Tool::Claude,
+            None,
+            Some("opus"),
+        );
+        dev.running = true;
+        let checker = session(
+            "s2",
+            SessionRole::Validator,
+            "Codex",
+            CODEX,
+            None,
+            Some("gpt-5.5"),
+        );
+        let tools = tools();
+        let line = |t: &Ticket, agents: &TicketAgents| {
+            subtitle(&DetailFacts {
+                ticket: t,
+                agents: Some(agents),
+                tools: &tools,
+                tickets: &[],
+                now: 101 * MIN,
+                helpers: &[],
+                usage: None,
+            })
+        };
+        let mut agents = agents_of(&t, vec![dev.clone(), checker]);
+        let validate = agents
+            .path
+            .iter_mut()
+            .find(|s| s.stage_id == "validate")
+            .unwrap();
+        validate.who.as_mut().unwrap().model = AgentModel::Tool {
+            tool: CODEX,
+            model: Some("gpt-5.5".into()),
+        };
+        for status in [Status::CheckNoResult, Status::CheckFailed] {
+            t.status = status;
+            assert_eq!(
+                line(&t, &agents),
+                "In Validate \u{b7} Codex \u{b7} started by you 1 min ago",
+                "{status:?}"
+            );
+        }
+        // On `default`, the stage names no tool: the last checker's.
+        let validate = agents
+            .path
+            .iter_mut()
+            .find(|s| s.stage_id == "validate")
+            .unwrap();
+        validate.who.as_mut().unwrap().model = AgentModel::Default;
+        assert!(line(&t, &agents).contains("\u{b7} Codex \u{b7}"));
+        // Working again: the developer's session.
+        t.status = Status::Working;
+        t.place = Place::InStage("dev".into());
+        assert_eq!(
+            line(&t, &agents_of(&t, vec![dev])),
+            "In Dev \u{b7} Claude Code \u{b7} started by you 1 min ago"
         );
     }
 

@@ -2159,6 +2159,8 @@ pub fn who(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<String> {
     };
     match status {
         Status::Checking | Status::CheckerNeedsYou => named(&a.running_validator, &a.validator_on),
+        // The check holds it (C3c): the check stage's tool, not the developer's live session.
+        _ if check_holds(status) => a.stage_agent.clone(),
         _ if a.running_developer.is_some() => named(&a.running_developer, &a.developer_on),
         _ if ticket.place.is_waiting() => a.starts.as_ref().map(|s| match &s.model {
             Some(model) => tool_word(model.tool).to_owned(),
@@ -2173,9 +2175,26 @@ fn tool_word(tool: otaq_core::agent_tools::Tool) -> &'static str {
     crate::view_models::tool_problems::tool_word(tool)
 }
 
+/// An agent check that ended without passing holds the ticket: No result, or failed out of its rounds (C3c, the
+/// maintainer's 2026-11-17 choice under UX-65). The card, its avatar and the ticket's header name the check stage's
+/// tool then, not the developer's live session.
+pub fn check_holds(status: Status) -> bool {
+    matches!(status, Status::CheckNoResult | Status::CheckFailed)
+}
+
 /// Whose avatar the head shows (*Has the turn*): the validator while the ticket validates, the validator asks or
-/// its round is held, else the developer.
+/// its round is held, the check stage's tool while the check holds it ([`check_holds`]), else the developer.
 fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarView> {
+    if check_holds(status) {
+        return x.validator.clone().or_else(|| {
+            let name = x.agents.stage_agent.as_deref()?;
+            let tool = otaq_core::agent_tools::Tool::ALL
+                .iter()
+                .copied()
+                .find(|t| t.display_name() == name)?;
+            Some(ToolAvatarView::of(tool, None))
+        });
+    }
     let validator = matches!(status, Status::Checking | Status::CheckerNeedsYou)
         || held(ticket, status, x).is_some_and(|h| h.role == Role::Validator);
     match validator {
@@ -3981,7 +4000,8 @@ mod tests {
         assert_eq!(s.unwrap().text, "busy · running · working · quiet");
     }
 
-    /// The avatar follows whoever has the turn: the validator while it validates or asks, else the developer.
+    /// The avatar follows whoever has the turn: the validator while it validates or asks, the check's while an ended
+    /// check holds the ticket (C3c), else the developer.
     #[test]
     fn the_avatar_follows_the_turn() {
         let x = CardExtras {
@@ -3996,13 +4016,9 @@ mod tests {
         };
         assert_eq!(shown(Status::Checking).as_deref(), Some("CX"));
         assert_eq!(shown(Status::CheckerNeedsYou).as_deref(), Some("CX"));
-        for status in [
-            Status::Working,
-            Status::NeedsYou,
-            Status::CheckFailed,
-            Status::CheckNoResult,
-            Status::WaitingForYou,
-        ] {
+        assert_eq!(shown(Status::CheckFailed).as_deref(), Some("CX"));
+        assert_eq!(shown(Status::CheckNoResult).as_deref(), Some("CX"));
+        for status in [Status::Working, Status::NeedsYou, Status::WaitingForYou] {
             assert_eq!(shown(status).as_deref(), Some("CC"), "{status}");
         }
         // Hidden while one tool is connected.
@@ -6210,6 +6226,57 @@ mod tests {
                 .with_agents(&board(vec![Tool::Claude]), &other)
                 .agents,
             AgentFacts::default()
+        );
+    }
+
+    /// C3c (the maintainer's 2026-11-17 choice under UX-65): while a check that ended without passing holds the ticket
+    /// (No result, failed out of rounds), the card and its head name the check stage's tool, not the developer's live
+    /// session; once the ticket works again it names the developer.
+    #[test]
+    fn a_card_held_at_its_check_names_the_checks_tool() {
+        use crate::view_models::card_page::TicketCardView;
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::facts::{CardAgents, RunsOnTool};
+        let card = CardAgents {
+            key: "SHOP-4".parse().unwrap(),
+            running_developer: Some("Claude Code".into()),
+            running_validator: None,
+            running_developer_on: Some(RunsOnTool {
+                tool: Tool::Claude,
+                model: Some("claude-opus-5-5".into()),
+                passed: None,
+            }),
+            running_validator_on: None,
+            holds: Vec::new(),
+            starts: None,
+            refused_stage: Some("validate".into()),
+            stage_agent: Some("Codex".into()),
+            skips: Vec::new(),
+        };
+        let key: TicketKey = "SHOP-4".parse().unwrap();
+        let x = main_project().with_agents(
+            &BoardAgents {
+                cards: vec![card],
+                connected: vec![Tool::Claude, Tool::Codex],
+            },
+            &key,
+        );
+        let face = |status| {
+            let t = ticket("SHOP-4", "Fix the broken docs link", status);
+            let view = TicketCardView::of(&t, &x, NOW);
+            let head = CardViewModel::from(&t, &x, NOW).avatar.map(|a| a.letters);
+            (view.who, head)
+        };
+        for status in [Status::CheckNoResult, Status::CheckFailed] {
+            assert_eq!(
+                face(status),
+                (Some("Codex".to_owned()), Some("CX".to_owned())),
+                "{status:?}"
+            );
+        }
+        assert_eq!(
+            face(Status::Working),
+            (Some("Claude Code".to_owned()), Some("CC".to_owned()))
         );
     }
 
