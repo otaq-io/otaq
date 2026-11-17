@@ -53,7 +53,7 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });
     // Send again (d0118): `sheet.send_again`, which may ask about unsent text first.
     expect(actionRoute("send_again")).toEqual({ kind: "send_again" });
-    expect(actionRoute("open_agent")).toEqual({ kind: "edit_flow" });
+    expect(actionRoute("edit_flow")).toEqual({ kind: "edit_flow" });
     expect(cardRoute("edit_flow")).toEqual({ kind: "edit_flow" });
     // No PR provider for an automatic PR: Set up… opens app Settings where providers are set up.
     expect(cardRoute("set_up_provider")).toEqual({ kind: "provider_settings" });
@@ -440,7 +440,7 @@ describe("no plumbing in Overview (the stage's agents are set in Edit ticket…)
 });
 
 describe("the held roles' callouts (M23)", () => {
-  it("SHOP-49 on Old GPT: Model unavailable above the bar, amber, with Open agent…", () => {
+  it("SHOP-49 on Old GPT: Model unavailable above the bar, amber, with Edit flow…", () => {
     const html = render({
       ...VIEW,
       holds: [

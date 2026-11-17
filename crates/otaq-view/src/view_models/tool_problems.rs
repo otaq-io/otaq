@@ -780,9 +780,9 @@ mod tests {
         );
     }
 
-    /// *SHOP-49 · Model unavailable*: amber, the model on hover, Open agent… on the held agent's page, for any held session (d0108 second gap review rule 7).
+    /// *SHOP-49 · Model unavailable*: amber, the model on hover, Edit flow… on the held stage, for any held session (UX-65).
     #[test]
-    fn a_model_no_longer_listed_offers_open_agent() {
+    fn a_model_no_longer_listed_offers_edit_flow() {
         let hold = hold(
             SessionRole::Developer,
             HoldReason::ModelUnavailable,
@@ -821,9 +821,9 @@ mod tests {
         assert!(hold_callout(&hold, DEV, &Tools::one(None)).avatar.is_none());
     }
 
-    /// "Codex isn't available · logged out" · Open agent… · Sign in…: it waits for Codex, whatever other tool runs.
+    /// "Codex isn't available · logged out" · Edit flow… · Sign in…: it waits for Codex, whatever other tool runs.
     #[test]
-    fn a_tool_that_isnt_available_offers_open_agent_and_sign_in() {
+    fn a_tool_that_isnt_available_offers_edit_flow_and_sign_in() {
         let hold = hold(
             SessionRole::Developer,
             HoldReason::ToolUnavailable,
@@ -862,7 +862,7 @@ mod tests {
         assert_eq!(labels(&c), [EDIT_FLOW, "Show in Tools"]);
     }
 
-    /// A limit is neutral with its reset; it waits for its own tool, with Open agent….
+    /// A limit is neutral with its reset; it waits for its own tool, with Edit flow….
     #[test]
     fn a_limit_is_neutral_and_waits_for_its_tool() {
         let hold = hold(

@@ -68,7 +68,7 @@ permission_prompt: SheetPermissionPrompt | null, notice: SheetNotice | null, con
 refusal: SheetRefusal | null, 
 /**
  * The held roles (§7.2, SCH-04 `[M23]`): "Model unavailable", "Codex isn't available · logged out", "Claude
- * Code limit reached · resets 3:45 pm", with Open agent…, Sign in….
+ * Code limit reached · resets 3:45 pm", with Edit flow…, Sign in….
  */
 holds: Array<ToolProblemCallout>, mark_closed: SheetConfirm | null, 
 /**

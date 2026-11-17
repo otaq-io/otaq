@@ -3526,8 +3526,8 @@ mod tests {
         }
     }
 
-    /// Skip this check only on a check the flow marks skippable: the held card on a check that isn't offers Change
-    /// agent… and Open agent… (it waits for its tool). A check out of rounds offers Move on anyway either way.
+    /// Skip this check only on a check the flow marks skippable: the held card on a check that isn't offers Edit
+    /// flow… (it waits for its tool). A check out of rounds offers Move on anyway either way.
     #[test]
     fn no_skip_on_a_check_not_marked_skippable() {
         for (name, footer) in [
@@ -5522,10 +5522,10 @@ mod tests {
         }
     }
 
-    /// Start failed on the model (AGT-05): red, the tool's message on the line's hover and the flag's, Open agent…
-    /// opens the agent whose model the tool refused; No result keeps turquoise and opens the validator's.
+    /// Start failed on the model (AGT-05): red, the tool's message on the line's hover and the flag's, Edit flow…
+    /// opens the stage whose model the tool refused (UX-65); No result keeps turquoise and opens the check's.
     #[test]
-    fn a_refused_model_says_what_couldnt_run_and_opens_the_agent() {
+    fn a_refused_model_says_what_couldnt_run_and_opens_edit_flow() {
         let (t, vm) = variant("Start failed on the model");
         let flag = vm.flag.as_ref().unwrap();
         assert_eq!(flag.palette, Palette::Error);
@@ -5652,7 +5652,7 @@ mod tests {
 
     /// What each M23 card says (*04 → Variants · several tools (M23)*, the held and limit cards of `SPy9r`): avatar,
     /// head flag and its colour, the situation line and its edge, the hover's title, the footer, and the action's
-    /// kind. A model that can't run is red (Can't start, with Open agent…, `s03-54`), Limit neutral; never turquoise.
+    /// kind. A model that can't run is red (Can't start, with Edit flow…, `s03-54`), Limit neutral; never turquoise.
     /// A held card waits for its own tool.
     #[test]
     fn the_m23_cards_hold_move_and_name_the_tool() {
@@ -5868,9 +5868,9 @@ mod tests {
     }
 
     /// A stage held because its tool doesn't have its skill: "Can't start", the hover naming the tool and the skill,
-    /// and Check again then Change agent… (no Open agent…: the agent is fine, its tool lacks the skill).
+    /// and Check again then Edit flow….
     #[test]
-    fn a_stage_held_for_its_skill_offers_check_again_and_change_agent() {
+    fn a_stage_held_for_its_skill_offers_check_again_and_edit_flow() {
         use otaq_core::agent_tools::Tool;
         use otaq_core::agents::HoldReason as H;
         let mut hold = card_fixtures::hold(
@@ -5908,10 +5908,10 @@ mod tests {
         );
     }
 
-    /// AGM-03, `s03-54`: a held session waits for its own tool and offers Open agent…, which opens the held agent; a
-    /// refused model opens the agent that ran it.
+    /// AGM-03, `s03-54`, UX-65: a held session waits for its own tool and offers Edit flow…, which opens the held
+    /// stage; a refused model opens the stage that ran it.
     #[test]
-    fn a_card_that_cant_run_offers_its_agent() {
+    fn a_card_that_cant_run_offers_edit_flow() {
         use otaq_core::agent_tools::Tool;
         use otaq_core::agents::HoldReason as H;
         let mut hold = card_fixtures::hold(

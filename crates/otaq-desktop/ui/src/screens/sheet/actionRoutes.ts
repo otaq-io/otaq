@@ -84,8 +84,8 @@ export function actionRoute(action: SheetAction): ActionRoute {
       return { kind: "mark_closed" };
     case "run":
       return { kind: "run" };
-    // The sheet's Edit flow… keeps the action's older id.
-    case "open_agent":
+    // Edit flow… (UX-65): the project's flow at the stage whose model can't run.
+    case "edit_flow":
       return { kind: "edit_flow" };
   }
 }

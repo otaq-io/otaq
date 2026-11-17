@@ -841,7 +841,7 @@ pub fn flow_variants() -> Vec<Variant> {
     t.flags.delivered_without_checks = true;
     out.push(v("Delivered without all checks", t, base()));
 
-    // `s03-54`: a check held for the plan limit, which the flow marks skippable: Skip this check, then Open agent….
+    // `s03-54`: a check held for the plan limit, which the flow marks skippable: Skip this check, then Edit flow….
     let mut limit = hold(
         Role::Validator,
         HoldReason::ToolLimit,

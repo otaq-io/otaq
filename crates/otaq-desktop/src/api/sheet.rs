@@ -445,7 +445,7 @@ pub struct View {
     /// The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
     pub refusal: Option<Refusal>,
     /// The held roles (§7.2, SCH-04 `[M23]`): "Model unavailable", "Codex isn't available · logged out", "Claude
-    /// Code limit reached · resets 3:45 pm", with Open agent…, Sign in….
+    /// Code limit reached · resets 3:45 pm", with Edit flow…, Sign in….
     pub holds: Vec<Callout>,
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & sheet-overview-header controls*).
@@ -3043,33 +3043,33 @@ mod tests {
     }
 
     /// T-0345 (AGT-05), d0108 second gap review rule 7: a refused model's callout above the bar, in place of the
-    /// start callout, with Open agent… first; No result's too.
+    /// start callout, with Edit flow… first (UX-65); No result's too.
     #[test]
-    fn a_refused_model_has_its_callout_and_open_agent() {
+    fn a_refused_model_has_its_callout_and_edit_flow() {
         use otaq_view::view_models::card_fixtures::agent_variants;
         let fixture = |name: &str| agent_variants().into_iter().find(|v| v.name == name).unwrap().ticket;
         let t = fixture("Start failed on the model");
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
-        assert_eq!(labels(&view), ["Open agent\u{2026}", "Retry start"]);
+        assert_eq!(labels(&view), ["Edit flow\u{2026}", "Retry start"]);
         assert_eq!(view.start_problem, None);
         let r = view.refusal.unwrap();
         assert_eq!(r.heading, "Claude Code couldn\u{2019}t run the model", "no sessions in these facts");
         assert!(r.message.starts_with('\u{201c}') && r.error);
         let t = fixture("No result \u{b7} the checker\u{2019}s model");
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
-        assert_eq!(labels(&view), ["Open agent\u{2026}", "Retry validation"], "Validate not skippable");
+        assert_eq!(labels(&view), ["Edit flow\u{2026}", "Retry validation"], "Validate not skippable");
         let view = view_of(&Facts {
             skippable_check: true,
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
         assert_eq!(
             labels(&view),
-            ["Open agent\u{2026}", "Retry validation", "Move on anyway"]
+            ["Edit flow\u{2026}", "Retry validation", "Move on anyway"]
         );
         assert!(!view.refusal.unwrap().error, "turquoise, not red");
     }
 
-    /// AGM-03 (`s03-54`): no callout mid-flow; a held session's callout with Open agent…, which opens the held agent.
+    /// AGM-03 (`s03-54`): no callout mid-flow; a held session's callout with Edit flow…, which opens the held stage.
     #[test]
     fn the_panel_shows_the_holds() {
         use otaq_core::agent_tools::Tool;

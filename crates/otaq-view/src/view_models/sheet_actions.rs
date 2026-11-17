@@ -84,9 +84,9 @@ pub enum Action {
     EditPrMessages,
     /// The delivery's agent reported a push the remote doesn't have: Push to PR again, which only pushes.
     RetryPush,
-    /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
-    /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
-    OpenAgent,
+    /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Edit flow… on that
+    /// stage, as the card's (UX-65: the stage says who does it; it replaced Open agent…, d0108 second gap review rule 7).
+    EditFlow,
     /// "Merging · running the merge check" (d0120, Q475): the check ends and nothing is merged.
     StopMergeCheck,
     /// "Merging · running your pre-commit hook", "Starting · making its worktree": the git step and its hook end, and
@@ -149,7 +149,7 @@ impl Action {
             Self::EditMessage => "Edit message and retry",
             Self::EditPrMessages => "Edit messages and retry",
             Self::RetryPush => "Retry push",
-            Self::OpenAgent => "Open agent\u{2026}",
+            Self::EditFlow => crate::view_models::card::EDIT_FLOW,
             Self::StopMergeCheck | Self::StopGitStep => crate::view_models::card::STOP,
         }
     }
@@ -183,7 +183,7 @@ impl Action {
             Self::Reopen => IconName::RotateCcw,
             Self::StopMergeCheck | Self::StopGitStep => IconName::Square,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
-            Self::Approve | Self::Pass | Self::MarkClosed | Self::OpenAgent => {
+            Self::Approve | Self::Pass | Self::MarkClosed | Self::EditFlow => {
                 return None;
             }
         })
@@ -208,7 +208,7 @@ impl Action {
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen => None,
-            Self::OpenAgent | Self::StopMergeCheck | Self::StopGitStep => None,
+            Self::EditFlow | Self::StopMergeCheck | Self::StopGitStep => None,
             Self::OpenValidator
             | Self::AnswerValidator
             | Self::MoveOnAnyway
@@ -331,9 +331,9 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
             }
             bar
         }
-        // Start failed on the model (update Y §3): Open agent…, and Retry start beside it.
+        // Start failed on the model (update Y §3): Edit flow…, and Retry start beside it.
         Status::StartInterrupted if card::start_refusal(ticket).is_some() => {
-            vec![(A::OpenAgent, Primary), (A::RetryStart, Secondary)]
+            vec![(A::EditFlow, Primary), (A::RetryStart, Secondary)]
         }
         Status::StartInterrupted => vec![(A::RetryStart, Primary)],
         Status::Working | Status::WorkingInBackground | Status::WaitingForLimitReset => {
@@ -377,9 +377,9 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
-        // No result on the validator's model: Open agent… first, then today's two.
+        // No result on the validator's model: Edit flow… first, then today's two.
         Status::CheckNoResult if card::validator_refusal(ticket).is_some() => {
-            let mut bar = vec![(A::OpenAgent, Primary), (A::RetryValidation, Secondary)];
+            let mut bar = vec![(A::EditFlow, Primary), (A::RetryValidation, Secondary)];
             if skippable {
                 bar.push((A::MoveOnAnyway, Secondary));
             }
@@ -961,11 +961,11 @@ mod tests {
         }
     }
 
-    /// AGT-05, update Y §3, d0108 second gap review rule 7: Start failed on the model offers Open agent… and Retry
-    /// start; No result on the validator's model Open agent…, Retry validation and (on a check the flow marks
+    /// AGT-05, update Y §3, UX-65: Start failed on the model offers Edit flow… (on that stage, as the card's) and
+    /// Retry start; No result on the validator's model Edit flow…, Retry validation and (on a check the flow marks
     /// skippable) Move on anyway; each with its callout.
     #[test]
-    fn a_refused_model_opens_the_agent() {
+    fn a_refused_model_opens_edit_flow() {
         use crate::view_models::card_fixtures::{MODEL_ISSUE_MESSAGE, agent_variants};
         let fixture = |name: &str| {
             agent_variants()
@@ -978,7 +978,7 @@ mod tests {
         assert_eq!(
             buttons(&start),
             [
-                (A::OpenAgent, Look::Primary),
+                (A::EditFlow, Look::Primary),
                 (A::RetryStart, Look::Secondary)
             ]
         );
@@ -998,14 +998,14 @@ mod tests {
         assert_eq!(
             buttons(&no_result),
             [
-                (A::OpenAgent, Look::Primary),
+                (A::EditFlow, Look::Primary),
                 (A::RetryValidation, Look::Secondary),
             ]
         );
         assert_eq!(
             all_buttons_in(&no_result, false, true),
             [
-                (A::OpenAgent, Look::Primary),
+                (A::EditFlow, Look::Primary),
                 (A::RetryValidation, Look::Secondary),
                 (A::MoveOnAnyway, Look::Secondary),
             ]
@@ -1016,7 +1016,7 @@ mod tests {
             "The checker couldn\u{2019}t run claude-fable-5-1 \u{b7} not counted as a round"
         );
         assert!(!r.error);
-        assert_eq!(A::OpenAgent.label(), "Open agent\u{2026}");
+        assert_eq!(A::EditFlow.label(), "Edit flow\u{2026}");
         // Other start problems and No results: as before, no callout.
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
         assert_eq!(shown(Status::CheckNoResult), [A::RetryValidation]);
