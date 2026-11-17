@@ -135,6 +135,11 @@ const SUBMIT_PAUSE: Duration = Duration::from_millis(80);
 /// dialog went (a key at it, the tool's next turn and its end do, and they look too).
 const DIALOG_RECHECK: Duration = Duration::from_millis(500);
 
+/// How often a session whose messages wait behind its input line, as the screen shows it, is looked at again: no
+/// signal says the program has drawn its empty line (a key its own prompt took is drawn when the program gets to it,
+/// which may be after the key's own look, [`crate::session::KEY_SETTLE`] after it).
+const LINE_RECHECK: Duration = Duration::from_millis(500);
+
 /// Queues and types deliveries. Cheap to clone.
 #[derive(Clone)]
 pub struct Deliveries {
@@ -160,6 +165,9 @@ pub struct Deliveries {
     /// The sessions whose waiting messages wait only for a dialog of the tool's own to leave the screen, each looked
     /// at again every [`DIALOG_RECHECK`] ([`Self::after_dialog`]).
     behind_dialog: Arc<Mutex<HashSet<String>>>,
+    /// The sessions whose waiting messages wait for their input line to read empty, each looked at again every
+    /// [`LINE_RECHECK`] ([`Self::after_line`]).
+    behind_line: Arc<Mutex<HashSet<String>>>,
     /// The permission prompts on tickets' sessions' screens their tools told of (the board's,
     /// [`Self::with_session_prompts`]).
     session_prompts: SessionPrompts,
@@ -185,6 +193,7 @@ impl Deliveries {
             lines: Arc::default(),
             task_skills: Arc::default(),
             behind_dialog: Arc::default(),
+            behind_line: Arc::default(),
             session_prompts: SessionPrompts::default(),
         }
     }
@@ -566,9 +575,60 @@ impl Deliveries {
     pub async fn deliver_if_ready(&self, session: &str) -> Result<usize, SessionError> {
         if !self.is_ready(session)? {
             self.after_dialog(session);
+            self.after_line(session);
             return Ok(0);
         }
         self.send_pending(session, true).await
+    }
+
+    /// The session would be ready but for its input line, which reads as holding text: its waiting messages go once
+    /// the line reads empty, looked at every [`LINE_RECHECK`] while the agent stays idle and something waits. The
+    /// screen may not show the line as it is yet: a key a prompt of the program's own took (a menu's `y`) leaves the
+    /// line empty only once the program has closed the prompt and drawn its input line again, which a slow or busy
+    /// program does after the key's own look. Text a person left in the line stays, and the messages wait for it as
+    /// before. One look at a time per session.
+    fn after_line(&self, session: &str) {
+        if !self.behind_line_now(session)
+            || !self
+                .behind_line
+                .lock()
+                .expect("behind line")
+                .insert(session.to_owned())
+        {
+            return;
+        }
+        let this = self.clone();
+        let session = session.to_owned();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(LINE_RECHECK).await;
+                let waiting = this.pending(&session).await.is_ok_and(|p| !p.is_empty());
+                if !waiting || !this.behind_line_now(&session) {
+                    break;
+                }
+            }
+            this.behind_line
+                .lock()
+                .expect("behind line")
+                .remove(&session);
+            // As after a dialog: asked after the removal, so a delivery queued meanwhile isn't left behind.
+            if !this.pending(&session).await.is_ok_and(|p| !p.is_empty()) {
+                return;
+            }
+            if let Err(e) = this.deliver_if_ready(&session).await {
+                tracing::warn!(session, error = %e, "delivery failed");
+            }
+        });
+    }
+
+    /// Whether only the session's input line keeps its waiting messages from being typed now: it runs, its agent is
+    /// idle, no dialog of the tool's own is on screen ([`Self::after_dialog`] looks then), and the line reads as
+    /// holding text.
+    fn behind_line_now(&self, session: &str) -> bool {
+        self.sessions.info(session).is_ok_and(|i| i.is_running())
+            && self.idle.is_idle(session)
+            && !self.sessions.shows_dialog(session)
+            && self.sessions.has_unsent_input(session).unwrap_or(false)
     }
 
     /// Whether the session's waiting messages wait for a dialog of its tool's own to leave the screen, looked at again
