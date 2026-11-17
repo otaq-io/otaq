@@ -38,7 +38,7 @@ this: you talk to it to make tickets.
   from the board, not found through a menu.
 - **UX-2 · One "check" concept.** Agent check, your check, Validate and Review are all check stages, done by an agent
   or by you; Review is your check at the end. "Validator", "Verifier" and "check agent" become "checker".
-- **UX-3 · Fewer agent words.** "Tool" = the installed program (Claude Code, Codex, Copilot, OpenCode), named only in
+- **UX-3 · Fewer agent words.** *(Named agents superseded by UX-65.)* "Tool" = the installed program (Claude Code, Codex, Copilot, OpenCode), named only in
   setup. "Agent" = a named agent (tool + model + instructions). Roles go: each stage names its agent. Helpers stay
   inside the ticket. Noyan is the agent you talk to, not a role.
 - **UX-4 · No name collisions.** Title bar Activity → "Running"; ticket Activity tab → "History"; ticket Files tab →
@@ -68,11 +68,11 @@ a ticket's own agent for a stage (UX-11) · warm builds · ticket resources · m
   you and your machine. Needs you stays on the board as the strip, with rail dots and ⌘J across projects. (Rejected:
   B, a cross-project Home for answering/review/starting, which would bring back the Inbox; C, a list-first project
   view, which buries the flow.)
-- **UX-9 · Agents are defined once, globally,** on one Agents page in app settings (connected tools at the top, then
+- **UX-9 · Agents are defined once, globally,** *(superseded by UX-65)* on one Agents page in app settings (connected tools at the top, then
   your agents: tool + model + instructions). Each stage of a project's flow names its agent; a ticket may override it
   (UX-11). There are no role defaults and no per-project overrides. Noyan's agent is set on the Agents page and can be
   switched when starting a conversation.
-- **UX-10 · Settings rule:** app settings = you and your machine; project settings = this repository.
+- **UX-10 · Settings rule:** *(its Agents page becomes Tools: UX-65)* app settings = you and your machine; project settings = this repository.
   - App settings: Agents (tools · agents · Noyan's agent) · Limits & usage · Notifications · Appearance (theme,
     terminal font) · Keyboard · Data (where data lives, Cleanup) · About (version, updates, licence, PATH).
   - Project settings, one page in this order: Flow (stages and their agents; same editor as Edit flow) · Repository
@@ -83,7 +83,7 @@ a ticket's own agent for a stage (UX-11) · warm builds · ticket resources · m
 
 ## Gap review (agreed 2026-11-07)
 
-- **UX-11 · A ticket can override a stage's agent,** in the smallest form: only you set it (agents never change
+- **UX-11 · A ticket can override a stage's agent,** *(superseded by UX-65: no per-ticket model or effort)* in the smallest form: only you set it (agents never change
   another stage's agent; that feature goes); one optional field per stage in the ticket form, empty by default ("uses
   the stage's agent"); shown as one line on the ticket only when set ("Dev: Light instead of Strong"); editable until
   that stage starts, then read-only. No change lines, no Path, no lock concept.
@@ -360,3 +360,55 @@ These refine UX-10 and UX-13 and replace A35's "Deliver as" as drawn, A44's GitH
   tool's own questions in Otaq (Claude Code's built-in question tool, which can be multi-select, and the other tools'
   equivalents). They stay in the tool's terminal with "Answer in terminal"; that comes later, one tool at a time,
   starting with Claude Code.
+
+## Agents inside the flow (agreed 2026-11-16, canvas page "Agents inside the flow · idea", af-01…af-03)
+
+- **UX-65 · There are no named agents: a stage says who does it (replaces UX-3's named agent, UX-9 and UX-11; refines
+  UX-10).** A stage an agent works or checks has three choices in its panel in Edit flow, under "Who does it":
+  **Model** (a tool and one of its models), **Effort** and **Skill** (UX-26 unchanged). This is the only place they
+  change; the flow file holds them on the stage. Reuse comes from the model menu (the model-and-effort pairs other
+  flows use, on top), Same as <project> and imported flow files (which copy model, effort and skill with the stages).
+  A ticket can't pick its own model or effort; the New ticket form has no Stages section. App settings' Agents page
+  becomes **Tools**: the tools on this Mac, the model Noyan uses, and where each tool is used (read-only). Cards name
+  the tool where they named the agent; the ticket's Session tab shows tool, model and effort. A stage whose tool isn't
+  set up is marked in Edit flow, and tickets wait there until the tool is set up or another model is picked.
+  Migration: UX-71…UX-74.
+- **UX-67 · A stage keeps optional instructions (canvas af-01, as drawn).** The stage panel has "Instructions ·
+  optional" under Who does it; they are added to the stage's skill for every ticket at that stage, travel in the flow
+  file, and are copied by Same as <project> and imported flow files. What holds for the whole repository stays in the
+  project's Notes for agents.
+- **UX-68 · Each tool's model menu starts with `default` (canvas af-01, as drawn).** `default` is whatever the user's
+  account for that tool is set to, as today. Shipped flows use it ("default · high"), so a new project needs no
+  picking; any stage can be changed after.
+- **UX-69 · Done has a model, which only writes the pull request (canvas af-02 A-5; keeps UX-24).** Clicking Done in
+  Edit flow shows Deliver as and When, then the model, effort and optional instructions used to write the PR's
+  description; the Done tile shows the model. It travels in the flow file. A merge conflict or a failed merge check is
+  **not** fixed by it: UX-24 and UX-44 hold, so the ticket goes back to the nearest earlier agent stage, whose session
+  fixes it. (The canvas's A-5 text and rules panel say Done's model fixes them; that part is not agreed.) As today,
+  when Done's model and effort are the same as the last agent stage's and Done has no instructions of its own, that
+  stage's session writes the PR (it has the context); otherwise a session on Done's model does.
+- **UX-70 · Noyan starts on a default model and can switch for one conversation (canvas af-02 A-6, A-8).** Settings →
+  Tools sets "Noyan starts on" (model and effort) for new conversations. The Noyan panel's header shows the model and
+  switches it for this conversation only; the next one starts on the default again. The switch works before the
+  conversation's first message; once it has started, the header shows the model read-only and a new conversation is
+  how to change it (one tool's session can't carry on in another tool).
+- **UX-66 · Helpers run on their stage's model.** A Plan's helpers (pieces) use the same model and effort as the stage
+  whose agent orchestrates them; there is no separate helper choice.
+- **UX-71 · Migration: each stage takes its agent's settings (2026-11-16).** On update, every stage that names an
+  agent gets that agent's model, effort and instructions written onto the stage, and the delivery step gets its
+  agent's the same way (UX-69). Two stages naming the same agent each get their own copy. It happens silently, with no
+  prompt or note, and nothing changes in how tickets run.
+- **UX-72 · Migration: per-ticket overrides are dropped (2026-11-16).** A ticket's override of a stage's agent (UX-11)
+  is discarded on update; the ticket uses the stage's model, effort and instructions like every other ticket.
+- **UX-73 · Migration: older flow files are converted on import (2026-11-16).** Import and Start from… still read a
+  flow file with a top-level `agents:` list and stages naming an agent, converting it as UX-71 does. Saving or
+  exporting always writes the new shape (model, effort and instructions on the stage).
+- **UX-74 · Migration: Noyan's agent becomes its starting model (2026-11-16).** The model and effort of the agent Noyan
+  uses become "Noyan starts on" in Settings → Tools (UX-70); its instructions are dropped, and Noyan's behaviour comes
+  from its skills. Agents that no stage, delivery step or Noyan uses are dropped with the Agents page.
+- **UX-75 · Effort follows the model (2026-11-16, not drawn on the canvas).** The Effort switch greys the levels the
+  picked model doesn't offer (Otaq knows effort levels per tool, not per model, so in practice per tool); a tool with
+  no effort setting (OpenCode) hides the switch. `default` is a tool's default (UX-68), so its tool's levels apply
+  ("default · high"). When a new model doesn't offer the
+  stage's effort, the stage takes the nearest level it does offer. There is no "change every stage's model at once":
+  the model menu's pairs make it a click per stage.

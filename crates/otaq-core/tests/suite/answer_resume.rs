@@ -435,7 +435,9 @@ async fn resume_target_is_refused_only_by_the_conversations_tool() {
 }
 
 /// An OpenCode target held by OpenCode's limit: the route's tick reads the conversation's tool from history and
-/// never runs `opencode` to ask whether the conversation is still there.
+/// never runs `opencode` to ask whether the conversation is still there. Unix only: the stand-in `opencode` is a shell
+/// script.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_held_opencode_target_doesnt_run_opencode_on_the_tick() {
     let bin = TempDir::new().unwrap();
