@@ -2493,7 +2493,15 @@ async fn tell_running_agent(shared: &Shared, key: &str, n: u32) {
     let Ok(ticket) = shared.board.ticket(key).await else {
         return;
     };
-    let kind = crate::board::ticket_comments::told_session_kind(ticket.status);
+    let at_check = match shared
+        .board
+        .effective_flow(ticket.key.project.as_str())
+        .await
+    {
+        Ok(flow) => crate::agents::facts::at_agent_check(&ticket, &flow),
+        Err(_) => false,
+    };
+    let kind = crate::board::ticket_comments::told_session_kind(ticket.status, at_check);
     let Some(session) = shared.sessions.running_of(&ticket.id, kind) else {
         return;
     };

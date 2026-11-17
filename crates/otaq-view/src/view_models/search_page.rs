@@ -448,6 +448,7 @@ mod tests {
             starts: None,
             refused_stage: None,
             stage_agent: agent.map(Into::into),
+            at_check: false,
         };
         let agents = BoardAgents {
             cards: vec![

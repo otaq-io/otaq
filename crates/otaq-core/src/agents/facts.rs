@@ -180,6 +180,10 @@ pub struct CardAgents {
     /// that runs no agent. The search's `by:` reads it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage_agent: Option<String>,
+    /// The ticket is in an agent check stage of its project's flow ([`at_agent_check`]): the check, not the developer,
+    /// has it, also while it waits for its tool's limit or was interrupted (C3c). The card names the check's tool.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub at_check: bool,
     /// The stages the user chose to skip for this ticket, by name, in flow order: the card's "Skips Product spec".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skips: Vec<String>,
@@ -391,6 +395,7 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
             starts,
             refused_stage,
             stage_agent,
+            at_check: at_agent_check(&ticket, &flow),
             skips,
             key: ticket.key,
         });
@@ -399,6 +404,18 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
         cards,
         connected: Vec::new(),
     })
+}
+
+/// Whether `ticket` is in an agent check stage of `flow` (C3c): the check has it, whatever its status says (Checking,
+/// a check that ended without passing, or one waiting for its tool's limit or interrupted). A ticket sent back to an
+/// Agent stage is in that stage, not here.
+pub fn at_agent_check(ticket: &Ticket, flow: &Flow) -> bool {
+    matches!(ticket.place, Place::InStage(_))
+        && ticket
+            .place
+            .stage()
+            .and_then(|id| flow.stage(id))
+            .is_some_and(|s| s.is_agent_check())
 }
 
 /// The tool the stage `ticket` is in runs on ([`CardAgents::stage_agent`]), by its name.

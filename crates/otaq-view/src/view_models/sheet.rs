@@ -214,11 +214,15 @@ fn next_stage<'a>(ticket: &Ticket, path: &'a [PathStage]) -> Option<&'a PathStag
     }
 }
 
-/// Who is on the ticket: the check stage's tool while an ended check holds it (C3c), else the agent on it now (its
-/// running session), else the agent its next stage runs, else the last one that ran; `None` when no one can be named.
+/// Who is on the ticket: the check stage's tool while the check has it (C3c: in an agent check stage under any status,
+/// its checker waiting for its tool's limit included, or a check that ended without passing), else the agent on it now
+/// (its running session), else the agent its next stage runs, else the last one that ran; `None` when no one can be
+/// named.
 fn assignee(f: &DetailFacts) -> Option<String> {
     let agents = f.agents?;
-    if crate::view_models::card::check_holds(f.ticket.status) {
+    let in_check = matches!(f.ticket.place, Place::InStage(_))
+        && next_stage(f.ticket, &agents.path).is_some_and(|s| s.kind == PathKind::AgentCheck);
+    if in_check || crate::view_models::card::check_holds(f.ticket.status) {
         let stage_tool = next_stage(f.ticket, &agents.path)
             .filter(|s| s.kind == PathKind::AgentCheck)
             .and_then(|s| s.who.as_ref())
@@ -839,6 +843,22 @@ mod tests {
             .unwrap();
         validate.who.as_mut().unwrap().model = AgentModel::Default;
         assert!(line(&t, &agents).contains("\u{b7} Codex \u{b7}"));
+        // Its checker waits for its tool's plan limit in Validate (R7): still the check's tool, though Dev's session
+        // runs.
+        let validate = agents
+            .path
+            .iter_mut()
+            .find(|s| s.stage_id == "validate")
+            .unwrap();
+        validate.who.as_mut().unwrap().model = AgentModel::Tool {
+            tool: CODEX,
+            model: Some("gpt-5.5".into()),
+        };
+        t.status = Status::WaitingForLimitReset;
+        assert_eq!(
+            line(&t, &agents),
+            "In Validate \u{b7} Codex \u{b7} started by you 1 min ago"
+        );
         // Working again: the developer's session.
         t.status = Status::Working;
         t.place = Place::InStage("dev".into());

@@ -1073,6 +1073,10 @@
     "CardAgents": {
       "kind": "struct",
       "fields": {
+        "at_check": {
+          "ty": "bool",
+          "omittable": true
+        },
         "holds": {
           "ty": "Vec<CardHold>"
         },

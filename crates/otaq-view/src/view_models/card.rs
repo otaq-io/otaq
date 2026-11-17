@@ -186,6 +186,8 @@ pub struct AgentFacts {
     pub refused_stage: Option<String>,
     /// The tool the stage the ticket is in or waits before runs on.
     pub stage_agent: Option<String>,
+    /// The ticket is in an agent check stage of its flow: the check, not the developer, has it (C3c).
+    pub at_check: bool,
     /// The stages the user chose to skip for the ticket, by name.
     pub skips: Vec<String>,
 }
@@ -204,6 +206,7 @@ impl AgentFacts {
             starts: card.starts.clone(),
             refused_stage: card.refused_stage.clone(),
             stage_agent: card.stage_agent.clone(),
+            at_check: card.at_check,
             skips: card.skips.clone(),
         }
     }
@@ -2159,8 +2162,11 @@ pub fn who(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<String> {
     };
     match status {
         Status::Checking | Status::CheckerNeedsYou => named(&a.running_validator, &a.validator_on),
-        // The check holds it (C3c): the check stage's tool, not the developer's live session.
-        _ if check_holds(status) => a.stage_agent.clone(),
+        // The check has it (C3c): the check stage's tool, not the developer's live session.
+        _ if check_has_it(status, x) => a
+            .stage_agent
+            .clone()
+            .or_else(|| named(&a.running_validator, &a.validator_on)),
         _ if a.running_developer.is_some() => named(&a.running_developer, &a.developer_on),
         _ if ticket.place.is_waiting() => a.starts.as_ref().map(|s| match &s.model {
             Some(model) => tool_word(model.tool).to_owned(),
@@ -2182,10 +2188,18 @@ pub fn check_holds(status: Status) -> bool {
     matches!(status, Status::CheckNoResult | Status::CheckFailed)
 }
 
+/// The check, not the developer, has the ticket (C3c): a check that ended without passing ([`check_holds`]), or the
+/// ticket is in an agent check stage under any status, its checker waiting for its tool's limit or interrupted
+/// included. A ticket sent back to Dev is in Dev: the developer has it.
+pub fn check_has_it(status: Status, x: &CardExtras) -> bool {
+    check_holds(status) || x.agents.at_check
+}
+
 /// Whose avatar the head shows (*Has the turn*): the validator while the ticket validates, the validator asks or
 /// its round is held, the check stage's tool while the check holds it ([`check_holds`]), else the developer.
 fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarView> {
-    if check_holds(status) {
+    if check_has_it(status, x) && held(ticket, status, x).is_none_or(|h| h.role == Role::Validator)
+    {
         return x.validator.clone().or_else(|| {
             let name = x.agents.stage_agent.as_deref()?;
             let tool = otaq_core::agent_tools::Tool::ALL
@@ -6191,6 +6205,7 @@ mod tests {
             starts: None,
             refused_stage: None,
             stage_agent: None,
+            at_check: false,
             skips: Vec::new(),
         };
         let board = |connected: Vec<Tool>| BoardAgents {
@@ -6251,6 +6266,7 @@ mod tests {
             starts: None,
             refused_stage: Some("validate".into()),
             stage_agent: Some("Codex".into()),
+            at_check: false,
             skips: Vec::new(),
         };
         let key: TicketKey = "SHOP-4".parse().unwrap();
@@ -6280,6 +6296,94 @@ mod tests {
         );
     }
 
+    /// C3c: a ticket is the check's while it is in an agent check stage of its flow, whatever its status; not in an
+    /// Agent stage, a check of yours, or waiting before a stage.
+    #[test]
+    fn a_ticket_in_an_agent_check_stage_is_the_checks() {
+        use otaq_core::agents::facts::at_agent_check;
+        use otaq_core::domain::Place;
+        let flow = &otaq_core::flow::default_file().flow;
+        let mut t = ticket(
+            "SHOP-3",
+            "Fix the broken docs link",
+            Status::WaitingForLimitReset,
+        );
+        let at = |t: &Ticket, place: Place| {
+            let mut t = t.clone();
+            t.place = place;
+            at_agent_check(&t, flow)
+        };
+        assert!(at(&t, Place::InStage("validate".into())));
+        t.status = Status::Working;
+        assert!(!at(&t, Place::InStage("dev".into())));
+        assert!(!at(&t, Place::InStage("review".into())), "a check of yours");
+        assert!(!at(&t, Place::Waiting(Some("dev".into()))));
+    }
+
+    /// C3c follow-up (Windows VM, R7): in an agent check stage the check has the ticket under any status, so a checker
+    /// waiting for its tool's plan limit names the check's tool ("CX Codex"), not the developer's live session; the
+    /// same ticket back in Dev (sent back, not in the check) names the developer.
+    #[test]
+    fn a_check_waiting_for_its_tools_limit_names_the_checks_tool() {
+        use crate::view_models::card_page::TicketCardView;
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::facts::{CardAgents, RunsOnTool};
+        let at_validate = CardAgents {
+            key: "SHOP-3".parse().unwrap(),
+            running_developer: Some("Claude Code".into()),
+            running_validator: Some("Codex".into()),
+            running_developer_on: Some(RunsOnTool {
+                tool: Tool::Claude,
+                model: None,
+                passed: None,
+            }),
+            running_validator_on: Some(RunsOnTool {
+                tool: Tool::Codex,
+                model: Some("gpt-5.5".into()),
+                passed: None,
+            }),
+            holds: Vec::new(),
+            starts: None,
+            refused_stage: None,
+            stage_agent: Some("Codex".into()),
+            at_check: true,
+            skips: Vec::new(),
+        };
+        let in_dev = CardAgents {
+            running_validator: None,
+            running_validator_on: None,
+            stage_agent: Some("Claude Code".into()),
+            at_check: false,
+            ..at_validate.clone()
+        };
+        let key: TicketKey = "SHOP-3".parse().unwrap();
+        let face = |card: &CardAgents, status| {
+            let x = main_project().with_agents(
+                &BoardAgents {
+                    cards: vec![card.clone()],
+                    connected: vec![Tool::Claude, Tool::Codex],
+                },
+                &key,
+            );
+            let t = ticket("SHOP-3", "Fix the broken docs link", status);
+            let view = TicketCardView::of(&t, &x, NOW);
+            let head = CardViewModel::from(&t, &x, NOW).avatar.map(|a| a.letters);
+            (view.who, head)
+        };
+        let codex = (Some("Codex".to_owned()), Some("CX".to_owned()));
+        let claude = (Some("Claude Code".to_owned()), Some("CC".to_owned()));
+        for status in [
+            Status::WaitingForLimitReset,
+            Status::Interrupted,
+            Status::Checking,
+        ] {
+            assert_eq!(face(&at_validate, status), codex, "{status:?}");
+        }
+        for status in [Status::Working, Status::WaitingForLimitReset] {
+            assert_eq!(face(&in_dev, status), claude, "{status:?}");
+        }
+    }
+
     /// A-9, UX-65: a card names the tool where it named the agent ("Claude Code · 26m"), and the model stays off
     /// the card, a session an older agent started included; the checker's tool while it checks, the tool a waiting
     /// ticket starts on; with one tool connected it names none (d0086).
@@ -6307,6 +6411,7 @@ mod tests {
             starts: None,
             refused_stage: None,
             stage_agent: Some("Claude Code".into()),
+            at_check: false,
             skips: Vec::new(),
         };
         let board = |card: &CardAgents, connected: Vec<Tool>| BoardAgents {

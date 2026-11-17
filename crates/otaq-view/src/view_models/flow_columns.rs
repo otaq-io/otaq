@@ -329,6 +329,7 @@ pub mod held_fixture {
                 }),
                 refused_stage: None,
                 stage_agent: Some("Developer".into()),
+                at_check: false,
             }],
             connected: Vec::new(),
         }

@@ -1139,6 +1139,7 @@ mod tests {
             }),
             refused_stage: None,
             stage_agent: None,
+            at_check: false,
         };
         let agents = BoardAgents {
             cards: vec![
@@ -1237,6 +1238,7 @@ mod tests {
             }),
             refused_stage: None,
             stage_agent: None,
+            at_check: false,
         };
         let agents = BoardAgents {
             cards: vec![card("SHOP-35", Some("Dev"))],

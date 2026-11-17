@@ -176,6 +176,7 @@ pub fn agents() -> BoardAgents {
         starts: None,
         refused_stage: None,
         stage_agent: None,
+        at_check: false,
         skips: Vec::new(),
     };
     let working = |key: &str, agent: &str| CardAgents {
