@@ -369,9 +369,9 @@ describe("the header", () => {
 
 const LIMITS = {
   title: "Agent limits",
-  max_agents: { label: "Max agents running at once", value: 1, can_lower: false, can_raise: true },
+  max_agents: { label: "Max agents at once", value: 1, can_lower: false, can_raise: true },
   back_pressure: {
-    label: "Don’t start new tickets while Needs you has",
+    label: "Hold new starts when Needs you reaches",
     value: 3,
     can_lower: true,
     can_raise: true,
@@ -537,7 +537,7 @@ describe("the Activity popover", () => {
     const out = renderToStaticMarkup(createElement(LimitsBody, { view: LIMITS, onStep: () => undefined }));
     expect(out).toContain('aria-label="Fewer" disabled=""');
     // Q450: the back-pressure setting never says "Pause" (0112's).
-    expect(out).toContain("Don’t start new tickets while Needs you has");
+    expect(out).toContain("Hold new starts when Needs you reaches");
     expect(out.match(/disabled=""/g)).toHaveLength(1);
   });
 });
