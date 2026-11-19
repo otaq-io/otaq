@@ -63,17 +63,16 @@ impl Stepper {
 
 /// The back-pressure setting's label, before its number, in Settings and in the popover (SCH-03; never "Pause",
 /// which is 0112's, Q450).
-pub const BACK_PRESSURE: &str = "Don\u{2019}t start new tickets while Needs you has";
+pub const BACK_PRESSURE: &str = "Hold new starts when Needs you reaches";
+
+/// The max-agents setting's label, before its number, in Settings and in the popover.
+pub const MAX_AGENTS_LABEL: &str = "Max agents at once";
 
 /// The popover for `limits`.
 pub fn popover(limits: &AgentLimits) -> Popover {
     Popover {
         title: "Agent limits",
-        max_agents: Stepper::new(
-            "Max agents running at once",
-            limits.max_concurrency,
-            &MAX_AGENTS,
-        ),
+        max_agents: Stepper::new(MAX_AGENTS_LABEL, limits.max_concurrency, &MAX_AGENTS),
         back_pressure: Stepper::new(BACK_PRESSURE, limits.back_pressure, &BACK_PRESSURE_ITEMS),
         note: "Started tickets wait for a free agent. Nothing that is already running is stopped.",
     }
@@ -186,21 +185,17 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
             enabled: true,
         },
         LimitRow {
-            label: "Run at most",
+            label: MAX_AGENTS_LABEL,
             description: if on {
-                "Agents at once, across all projects. Running shows “3/5 agents”. An agent waiting for you keeps its slot until you answer or move its ticket on."
+                "Each agent session uses memory on your computer, so we recommend a number your computer handles comfortably to avoid slowdowns. Across all projects, tickets past this number wait as “Waits for a free agent”. An agent waiting for your answer still counts until you answer or move its ticket on. Running shows “3/5 agents”."
             } else {
-                "Agents at once, across all projects. Suggested 5. An agent waiting for you keeps its slot until you answer or move its ticket on."
+                "Each agent session uses memory on your computer, so we recommend a number your computer handles comfortably to avoid slowdowns. Across all projects, tickets past this number wait as “Waits for a free agent”. An agent waiting for your answer still counts until you answer or move its ticket on."
             },
             enabled: on,
         },
         LimitRow {
             label: BACK_PRESSURE,
-            description: if on {
-                "Running agents are never stopped."
-            } else {
-                "Suggested 3 items. Running agents are never stopped."
-            },
+            description: "So you don\u{2019}t come back to a crowd of agents waiting for you: once Needs you reaches this many items across all projects, no new ticket starts until you clear some. Agents already working keep going.",
             enabled: on,
         },
     ]
@@ -335,23 +330,38 @@ mod tests {
                 .description
                 .starts_with("Off by default: every started ticket runs.")
         );
-        assert_eq!(
-            off[1].description,
-            "Agents at once, across all projects. Suggested 5. An agent waiting for you keeps its slot until you \
-             answer or move its ticket on."
+        assert_eq!(off[1].label, "Max agents at once");
+        assert!(
+            off[1]
+                .description
+                .starts_with("Each agent session uses memory on your computer,")
+        );
+        assert!(
+            !off[1].description.contains("Suggested") && !off[2].description.contains("Suggested"),
+            "the disabled stepper already shows the value that applies"
         );
         assert_eq!(
-            off[2].label, "Don\u{2019}t start new tickets while Needs you has",
+            off[2].label, "Hold new starts when Needs you reaches",
             "Q450: not \"Pause\", which is 0112's"
         );
         let on_rows = settings_rows(&on(5, 3));
         assert!(on_rows.iter().all(|r| r.enabled));
-        assert_eq!(on_rows[2].description, "Running agents are never stopped.");
+        assert_eq!(on_rows[2].description, off[2].description);
+        assert_eq!(
+            on_rows[2].description,
+            "So you don\u{2019}t come back to a crowd of agents waiting for you: once Needs you reaches this many \
+             items across all projects, no new ticket starts until you clear some. Agents already working keep going."
+        );
         assert!(
-            on_rows[1].description.ends_with(
-                "An agent waiting for you keeps its slot until you answer or move its ticket on."
+            on_rows[1].description.contains(
+                "An agent waiting for your answer still counts until you answer or move its ticket on."
             ),
             "decision 114"
+        );
+        assert!(
+            on_rows[1]
+                .description
+                .ends_with("Running shows “3/5 agents”.")
         );
     }
 
@@ -400,10 +410,10 @@ mod tests {
         };
         let view = popover(&limits);
         assert_eq!(view.title, "Agent limits");
-        assert_eq!(view.max_agents.label, "Max agents running at once");
+        assert_eq!(view.max_agents.label, "Max agents at once");
         assert_eq!(
             view.back_pressure.label,
-            "Don\u{2019}t start new tickets while Needs you has"
+            "Hold new starts when Needs you reaches"
         );
         assert!(!view.max_agents.can_lower && view.max_agents.can_raise);
         assert!(view.back_pressure.can_lower && !view.back_pressure.can_raise);
