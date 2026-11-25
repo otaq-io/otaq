@@ -1,7 +1,7 @@
 # 114 · The agent limit shows what holds each slot
 
 - **Date:** 2026-11-16
-- **Status:** Accepted
+- **Status:** Partly superseded by 119
 - **Related:** 113
 
 ## Summary
