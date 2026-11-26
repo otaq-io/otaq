@@ -89,6 +89,7 @@ impl Review {
             json!({}),
             actor,
             Start::User,
+            None,
         )
         .await
     }
@@ -96,8 +97,9 @@ impl Review {
     /// Resume an Interrupted ticket with `answer` as the resumed conversation's first prompt: the needs-you answer
     /// to a question asked before the restart, in one click (ATT-08, d0045).
     /// Resumes the agent's conversation of a ticket whose session is gone with `prompt` as its first prompt: a
-    /// validation's findings or "cancelled" for an agent that a restart ended (VAL-07, d0063). Its ports and the
-    /// agent limit apply as for any resume. Automatic (`start`), it waits in Queued while the project is paused.
+    /// validation's findings or "cancelled" for an agent that a restart ended (VAL-07, d0063). Its ports apply as for
+    /// any resume, but not the agent limit: it hands over from its agent check and keeps that slot ([`WaitKind::Kept`],
+    /// tuq decision 119). Automatic (`start`), it waits in Queued while the project is paused.
     pub async fn resume_with_prompt(
         &self,
         key: &str,
@@ -114,6 +116,7 @@ impl Review {
             json!({ "for": "validation" }),
             actor,
             start,
+            Some(WaitKind::Kept),
         )
         .await
     }
@@ -152,6 +155,7 @@ impl Review {
             json!({ "answer": true }),
             actor,
             Start::User,
+            None,
         )
         .await
     }
@@ -167,6 +171,7 @@ impl Review {
             json!({ "retry": true }),
             actor,
             Start::User,
+            None,
         )
         .await
     }
@@ -212,6 +217,7 @@ impl Review {
             }),
             actor,
             Start::User,
+            None,
         )
         .await
     }
@@ -289,6 +295,7 @@ impl Review {
         mut payload: serde_json::Value,
         actor: &Actor,
         start: Start,
+        kept: Option<WaitKind>,
     ) -> Result<Ticket, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
@@ -302,7 +309,10 @@ impl Review {
                 format!("{} already has a running agent session", ticket.key),
             ));
         }
-        let full = self.limit_full().await?;
+        // A Validate Fail resuming the agent whose session is gone hands over between two Agent stages: it keeps the
+        // slot its check held (119), so it never waits behind it. The user's own clicks wait while the limit is full.
+        let wait = kept.unwrap_or_else(|| WaitKind::after(ticket.status, Cause::Flow));
+        let full = kept.is_none() && self.limit_full().await?;
         let waits_before = self.waits_before(ticket).await?;
         let now = now_ms();
         // Resume and Retry keep the first prompt that never arrived (a Send back's skill, a needs-you answer) and send
@@ -326,7 +336,7 @@ impl Review {
         .bind(scratch)
         .bind(prompt)
         .bind(scratch)
-        .bind_queued(true, now, WaitKind::after(ticket.status, Cause::Flow))
+        .bind_queued(true, now, wait)
         .bind(actor.to_string())
         .bind(now)
         .bind(Status::Queued.as_str())

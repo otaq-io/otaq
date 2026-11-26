@@ -21,7 +21,11 @@
 //! and PR Delivery sessions, [`Scheduler::busy`]), and waiting cards don't; with back-pressure
 //! reached (that many needs-you items), it starts none. Ready tickets that don't start show "Waiting for a slot".
 //! Limits only hold back **starts**: nothing running is stopped or paused, and an agent the user unblocks
-//! always continues. Settings changes wake the scheduler, so they apply at once.
+//! always continues. **A hand-over between two Agent stages is not a start** (tuq decision 119): a ticket that left
+//! a slot holder for the wait before the next Agent stage, forward or back ([`WaitKind::Kept`]), keeps its slot while
+//! it waits ([`slot_holders`]) and starts whatever the free slots, a lowered Max or back-pressure, so a lowered Max
+//! can be overshot by kept tickets only. A pause or a waiting flow change still holds it, slot and all. Settings
+//! changes wake the scheduler, so they apply at once.
 //!
 //! **Per-tool holds** (SCH-04 `[M23]`, USG-10; d0086): the scheduler holds nothing itself. Each start runs the check
 //! before every launch ([`crate::agents::gate`]), so only a ticket whose agent would use a tool at its limit or
@@ -51,6 +55,7 @@ use crate::board::order::{ready_since, start_order};
 use crate::board::readiness::{ReadyState, readiness};
 use crate::board::settings::AgentLimits;
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
+use crate::board::wait::WaitKind;
 use crate::board::{Board, BoardError};
 use crate::domain::{Actor, StartStep, Status, TicketKey};
 use crate::flow::apply::Hold;
@@ -173,9 +178,9 @@ pub fn stock_limit<'a>(
         .max(1)
 }
 
-/// How many agents hold a slot: tickets in [`HOLDS_A_SLOT`] plus `busy`, the ids of tickets with a live agent
-/// session their status doesn't show: their start is running, or a PR Delivery session works on them
-/// ([`Scheduler::busy`]). One slot per ticket.
+/// How many agents hold a slot: tickets in [`HOLDS_A_SLOT`], [`kept`] tickets handing over between two Agent stages,
+/// plus `busy`, the ids of tickets with a live agent session their status doesn't show: their start is running, or a
+/// PR Delivery session works on them ([`Scheduler::busy`]). One slot per ticket.
 pub fn running_count(tickets: &[Ticket], busy: &HashSet<String>) -> usize {
     slot_holders(tickets, busy).count()
 }
@@ -187,7 +192,14 @@ pub fn slot_holders<'a>(
 ) -> impl Iterator<Item = &'a Ticket> + 'a {
     tickets
         .iter()
-        .filter(|t| HOLDS_A_SLOT.contains(&t.status) || busy.contains(&t.id))
+        .filter(|t| HOLDS_A_SLOT.contains(&t.status) || kept(t) || busy.contains(&t.id))
+}
+
+/// Whether the ticket waits between two Agent stages and keeps its slot through the hand-over (tuq decision 119;
+/// tech spec slot-between-stages, architecture decision 3): it holds the slot while it waits, and starts whatever
+/// the free slots or back-pressure.
+pub fn kept(ticket: &Ticket) -> bool {
+    scheduled(ticket) && ticket.wait_kind == WaitKind::Kept
 }
 
 /// Why a ticket holds a slot its status doesn't show ([`Scheduler::busy`]).
@@ -290,6 +302,13 @@ pub fn plan_with(
             ReadyState::Ready => ready.push(ticket),
         }
     }
+    // A hand-over between two Agent stages is not a start (119): a kept ticket already holds its slot (it counts in
+    // `running`), so it starts whatever the free slots, a lowered Max or back-pressure.
+    let (kept_ready, mut ready): (Vec<&Ticket>, Vec<&Ticket>) =
+        ready.into_iter().partition(|t| kept(t));
+    for ticket in kept_ready {
+        start(&mut plan, ticket);
+    }
     // Pinned → priority 1→4 → ready the longest (d0065).
     ready.sort_by_cached_key(|t| start_order(t, tickets));
     let slots = gate
@@ -297,19 +316,23 @@ pub fn plan_with(
         .unwrap_or(usize::MAX);
     for (i, ticket) in ready.into_iter().enumerate() {
         if i < slots {
-            // A ticket whose closed parent was unlinked starts from Queued.
-            if ticket.status == Status::ParentClosed {
-                change(&mut plan, ticket, Status::Queued);
-            }
-            plan.start.push(ToStart {
-                id: ticket.id.clone(),
-                key: ticket.key.clone(),
-            });
+            start(&mut plan, ticket);
         } else {
             change(&mut plan, ticket, Status::WaitingForSlot);
         }
     }
     plan
+}
+
+fn start(plan: &mut Plan, ticket: &Ticket) {
+    // A ticket whose closed parent was unlinked starts from Queued.
+    if ticket.status == Status::ParentClosed {
+        change(plan, ticket, Status::Queued);
+    }
+    plan.start.push(ToStart {
+        id: ticket.id.clone(),
+        key: ticket.key.clone(),
+    });
 }
 
 fn change(plan: &mut Plan, ticket: &Ticket, to: Status) {

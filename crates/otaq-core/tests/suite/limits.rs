@@ -3,7 +3,7 @@
 
 use crate::common;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,7 +14,8 @@ use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
 use otaq_core::board::wait::WaitKind;
 use otaq_core::domain::{Actor, Flags, Priority, Status, TicketKey};
 use otaq_core::scheduler::{
-    Busy, Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, running_count, slot_holders,
+    Busy, Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, plan_holding, running_count,
+    slot_holders,
 };
 use otaq_core::service::EventBus;
 
@@ -358,6 +359,101 @@ async fn a_send_back_from_review_while_full_waits_first_in_line() {
     }
     assert_eq!(w.status("SHOP-1").await, Status::Working);
     w.stop().await;
+}
+
+/// A ticket waiting between two Agent stages ([`WaitKind::Kept`]).
+fn kept(key: &str, status: Status, queued_at: i64) -> Ticket {
+    Ticket {
+        wait_kind: WaitKind::Kept,
+        ..t(key, status, queued_at)
+    }
+}
+
+/// Tuq decision 119: a kept ticket holds its slot while it waits, so with Max 1 it starts and an older ticket waiting
+/// to begin waits for a slot; it would have gone first by age alone.
+#[test]
+fn a_kept_ticket_holds_its_slot_and_starts_ahead_of_an_older_one() {
+    let tickets = [
+        t("SHOP-1", Status::WaitingForSlot, 0),
+        kept("SHOP-2", Status::Queued, 50),
+    ];
+    assert_eq!(running_count(&tickets, &HashSet::new()), 1);
+    let holders: Vec<String> = slot_holders(&tickets, &HashSet::new())
+        .map(|t| t.key.to_string())
+        .collect();
+    assert_eq!(holders, ["SHOP-2"]);
+    let pass = plan(&tickets, &HashSet::new(), &on(1, 3, 0));
+    let keys: Vec<String> = pass.start.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-2"]);
+    assert!(pass.changes.is_empty(), "SHOP-1 stays waiting for a slot");
+    // A kept ticket marked Waiting for a slot (before 119) holds and starts the same.
+    let tickets = [
+        t("SHOP-1", Status::Queued, 0),
+        kept("SHOP-2", Status::WaitingForSlot, 50),
+    ];
+    assert_eq!(started(&tickets, &on(1, 3, 0)), ["SHOP-2"]);
+    // A kept ticket's slot is the only one it takes: with Max 2 the older ticket starts beside it.
+    assert_eq!(started(&tickets, &on(2, 3, 0)), ["SHOP-2", "SHOP-1"]);
+}
+
+/// Tuq decision 119: a hand-over is not a start, so neither back-pressure nor a Max lowered below the count holds a
+/// kept ticket back; the tickets waiting to begin still wait.
+#[test]
+fn a_kept_ticket_starts_with_back_pressure_reached_or_max_lowered() {
+    let tickets = [
+        t("SHOP-1", Status::Working, 0),
+        t("SHOP-2", Status::Working, 0),
+        kept("SHOP-3", Status::Queued, 30),
+        t("SHOP-4", Status::Queued, 10),
+    ];
+    // Back-pressure reached (5 needs-you items, 3 allowed), with slots to spare.
+    let pass = plan(&tickets, &HashSet::new(), &on(5, 3, 5));
+    let keys: Vec<String> = pass.start.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-3"]);
+    let waiting: Vec<(String, Status)> = pass
+        .changes
+        .iter()
+        .map(|c| (c.key.to_string(), c.to))
+        .collect();
+    assert_eq!(waiting, [("SHOP-4".into(), Status::WaitingForSlot)]);
+    // Max lowered to 1 with 3 holding a slot: the count goes over Max by the kept ticket only.
+    assert_eq!(running_count(&tickets, &HashSet::new()), 3);
+    assert_eq!(started(&tickets, &on(1, 3, 0)), ["SHOP-3"]);
+}
+
+/// Architecture decision 3: a paused project's kept ticket doesn't start, yet keeps holding its slot, so another
+/// project's ticket waits for a slot.
+#[test]
+fn a_kept_ticket_in_a_paused_project_is_held_and_counted() {
+    let tickets = [
+        kept("SHOP-1", Status::Queued, 10),
+        t("BILL-1", Status::Queued, 0),
+    ];
+    let paused = HashSet::from(["SHOP".to_owned()]);
+    let pass = plan_holding(
+        &tickets,
+        &HashSet::new(),
+        &on(1, 3, 0),
+        &HashMap::new(),
+        &paused,
+    );
+    assert!(pass.start.is_empty());
+    let waiting: Vec<(String, Status)> = pass
+        .changes
+        .iter()
+        .map(|c| (c.key.to_string(), c.to))
+        .collect();
+    assert_eq!(waiting, [("BILL-1".into(), Status::WaitingForSlot)]);
+    // With a second slot, BILL-1 starts: SHOP-1 holds only its own.
+    let pass = plan_holding(
+        &tickets,
+        &HashSet::new(),
+        &on(2, 3, 0),
+        &HashMap::new(),
+        &paused,
+    );
+    let keys: Vec<String> = pass.start.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(keys, ["BILL-1"]);
 }
 
 #[test]
