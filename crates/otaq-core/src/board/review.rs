@@ -16,12 +16,13 @@ use serde_json::json;
 
 use super::hand_over::HandOver;
 use super::tickets::{EventKind, Ticket, record_event};
+use super::wait::{BindQueued, Cause, WaitKind};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, ReviewEntry, Status};
 use crate::flow::engine::Move;
 use crate::signals::LIVE;
 use crate::store::now_ms;
-use crate::store::tickets::set_state_since;
+use crate::store::tickets::{set_queued, set_state_since};
 
 /// The statuses the user can submit from: the agent isn't mid-turn (CLS-05).
 pub const USER_SUBMITS_FROM: &[Status] = &[
@@ -265,9 +266,9 @@ impl Board {
             "UPDATE tickets SET stage_id = ?, state = ?,
                                 review_head_sha = CASE WHEN ? THEN review_head_sha ELSE ? END,
                                 review_entered_at = CASE WHEN ? THEN review_entered_at ELSE ? END,
-                                review_entry = CASE WHEN ? THEN review_entry ELSE ? END,
-                                queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
-                                ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
+                                review_entry = CASE WHEN ? THEN review_entry ELSE ? END, ",
+            set_queued!(),
+            ", ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL, sent_back_at = NULL,
                                 resume_skill = NULL, conflicts_with = NULL, conflict_files = NULL,
                                 conflict_reason = NULL, pr_rework = FALSE, updated_by = ?,
@@ -285,8 +286,7 @@ impl Board {
         .bind(now)
         .bind(waits)
         .bind(entry.map(|e| e.as_str()))
-        .bind(waits)
-        .bind(now)
+        .bind_queued(waits, now, WaitKind::after(ticket.status, Cause::Flow))
         .bind(waits)
         .bind(actor.to_string())
         // The agent's wait while it fixed a delivery problem is over with the stage.
@@ -334,6 +334,7 @@ mod tests {
             status_since: None,
             queued_at: None,
             ready_since: None,
+            wait_kind: Default::default(),
             validation_round: 0,
             auto_merge_conflicts: 0,
             auto_merge_stop: None,

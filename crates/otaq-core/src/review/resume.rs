@@ -21,13 +21,14 @@ use serde_json::json;
 
 use super::Review;
 use crate::board::tickets::{EventKind, Ticket, record_event};
+use crate::board::wait::{BindQueued, Cause, WaitKind};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Status, TicketKey};
 use crate::recovery::{RETURN_RESUME, RETURN_SCRATCH, ResumeAs, resume_all_eligible, resume_as};
 use crate::session::{SessionKind, Start};
 use crate::start::StartOutcome;
 use crate::store::now_ms;
-use crate::store::tickets::set_state_since;
+use crate::store::tickets::{set_queued, set_state_since};
 
 /// "Start SHOP-25 from scratch? …": what Start from scratch keeps and what it doesn't.
 pub fn start_from_scratch_message(key: &str) -> String {
@@ -312,8 +313,9 @@ impl Review {
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, return_mode = ?,
                                 resume_prompt = CASE WHEN ? THEN NULL ELSE COALESCE(?, resume_prompt) END,
-                                resume_skill = CASE WHEN ? THEN NULL ELSE resume_skill END, queued_at = ?,
-                                start_problem_step = NULL, start_problem_message = NULL, signal_text = NULL,
+                                resume_skill = CASE WHEN ? THEN NULL ELSE resume_skill END, ",
+            set_queued!(),
+            ", start_problem_step = NULL, start_problem_message = NULL, signal_text = NULL,
                                 signal_since = NULL, wakeup_at = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
@@ -324,7 +326,7 @@ impl Review {
         .bind(scratch)
         .bind(prompt)
         .bind(scratch)
-        .bind(now)
+        .bind_queued(true, now, WaitKind::after(ticket.status, Cause::Flow))
         .bind(actor.to_string())
         .bind(now)
         .bind(Status::Queued.as_str())

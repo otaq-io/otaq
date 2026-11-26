@@ -10829,6 +10829,10 @@
         "validation_round": {
           "ty": "u32"
         },
+        "wait_kind": {
+          "ty": "WaitKind",
+          "omittable": true
+        },
         "work": {
           "ty": "Option<Work>",
           "omittable": true
@@ -11966,6 +11970,14 @@
         },
         "whole_board": {}
       }
+    },
+    "WaitKind": {
+      "kind": "strings",
+      "values": [
+        "after_check",
+        "begin",
+        "kept"
+      ]
     },
     "WaitingChange": {
       "kind": "struct",

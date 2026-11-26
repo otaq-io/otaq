@@ -37,6 +37,7 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         status_since: Some(NOW - minutes_ago * MIN),
         queued_at: None,
         ready_since: None,
+        wait_kind: Default::default(),
         validation_round: 0,
         auto_merge_conflicts: 0,
         auto_merge_stop: None,

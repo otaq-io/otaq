@@ -1418,7 +1418,8 @@ impl Starter {
         }
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = COALESCE(?, stage_id), state = ?, start_problem_step = ?,
-                                start_problem_message = ?, start_problem_hook = ?, updated_by = ?, updated_at = ?, ",
+                                start_problem_message = ?, start_problem_hook = ?, updated_by = ?, updated_at = ?,
+                                wait_kind = CASE WHEN ? THEN wait_kind ELSE NULL END, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -1429,6 +1430,8 @@ impl Starter {
         .bind(hook)
         .bind(actor.to_string())
         .bind(now)
+        // Begun (or anything else that leaves the wait), it waits no more; still waiting, it keeps how it came to.
+        .bind(status.is_queued())
         .bind(status.as_str())
         .bind(now)
         .bind(&ticket.id)

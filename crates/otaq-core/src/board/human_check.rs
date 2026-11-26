@@ -19,12 +19,13 @@ use serde_json::json;
 
 use super::stage_runs::{Moved, StageRun};
 use super::tickets::{EventKind, Ticket, record_event};
+use super::wait::{BindQueued, Cause, WaitKind};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Status, StatusSet};
 use crate::flow::Flow;
 use crate::flow::engine::{Move, RunResult};
 use crate::store::now_ms;
-use crate::store::tickets::set_state_since;
+use crate::store::tickets::{set_queued, set_state_since};
 
 /// How a card came to wait in a human check (FLW-14), from the stage run before the check's own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,9 +117,9 @@ impl Board {
         moved.record(&mut tx, &ticket.id, None).await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, review_entry = NULL,
-                                review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
-                                queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
-                                ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
+                                review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END, ",
+            set_queued!(),
+            ", ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                                 auto_merge_stop = NULL, hook_refusal = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
@@ -128,8 +129,7 @@ impl Board {
         .bind(moved.status.as_str())
         .bind(into_check)
         .bind(now)
-        .bind(waits)
-        .bind(now)
+        .bind_queued(waits, now, WaitKind::after(ticket.status, Cause::Flow))
         .bind(waits)
         .bind(actor.to_string())
         .bind(now)

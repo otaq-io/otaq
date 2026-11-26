@@ -89,6 +89,9 @@ pub struct Ticket {
     /// When the queued ticket became ready to start: the start order's last key, "ready the longest" (SCH-01).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_since: Option<i64>,
+    /// How the waiting ticket came to wait (tuq decisions 119, 120): Begin outside the waiting statuses.
+    #[serde(default, skip_serializing_if = "super::wait::WaitKind::is_begin")]
+    pub wait_kind: super::wait::WaitKind,
     /// The round of the agent check its markers count for ([`Flags::check`], FLW-13): that check's fails in a row,
     /// or the round it last passed in ("Validated · round 2"). Each check counts its own (`check_counters`, d0063).
     #[serde(default)]
@@ -1566,6 +1569,7 @@ impl Board {
                     status_since: row.state_since,
                     queued_at: row.queued_at,
                     ready_since: row.ready_since,
+                    wait_kind: super::wait::WaitKind::stored(row.wait_kind.as_deref()),
                     validation_round: counted.count.shown_round(),
                     auto_merge_conflicts: u32::try_from(row.auto_merge_conflicts).unwrap_or(0),
                     auto_merge_stop,

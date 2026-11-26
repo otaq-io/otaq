@@ -65,6 +65,7 @@ fn t(key: &str, place: Place, status: Status, queued_at: i64) -> Ticket {
         status_since: None,
         queued_at: Some(queued_at),
         ready_since: None,
+        wait_kind: Default::default(),
         validation_round: 0,
         auto_merge_conflicts: 0,
         auto_merge_stop: None,

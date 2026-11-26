@@ -21,13 +21,14 @@ use sqlx::{Sqlite, Transaction};
 use super::hand_over::HandOver;
 use super::stage_runs;
 use super::tickets::{EventKind, Ticket, record_event};
+use super::wait::{BindQueued, Cause, WaitKind};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
     Actor, MovedPast, Place, ReviewEntry, Status, ValidationOutcome, ValidationTrigger,
 };
 use crate::flow::engine::{self, At, Counters, Move, RunResult};
 use crate::flow::{Flow, Stage};
-use crate::store::tickets::set_state_since;
+use crate::store::tickets::{set_queued, set_state_since};
 use crate::store::{new_id, now_ms};
 
 /// What the rules need to know about a ticket.
@@ -773,8 +774,9 @@ impl Board {
         }
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, review_entry = ?, interrupted_from = NULL,
-                                queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
-                                review_head_sha = CASE WHEN ? THEN ? ELSE review_head_sha END,
+                                ",
+            set_queued!(),
+            ", review_head_sha = CASE WHEN ? THEN ? ELSE review_head_sha END,
                                 review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
                                 sent_back_at = CASE WHEN ? THEN NULL ELSE sent_back_at END,
                                 pr_rework = CASE WHEN ? THEN FALSE ELSE pr_rework END,
@@ -785,8 +787,11 @@ impl Board {
         .bind(step.place.stage_id())
         .bind(step.to.as_str())
         .bind(step.entry.map(|e| e.as_str()))
-        .bind(step.to.is_queued())
-        .bind(now)
+        .bind_queued(
+            step.to.is_queued(),
+            now,
+            WaitKind::after(ticket.status, Cause::Flow),
+        )
         .bind(review)
         .bind(round.head.as_deref())
         .bind(review)
@@ -1414,17 +1419,16 @@ impl Board {
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, review_entry = COALESCE(?, review_entry),
-                                interrupted_from = NULL, auto_merge_stop = NULL,
-                                queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
-                                signal_text = NULL, signal_since = NULL, updated_by = ?, updated_at = ?, ",
+                                interrupted_from = NULL, auto_merge_stop = NULL, ",
+            set_queued!(),
+            ", signal_text = NULL, signal_since = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
         .bind(step.place.stage_id())
         .bind(step.to.as_str())
         .bind(step.entry.map(|e| e.as_str()))
-        .bind(queued)
-        .bind(now)
+        .bind_queued(queued, now, WaitKind::after(ticket.status, Cause::Flow))
         .bind(actor.to_string())
         .bind(now)
         .bind(step.to.as_str())
@@ -1745,6 +1749,7 @@ mod tests {
             status_since: None,
             queued_at: None,
             ready_since: None,
+            wait_kind: Default::default(),
             validation_round: 1,
             auto_merge_conflicts: 0,
             auto_merge_stop: None,

@@ -24,6 +24,7 @@ use crate::board::reports::ReportSource;
 use crate::board::send_back::{SentBackTo, Tell, waits_before};
 use crate::board::ticket_comments::CommentAuthor;
 use crate::board::tickets::{EventKind, Ticket};
+use crate::board::wait::Cause;
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Actor, MovedPast, Status};
 use crate::flow::engine::{RunResult, Target, skipped_by_drag};
@@ -41,6 +42,8 @@ pub(crate) struct Back<'a> {
     ended: RunResult,
     event: serde_json::Value,
     flow: &'a Flow,
+    /// [`Cause::UsersSendBack`] when the user answered an agent's ask with Send back.
+    cause: Cause,
 }
 
 impl Back<'_> {
@@ -74,6 +77,7 @@ impl Back<'_> {
                         from: None,
                     }),
                     fresh: false,
+                    cause: self.cause,
                 },
                 actor,
             )
@@ -332,6 +336,11 @@ impl Review {
             .await?;
         let ticket = board.ticket_by_id(&ticket.id).await?;
         let event = event_of(flow, &ticket, to, true, &[], run_by_you, answers.note).with(asked);
+        // An agent asked to send it back and the user agreed: it follows 120 as a Send back from a check of theirs.
+        let cause = match asked {
+            Some(_) => Cause::UsersSendBack,
+            None => Cause::Flow,
+        };
         if ran {
             let back = Back {
                 hand_over,
@@ -339,6 +348,7 @@ impl Review {
                 ended,
                 event,
                 flow,
+                cause,
             };
             return self
                 .return_with(&ticket, &Return::DragBack(back), answers.clear_first, actor)
@@ -362,6 +372,7 @@ impl Review {
                         from: None,
                     }),
                     fresh: true,
+                    cause,
                 },
                 actor,
             )

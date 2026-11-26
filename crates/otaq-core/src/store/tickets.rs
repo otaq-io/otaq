@@ -99,6 +99,9 @@ pub struct TicketRow {
     pub merge_check_due: bool,
     /// Migration 0119: JSON [`crate::git::RefusedHook`], a hook refused one of Otaq's own git steps.
     pub hook_refusal: Option<String>,
+    /// Migration 0129: how the waiting ticket came to wait ([`crate::board::wait::WaitKind`]); NULL outside the
+    /// waiting statuses, and read as `begin`.
+    pub wait_kind: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
@@ -110,6 +113,18 @@ macro_rules! set_state_since {
     };
 }
 pub(crate) use set_state_since;
+
+/// The SQL that writes `tickets.queued_at` and `tickets.wait_kind` together, in an `UPDATE tickets SET …`: every
+/// write that queues a ticket goes through it, so none sets one without the other (tech spec slot-between-stages).
+/// Queued, `queued_at` is now and `wait_kind` the kind ([`crate::board::wait::WaitKind::after`]); not queued,
+/// `queued_at` stays and `wait_kind` is NULL. Binds with [`crate::board::wait::BindQueued::bind_queued`]: queues,
+/// now, queues, the kind. Expands to a literal, for `concat!`.
+macro_rules! set_queued {
+    () => {
+        "queued_at = CASE WHEN ? THEN ? ELSE queued_at END, wait_kind = CASE WHEN ? THEN ? ELSE NULL END"
+    };
+}
+pub(crate) use set_queued;
 
 /// The fields needed to insert a ticket. The caller picks the number (allocation is T-0022's job).
 #[derive(Debug, Clone)]

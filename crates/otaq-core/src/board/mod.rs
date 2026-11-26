@@ -47,6 +47,7 @@ pub mod stage_runs;
 pub mod ticket_comments;
 pub mod tickets;
 pub mod validation;
+pub mod wait;
 
 use std::fmt;
 

@@ -16,10 +16,11 @@ use serde_json::json;
 use super::hand_over::{HandOver, SentBack, sent_back_text};
 use super::stage_runs;
 use super::tickets::{EventKind, Ticket, record_event};
+use super::wait::{BindQueued, Cause, WaitKind};
 use super::{Board, BoardError};
 use crate::domain::{Actor, Status};
 use crate::flow::engine::{Move, RunResult};
-use crate::store::tickets::set_state_since;
+use crate::store::tickets::{set_queued, set_state_since};
 use crate::store::{Store, new_id, now_ms};
 
 /// Where and how [`Board::send_back_to`] sends a ticket back.
@@ -40,6 +41,8 @@ pub(crate) struct SentBackTo<'a> {
     /// The stage never ran (a drag back into a stage the ticket skips): its next start is a new conversation there,
     /// with the told text after the stage's skill (FLW-18).
     pub fresh: bool,
+    /// What sends it back ([`Cause::UsersSendBack`]: the user's Send back answer to an agent's ask).
+    pub cause: Cause,
 }
 
 /// What [`sent_back_text`] needs besides the counts.
@@ -107,6 +110,7 @@ impl Board {
                     from: check.as_deref(),
                 }),
                 fresh: false,
+                cause: Cause::Flow,
             },
             actor,
         )
@@ -201,6 +205,7 @@ pub(crate) async fn send_back_in(
         event,
         tell,
         fresh,
+        cause,
     } = back;
     let now = now_ms();
     // The note first: a resumed agent's `prime` already has it (CMT-05).
@@ -235,7 +240,7 @@ pub(crate) async fn send_back_in(
     // A human check's Fail (STG-06), or how a drag back ends the run where the card was.
     let comment_id = posted.as_ref().map(|p| p.id.as_str());
     stage_runs::end_open(tx, &ticket.id, ended, comment_id).await?;
-    return_to_dev(tx, ticket, to, stage, resume_skill, actor).await?;
+    return_to_dev(tx, ticket, to, stage, resume_skill, cause, actor).await?;
     let comments = u32::try_from(sent).unwrap_or(u32::MAX);
     let told = tell.map(|tell| {
         sent_back_text(&SentBack {
@@ -309,13 +314,14 @@ pub(crate) async fn return_to_dev(
     to: Status,
     stage: Option<&str>,
     resume_skill: Option<&str>,
+    cause: Cause,
     actor: &Actor,
 ) -> Result<(), BoardError> {
     let now = now_ms();
     sqlx::query(concat!(
-        "UPDATE tickets SET stage_id = ?, state = ?, resume_skill = ?,
-                            queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
-                            last_signal_at = CASE WHEN ? THEN ? ELSE last_signal_at END,
+        "UPDATE tickets SET stage_id = ?, state = ?, resume_skill = ?, ",
+        set_queued!(),
+        ", last_signal_at = CASE WHEN ? THEN ? ELSE last_signal_at END,
                             signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                             review_entry = NULL, auto_merge_stop = NULL, hook_refusal = NULL,
                             updated_by = ?, updated_at = ?, ",
@@ -325,8 +331,7 @@ pub(crate) async fn return_to_dev(
     .bind(stage)
     .bind(to.as_str())
     .bind(resume_skill)
-    .bind(to.is_queued())
-    .bind(now)
+    .bind_queued(to.is_queued(), now, WaitKind::after(ticket.status, cause))
     .bind(to == Status::Working)
     .bind(now)
     .bind(actor.to_string())
