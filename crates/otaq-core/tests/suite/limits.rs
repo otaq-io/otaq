@@ -11,7 +11,8 @@ use crate::common::{Fixture, me};
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Flags, Status, TicketKey};
+use otaq_core::board::wait::WaitKind;
+use otaq_core::domain::{Actor, Flags, Priority, Status, TicketKey};
 use otaq_core::scheduler::{
     Busy, Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, running_count, slot_holders,
 };
@@ -200,6 +201,163 @@ fn nothing_running_is_touched_by_a_limit() {
     // Far over the limit, and back-pressure reached: no change to any of them.
     let pass = plan(&tickets, &HashSet::new(), &on(1, 1, 9));
     assert!(pass.changes.is_empty() && pass.start.is_empty());
+}
+
+/// A queued ticket that came from one of your checks ([`WaitKind::AfterCheck`]).
+fn after_check(key: &str, queued_at: i64) -> Ticket {
+    Ticket {
+        wait_kind: WaitKind::AfterCheck,
+        ..t(key, Status::Queued, queued_at)
+    }
+}
+
+/// A pinned Urgent ticket waiting to begin.
+fn pinned_urgent(key: &str, queued_at: i64) -> Ticket {
+    let mut ticket = t(key, Status::Queued, queued_at);
+    ticket.priority = Priority::Urgent;
+    ticket.flags.pinned_at = Some(1);
+    ticket
+}
+
+/// Decision 120: after your check a ticket goes ahead of every ticket waiting to begin, a pinned Urgent one that
+/// waited longer too.
+#[test]
+fn after_your_check_a_ticket_goes_ahead_of_a_pinned_urgent_one_waiting_to_begin() {
+    let tickets = [
+        t("SHOP-1", Status::Working, 0),
+        pinned_urgent("SHOP-2", 1),
+        after_check("SHOP-3", 50),
+    ];
+    let pass = plan(&tickets, &HashSet::new(), &on(2, 3, 0));
+    let keys: Vec<String> = pass.start.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-3"]);
+    let waiting: Vec<(String, Status)> = pass
+        .changes
+        .iter()
+        .map(|c| (c.key.to_string(), c.to))
+        .collect();
+    assert_eq!(waiting, [("SHOP-2".into(), Status::WaitingForSlot)]);
+}
+
+/// Decision 120: it is still a start: with no free slot, or with back-pressure reached, it waits for a slot.
+#[test]
+fn after_your_check_a_ticket_still_waits_for_a_free_slot_and_for_back_pressure() {
+    let full = [t("SHOP-1", Status::Working, 0), after_check("SHOP-2", 5)];
+    let pass = plan(&full, &HashSet::new(), &on(1, 3, 0));
+    assert!(pass.start.is_empty());
+    assert_eq!(pass.changes.len(), 1);
+    assert_eq!(
+        (pass.changes[0].key.to_string(), pass.changes[0].to),
+        ("SHOP-2".into(), Status::WaitingForSlot)
+    );
+
+    let free = [after_check("SHOP-2", 5)];
+    let pass = plan(&free, &HashSet::new(), &on(5, 3, 3));
+    assert!(pass.start.is_empty(), "back-pressure reached");
+    assert_eq!(pass.changes[0].to, Status::WaitingForSlot);
+    assert_eq!(started(&free, &on(5, 3, 2)), ["SHOP-2"]);
+}
+
+/// Decision 120: among tickets from your checks the usual order holds: pinned → priority → ready the longest; the
+/// tickets waiting to begin follow, in their own usual order.
+#[test]
+fn tickets_after_your_check_keep_pin_then_priority_then_age_among_themselves() {
+    let mut urgent = after_check("SHOP-3", 40);
+    urgent.priority = Priority::Urgent;
+    let mut pinned = after_check("SHOP-4", 50);
+    pinned.flags.pinned_at = Some(1);
+    let tickets = [
+        after_check("SHOP-2", 10),
+        urgent,
+        pinned,
+        after_check("SHOP-5", 5),
+        pinned_urgent("SHOP-6", 0),
+        t("SHOP-7", Status::Queued, 0),
+    ];
+    assert_eq!(
+        started(&tickets, &Gate::default()),
+        ["SHOP-4", "SHOP-3", "SHOP-5", "SHOP-2", "SHOP-6", "SHOP-7"]
+    );
+}
+
+/// Decision 120: a Send back from Review while every slot is taken waits for a slot ("Waiting for a slot"), and is
+/// first in line, ahead of a pinned Urgent ticket that waited to begin before it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_back_from_review_while_full_waits_first_in_line() {
+    use otaq_core::service::testing::TestService;
+
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.board
+        .set_global_settings(&GlobalSettings {
+            agent_limits: AgentLimits {
+                enabled: true,
+                max_concurrency: 1,
+                back_pressure: 3,
+            },
+            ..GlobalSettings::default()
+        })
+        .await
+        .unwrap();
+    let busy = w.create("SHOP", "running").await; // SHOP-1
+    w.force_status(&busy, Status::Working).await;
+    let reviewed = w.create("SHOP", "Search results paging").await; // SHOP-2
+    w.start_worktree(&reviewed).await;
+    w.force_status(&reviewed, Status::WaitingForYou).await;
+    w.record_ended_agent(&reviewed, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+        .await;
+    for title in ["waits to begin", "pinned, urgent"] {
+        let t = w
+            .board
+            .create_ticket(
+                &NewTicketInput {
+                    project: "SHOP".into(),
+                    title: title.into(),
+                    priority: title.starts_with("pinned").then_some(Priority::Urgent),
+                    ..Default::default()
+                },
+                &me(),
+            )
+            .await
+            .unwrap();
+        if title.starts_with("pinned") {
+            w.board.pin(&t.key.to_string(), &me()).await.unwrap();
+        }
+        w.board
+            .move_ticket(&t.key.to_string(), DropTarget::ReadyForDev, false, &me())
+            .await
+            .unwrap();
+        w.scheduler.pass().await.unwrap();
+        assert_eq!(w.status(&t.key.to_string()).await, Status::WaitingForSlot);
+    } // SHOP-3, SHOP-4
+
+    w.review
+        .fail(
+            "SHOP-2",
+            "The pager skips page 2.",
+            Vec::new(),
+            false,
+            &me(),
+        )
+        .await
+        .unwrap();
+    w.scheduler.pass().await.unwrap();
+    assert_eq!(w.status("SHOP-2").await, Status::WaitingForSlot);
+    let sent_back = w.board.ticket("SHOP-2").await.unwrap();
+    assert_eq!(sent_back.wait_kind, WaitKind::AfterCheck);
+    for (key, place) in [
+        ("SHOP-2", Some(1)),
+        ("SHOP-4", Some(2)),
+        ("SHOP-3", Some(3)),
+    ] {
+        assert_eq!(
+            w.board.ticket(key).await.unwrap().flags.in_line,
+            place,
+            "{key}"
+        );
+    }
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    w.stop().await;
 }
 
 #[test]
