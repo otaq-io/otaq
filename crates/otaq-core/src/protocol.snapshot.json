@@ -1067,6 +1067,7 @@
       "kind": "enum",
       "variants": {
         "delivering": {},
+        "handing_over": {},
         "starting": {}
       }
     },
@@ -9990,6 +9991,10 @@
         "key": {
           "ty": "TicketKey",
           "required": true
+        },
+        "next_stage": {
+          "ty": "Option<String>",
+          "omittable": true
         },
         "status": {
           "ty": "Status",

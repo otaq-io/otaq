@@ -404,11 +404,18 @@ fn ticket_line(agent: &WorkingAgent, now: i64) -> String {
 
 /// What a ticket holding a slot of the agent limit, but not at work, is doing (decision 114): "waits for you ·
 /// decide" for the needs-you family (the reasons the Needs you strip gives), "starting" while its start runs,
-/// "delivering" for a PR Delivery session, else "held · " and its status ("held · waiting for limit reset").
+/// "delivering" for a PR Delivery session, "starting Milestone plan" for a ticket handing over between two Agent
+/// stages (tuq decision 119), else "held · " and its status ("held · waiting for limit reset").
 fn holder_line(holder: &SlotHolder) -> String {
     match holder.busy {
         Some(Busy::Starting) => return "starting".to_owned(),
         Some(Busy::Delivering) => return "delivering".to_owned(),
+        Some(Busy::HandingOver) => {
+            return match &holder.next_stage {
+                Some(stage) => format!("starting {stage}"),
+                None => "starting".to_owned(),
+            };
+        }
         None => {}
     }
     let waits = match holder.status {
@@ -1442,6 +1449,7 @@ mod tests {
             title: format!("{key} title"),
             status,
             busy,
+            next_stage: None,
         }
     }
 
@@ -1561,6 +1569,36 @@ mod tests {
         inputs.scheduler = Some(&starting);
         let p = popover(&inputs, &KeyLabels::base(Platform::Mac));
         assert_eq!(p.agents.holders.len(), 1);
+        assert_eq!(p.agents.empty, None);
+    }
+
+    /// Decision 119: a ticket handing over between two Agent stages keeps its slot, and Running lists it with the
+    /// stage it goes on to, so the count and the list still agree.
+    #[test]
+    fn a_ticket_handing_over_is_listed_as_starting_its_next_stage() {
+        let s = one_slot(true);
+        let status = SchedulerStatus {
+            limits: s.limits,
+            holding: 1,
+            holders: vec![SlotHolder {
+                next_stage: Some("Milestone plan".into()),
+                ..holder("SHOP-8", Status::Queued, Some(Busy::HandingOver))
+            }],
+            ..SchedulerStatus::default()
+        };
+        let mut inputs = s.inputs();
+        inputs.scheduler = Some(&status);
+        let keys = KeyLabels::base(Platform::Mac);
+        assert_eq!(button(&inputs, &keys).agents.count, "1/1");
+        let p = popover(&inputs, &keys);
+        assert_eq!(
+            p.agents.holders,
+            [TicketRow {
+                key: "SHOP-8".into(),
+                title: "SHOP-8 title".into(),
+                line: "starting Milestone plan".into(),
+            }]
+        );
         assert_eq!(p.agents.empty, None);
     }
 

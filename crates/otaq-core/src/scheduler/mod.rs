@@ -210,6 +210,9 @@ pub enum Busy {
     Starting,
     /// A PR Delivery session works on it.
     Delivering,
+    /// It waits between two Agent stages and keeps its slot through the hand-over (tuq decision 119): queued and
+    /// [`kept`], until its start runs ([`Self::Starting`] then). [`SlotHolder::next_stage`] names the stage it goes on to.
+    HandingOver,
 }
 
 /// One ticket holding a slot of the agent limit (decision 114): Running lists, with the limit on, those that aren't
@@ -222,6 +225,9 @@ pub struct SlotHolder {
     /// Set when it holds the slot for a start or a PR Delivery session rather than (only) for its status.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub busy: Option<Busy>,
+    /// With [`Busy::HandingOver`], the name of the Agent stage it waits before ("Milestone plan").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_stage: Option<String>,
 }
 
 /// The scheduler's view of the limits now: what the header's "3 / 5 agents" and Settings' "Right now: 3 of 5 slots
@@ -567,20 +573,33 @@ impl Scheduler {
         let starting = self.inner.starts.starting();
         let delivering = self.delivering().await?;
         let busy: HashSet<String> = starting.union(&delivering).cloned().collect();
-        let holders: Vec<SlotHolder> = slot_holders(&tickets, &busy)
-            .map(|t| SlotHolder {
+        let mut holders = Vec::new();
+        for t in slot_holders(&tickets, &busy) {
+            let handing_over = !starting.contains(&t.id) && kept(t);
+            let next_stage = match (handing_over, t.place.stage_id()) {
+                (true, Some(id)) => board
+                    .effective_flow(t.key.project.as_str())
+                    .await?
+                    .stage(id)
+                    .map(|s| s.name.clone()),
+                _ => None,
+            };
+            holders.push(SlotHolder {
                 key: t.key.clone(),
                 title: t.title.clone(),
                 status: t.status,
                 busy: if starting.contains(&t.id) {
                     Some(Busy::Starting)
+                } else if handing_over {
+                    Some(Busy::HandingOver)
                 } else if delivering.contains(&t.id) {
                     Some(Busy::Delivering)
                 } else {
                     None
                 },
-            })
-            .collect();
+                next_stage,
+            });
+        }
         Ok(SchedulerStatus {
             limits,
             holding: count(holders.len()),

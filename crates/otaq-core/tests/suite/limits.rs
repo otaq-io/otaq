@@ -699,6 +699,64 @@ async fn the_status_names_every_slot_holder() {
     assert!(read.holders.is_empty());
 }
 
+/// Tuq decision 119: a ticket waiting between two Agent stages keeps its slot, and the status lists it as handing
+/// over to the stage it waits before; once its start runs it is starting, as any start.
+#[tokio::test]
+async fn a_kept_ticket_is_listed_as_handing_over_to_its_next_stage() {
+    let f = Fixture::shop().await;
+    let kept = queued(&f, "kept").await;
+    let kept_starting = queued(&f, "kept starting").await;
+    let _begin = queued(&f, "begin").await;
+    for t in [&kept, &kept_starting] {
+        sqlx::query("UPDATE tickets SET stage_id = ?, wait_kind = 'kept' WHERE id = ?")
+            .bind(otaq_core::flow::default::DEV)
+            .bind(&t.id)
+            .execute(f.board.store().pool())
+            .await
+            .unwrap();
+    }
+    limits(
+        &f,
+        AgentLimits {
+            enabled: true,
+            max_concurrency: 1,
+            back_pressure: 50,
+        },
+    )
+    .await;
+    let scheduler = Scheduler::new(
+        f.board.clone(),
+        Arc::new(Starting(HashSet::from([kept_starting.id.clone()]))),
+        EventBus::new(16),
+        Duration::from_secs(3600),
+    );
+    let status = scheduler.status().await.unwrap();
+    let holders: Vec<(String, Status, Option<Busy>, Option<String>)> = status
+        .holders
+        .iter()
+        .map(|h| (h.key.to_string(), h.status, h.busy, h.next_stage.clone()))
+        .collect();
+    assert_eq!(
+        holders,
+        [
+            (
+                "SHOP-1".to_owned(),
+                Status::Queued,
+                Some(Busy::HandingOver),
+                Some("Dev".to_owned())
+            ),
+            (
+                "SHOP-2".to_owned(),
+                Status::Queued,
+                Some(Busy::Starting),
+                None
+            ),
+        ],
+        "the ticket waiting to begin holds no slot"
+    );
+    assert_eq!(status.holding, 2);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_settings_change_over_the_socket_reaches_the_scheduler_at_once() {
     use otaq_core::client::{Client, ClientConfig};
