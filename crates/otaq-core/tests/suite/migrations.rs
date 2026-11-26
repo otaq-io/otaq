@@ -3686,3 +3686,60 @@ delivery:
         otaq_core::agents::NoyanStartsOn::default()
     );
 }
+
+/// Migration 0129 (tuq decisions 119, 120; tech spec slot-between-stages): every ticket waiting before an Agent stage
+/// waited the way it always did, so it reads as waiting to begin (`begin`); a ticket that doesn't wait has no kind,
+/// and a missing one reads as `begin` too.
+#[tokio::test]
+async fn migration_0129_reads_every_waiting_ticket_as_waiting_to_begin() {
+    use otaq_core::board::wait::WaitKind;
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 128).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 10, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 1, 'a', 'queued', 'me', 0, 0),
+                ('t2', 'p', 2, 'b', 'waiting_for_slot', 'me', 0, 0),
+                ('t3', 'p', 3, 'c', 'held', 'me', 0, 0),
+                ('t4', 'p', 4, 'd', 'parent_closed', 'me', 0, 0),
+                ('t5', 'p', 5, 'e', 'start_interrupted', 'me', 0, 0),
+                ('t6', 'p', 6, 'f', 'working', 'me', 0, 0),
+                ('t7', 'p', 7, 'g', 'backlog', 'me', 0, 0),
+                ('t8', 'p', 8, 'h', 'ready_for_review', 'me', 0, 0)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let kinds: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT id, wait_kind FROM tickets ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    let begin = Some("begin".to_owned());
+    assert_eq!(
+        kinds,
+        [
+            ("t1".to_owned(), begin.clone()),
+            ("t2".to_owned(), begin.clone()),
+            ("t3".to_owned(), begin.clone()),
+            ("t4".to_owned(), begin.clone()),
+            ("t5".to_owned(), begin.clone()),
+            ("t6".to_owned(), None),
+            ("t7".to_owned(), None),
+            ("t8".to_owned(), None),
+        ]
+    );
+    for (_, kind) in &kinds {
+        assert_eq!(WaitKind::stored(kind.as_deref()), WaitKind::Begin);
+    }
+    let row = store.ticket("t1").await.unwrap().unwrap();
+    assert_eq!(row.wait_kind.as_deref(), Some("begin"));
+}

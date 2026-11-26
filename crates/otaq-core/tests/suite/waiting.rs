@@ -16,6 +16,7 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::board::wait::WaitKind;
 use otaq_core::domain::{Actor, Flags, Place, Status, TicketKey, ValidationTrigger};
 use otaq_core::flow::engine::{self, At, Move, RunResult};
 use otaq_core::flow::{Flow, FlowFile, yaml};
@@ -65,6 +66,7 @@ fn t(key: &str, place: Place, status: Status, queued_at: i64) -> Ticket {
         status_since: None,
         queued_at: Some(queued_at),
         ready_since: None,
+        wait_kind: Default::default(),
         validation_round: 0,
         auto_merge_conflicts: 0,
         auto_merge_stop: None,
@@ -388,11 +390,12 @@ async fn until(w: &TestService, key: &str, status: Status) -> Ticket {
     panic!("{key} never became {status}");
 }
 
-/// pocket-notes on the test flow, with one slot: NOTE-1 runs Product spec; while NOTE-2 holds the slot, NOTE-1's submit
-/// waits before Dev ("Waiting for a slot", in its worktree); once the slot frees it starts Dev there, in a new
-/// session (Product spec's stopped), and Product spec's run is done.
+/// The OTAQ-8 repro (tuq decision 119), on pocket-notes' test flow with one slot: NOTE-1 runs Product spec and NOTE-2,
+/// queued, waits for the slot. NOTE-1's submit (the agent's `stage next`) waits before Dev keeping its slot: the next
+/// pass starts Dev in its worktree, in a new session (Product spec's stopped), and NOTE-2 still waits for a slot, its
+/// age notwithstanding. Once Dev ends, NOTE-2 starts.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_ticket_finishing_product_spec_waits_for_a_slot_before_dev() {
+async fn a_ticket_finishing_product_spec_keeps_its_slot_before_dev() {
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(stand_in()),
         ..config
@@ -410,7 +413,7 @@ async fn a_ticket_finishing_product_spec_waits_for_a_slot_before_dev() {
     w.board.use_flow_for_tests("NOTE", &every_kind_file()).await;
     one_slot_on(&w.board).await;
     let specced = w.create("NOTE", "Export as CSV").await;
-    let other = w.create("NOTE", "Search notes").await;
+    w.create("NOTE", "Search notes").await;
     let me = Actor::User("me".into());
     w.board
         .move_ticket("NOTE-1", DropTarget::ReadyForDev, true, &me)
@@ -433,9 +436,20 @@ async fn a_ticket_finishing_product_spec_waits_for_a_slot_before_dev() {
         .worktree
         .clone()
         .unwrap();
+    let scheduler = Scheduler::new(
+        w.board.clone(),
+        Arc::new(w.starter.clone()),
+        EventBus::new(16),
+        Duration::from_secs(3600),
+    );
 
-    // NOTE-2 takes the only slot.
-    w.force_status(&other, Status::Working).await;
+    // NOTE-2 waits to begin, behind the slot NOTE-1 holds: it has waited the longest.
+    w.board
+        .move_ticket("NOTE-2", DropTarget::ReadyForDev, false, &me)
+        .await
+        .unwrap();
+    scheduler.pass().await.unwrap();
+    until(&w, "NOTE-2", Status::WaitingForSlot).await;
     commit(Path::new(&worktree), "questions.md", "agreed\n");
     let submitted = w
         .validation
@@ -450,23 +464,7 @@ async fn a_ticket_finishing_product_spec_waits_for_a_slot_before_dev() {
         .await
         .unwrap();
     assert_eq!(submitted.place, before("dev"));
-    let scheduler = Scheduler::new(
-        w.board.clone(),
-        Arc::new(w.starter.clone()),
-        EventBus::new(16),
-        Duration::from_secs(3600),
-    );
-    scheduler.pass().await.unwrap();
-    let waiting = until(&w, "NOTE-1", Status::WaitingForSlot).await;
-    assert_eq!(waiting.place, before("dev"));
-    assert_eq!(
-        waiting.work.as_ref().unwrap().worktree.as_deref(),
-        Some(worktree.as_str()),
-        "it keeps its worktree"
-    );
-
-    // The slot frees.
-    w.force_status(&other, Status::WaitingForYou).await;
+    assert_eq!(submitted.wait_kind, WaitKind::Kept);
     scheduler.pass().await.unwrap();
     let in_dev = until(&w, "NOTE-1", Status::Working).await;
     assert_eq!(in_dev.place, Place::stage_of("dev"));
@@ -508,5 +506,15 @@ async fn a_ticket_finishing_product_spec_waits_for_a_slot_before_dev() {
             ("dev".to_owned(), Some(dev_session.id.clone()), None),
         ]
     );
+    assert_eq!(
+        w.board.ticket("NOTE-2").await.unwrap().status,
+        Status::WaitingForSlot,
+        "the older ticket waits: the slot was never free"
+    );
+
+    // Dev ends: the slot frees, and NOTE-2 starts.
+    w.force_status(&specced, Status::WaitingForYou).await;
+    scheduler.pass().await.unwrap();
+    until(&w, "NOTE-2", Status::Working).await;
     w.stop().await;
 }

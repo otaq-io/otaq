@@ -3,8 +3,9 @@
 //! Every column: pinned first, most recently pinned first. A card that needs the user floats to the top of Dev
 //! (d0047 changelog), so Dev reads: pinned → turquoise (Asks you / Needs you / Idle) → Interrupted / Resume failed →
 //! working (incl. in background, waiting for limit reset). **Waiting to begin** lists its needs-you cards (Start
-//! interrupted, Parent closed) first, then the **start order** the scheduler uses (SCH-01, d0065): pinned (most
-//! recently pinned first) → priority 1→4 → ready the longest.
+//! interrupted, Parent closed) first, then the **start order** the scheduler uses (SCH-01, d0065): a ticket one of
+//! your checks passed on or sent back first (tuq decision 120), then pinned (most recently pinned first) → priority
+//! 1→4 → ready the longest.
 //! Inside a group of the other columns, tickets that block more tickets come first (direct and indirect
 //! dependents, as in Needs you, d0016); ties go to the oldest ticket (created first, then the lower key), so the
 //! order is stable. Pinning changes board and start order only: never the column, the priority, Needs you or the
@@ -18,6 +19,7 @@ use serde_json::json;
 
 use super::readiness::readiness;
 use super::tickets::{EventKind, Ticket, record_event};
+use super::wait::WaitKind;
 use super::{Board, BoardError};
 use crate::domain::{Actor, Status, StatusSet, TicketKey};
 use crate::store::now_ms;
@@ -100,14 +102,17 @@ pub fn ready_since(ticket: &Ticket, tickets: &[Ticket]) -> Option<i64> {
     Some(last_merge.map_or(queued, |merged| merged.max(queued)))
 }
 
-/// The start order (SCH-01, d0065): pinned (most recently pinned first) → priority 1→4 → ready the longest; ties go to the older ticket, then the lower key.
-/// waiting to begin is sorted the same way.
+/// The start order (SCH-01, d0065; tuq decision 120): tickets that come from one of your checks
+/// ([`WaitKind::AfterCheck`]) before every other, pinned and higher-priority ones too; then, within each kind, pinned
+/// (most recently pinned first) → priority 1→4 → ready the longest; ties go to the older ticket, then the lower key.
+/// Waiting to begin is sorted the same way, and so is the place in line ([`Board::slot_line`]).
 pub fn start_order(ticket: &Ticket, tickets: &[Ticket]) -> impl Ord + use<> {
     let ready = ticket
         .ready_since
         .or_else(|| ready_since(ticket, tickets))
         .unwrap_or(i64::MAX);
     order_key(
+        ticket.wait_kind,
         ticket.flags.pinned_at,
         ticket.priority,
         ready,
@@ -116,14 +121,16 @@ pub fn start_order(ticket: &Ticket, tickets: &[Ticket]) -> impl Ord + use<> {
     )
 }
 
-/// [`start_order`]'s key from a ticket's parts.
+/// [`start_order`]'s key from a ticket's parts: [`Board::slot_line`] builds it from SQL rows, so the two agree.
 fn order_key(
+    wait_kind: WaitKind,
     pin: Option<i64>,
     priority: crate::domain::Priority,
     ready: i64,
     created_at: i64,
     key: TicketKey,
 ) -> (
+    bool,
     bool,
     Reverse<i64>,
     crate::domain::Priority,
@@ -132,6 +139,7 @@ fn order_key(
     TicketKey,
 ) {
     (
+        wait_kind != WaitKind::AfterCheck,
         pin.is_none(),
         Reverse(pin.unwrap_or(0)),
         priority,
@@ -145,9 +153,18 @@ impl Board {
     /// Every project's tickets waiting for a free agent, by id, with their place in line (1 is next): the agent limit
     /// counts across projects, and the scheduler takes them in [`start_order`] from every project at once.
     pub async fn slot_line(&self) -> Result<HashMap<String, u32>, BoardError> {
-        type Row = (String, Option<i64>, i64, Option<i64>, i64, i64, String);
+        type Row = (
+            String,
+            Option<String>,
+            Option<i64>,
+            i64,
+            Option<i64>,
+            i64,
+            i64,
+            String,
+        );
         let rows: Vec<Row> = sqlx::query_as(
-            "SELECT t.id, t.pinned_at, t.priority, t.ready_since, t.created_at, t.number, p.key
+            "SELECT t.id, t.wait_kind, t.pinned_at, t.priority, t.ready_since, t.created_at, t.number, p.key
              FROM tickets t JOIN projects p ON p.id = t.project_id WHERE t.state = ?",
         )
         .bind(Status::WaitingForSlot.as_str())
@@ -155,14 +172,24 @@ impl Board {
         .await?;
         let mut line: Vec<(_, String)> = rows
             .into_iter()
-            .filter_map(|(id, pin, priority, ready, created_at, number, project)| {
-                let key = super::tickets::key_from_parts(&project, number)?;
-                let priority = crate::domain::Priority::from_number(priority).unwrap_or_default();
-                Some((
-                    order_key(pin, priority, ready.unwrap_or(i64::MAX), created_at, key),
-                    id,
-                ))
-            })
+            .filter_map(
+                |(id, wait, pin, priority, ready, created_at, number, project)| {
+                    let key = super::tickets::key_from_parts(&project, number)?;
+                    let priority =
+                        crate::domain::Priority::from_number(priority).unwrap_or_default();
+                    Some((
+                        order_key(
+                            WaitKind::stored(wait.as_deref()),
+                            pin,
+                            priority,
+                            ready.unwrap_or(i64::MAX),
+                            created_at,
+                            key,
+                        ),
+                        id,
+                    ))
+                },
+            )
             .collect();
         line.sort();
         Ok(line

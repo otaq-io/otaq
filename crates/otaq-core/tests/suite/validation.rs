@@ -1172,3 +1172,75 @@ async fn after_a_restart_resume_validates_again() {
     assert!(!out.contains("src/cart.ts:12"), "{out}");
     w.stop().await;
 }
+
+/// Tuq decision 119 (tech spec slot-between-stages, "The user's clicks"): with Max 1, a Validate Fail whose Dev session
+/// is gone hands over between two Agent stages: Dev's conversation resumes at once, in the slot the check held,
+/// instead of queueing behind it, and an older ticket waiting to begin doesn't take it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_validate_fail_with_the_dev_session_gone_resumes_dev_at_max_one() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    w.board
+        .set_global_settings(&otaq_core::board::settings::GlobalSettings {
+            agent_limits: otaq_core::board::settings::AgentLimits {
+                enabled: true,
+                max_concurrency: 1,
+                back_pressure: 3,
+            },
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let t = working(&w, "Cart totals").await;
+    w.record_ended_agent(&t, "0199d2a4-3b1c-7c3e-9f00-123456789abc")
+        .await;
+    let key = t.key.to_string();
+    assert_eq!(submit(&w, &t).await.unwrap().status, Status::Checking);
+    // An older ticket waits to begin, behind the slot the check holds.
+    let older = w.create("SHOP", "Coupons").await;
+    w.board
+        .move_ticket(
+            &older.key.to_string(),
+            otaq_core::board::moves::DropTarget::ReadyForDev,
+            false,
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    let session = validator_of(&w, &t);
+    w.validation
+        .verdict(
+            &key,
+            false,
+            said(&w.board, &key, FINDINGS).await.as_ref(),
+            &session,
+        )
+        .await
+        .unwrap();
+    let start = std::time::Instant::now();
+    let agent = loop {
+        if let Some(agent) = w.sessions.running_of(&t.id, SessionKind::Agent) {
+            break agent;
+        }
+        let now = w.board.ticket(&key).await.unwrap();
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "no agent: {} ({:?})",
+            now.status,
+            now.wait_kind
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    };
+    let out = w.wait_for_output(&agent.id, "--resume").await;
+    assert!(
+        out.contains("0199d2a4-3b1c-7c3e-9f00-123456789abc"),
+        "{out}"
+    );
+    assert!(
+        w.sessions
+            .running_of(&older.id, SessionKind::Agent)
+            .is_none(),
+        "the older ticket still waits"
+    );
+    w.stop().await;
+}

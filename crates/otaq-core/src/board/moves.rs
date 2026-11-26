@@ -17,12 +17,13 @@ use sqlx::{Sqlite, Transaction};
 
 use super::stage_runs::Moved;
 use super::tickets::{EventKind, Ticket, record_event};
+use super::wait::{BindQueued, Cause, WaitKind};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, MovedPast, Status, stored_enum};
 use crate::flow::engine;
 use crate::flow::{Flow, Stage};
 use crate::store::now_ms;
-use crate::store::tickets::{TicketRow, set_state_since};
+use crate::store::tickets::{TicketRow, set_queued, set_state_since};
 
 stored_enum! {
     /// Where a card is dropped: one target per column of the default flow's board (d0066). [`DropTarget::in_flow`]
@@ -381,16 +382,16 @@ pub(crate) async fn queue_in(
 ) -> Result<(), BoardError> {
     let now = now_ms();
     sqlx::query(concat!(
-        "UPDATE tickets SET stage_id = ?, state = ?, started_at = COALESCE(started_at, ?),
-                            queued_at = ?, ready_since = NULL, branch_locked = TRUE, updated_by = ?,
-                            updated_at = ?, ",
+        "UPDATE tickets SET stage_id = ?, state = ?, started_at = COALESCE(started_at, ?), ",
+        set_queued!(),
+        ", ready_since = NULL, branch_locked = TRUE, updated_by = ?, updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
     ))
     .bind(returns_to)
     .bind(Status::Queued.as_str())
     .bind(now)
-    .bind(now)
+    .bind_queued(true, now, WaitKind::after(ticket.status, Cause::Flow))
     .bind(actor.to_string())
     .bind(now)
     .bind(Status::Queued.as_str())
@@ -423,7 +424,7 @@ pub(crate) async fn unqueue_in(
     let never_worked =
         !row.parked && !row.reopened && row.worktree_path.is_none() && row.branch_name.is_none();
     sqlx::query(concat!(
-        "UPDATE tickets SET stage_id = NULL, state = ?, queued_at = NULL, ready_since = NULL,
+        "UPDATE tickets SET stage_id = NULL, state = ?, queued_at = NULL, wait_kind = NULL, ready_since = NULL,
                             start_problem_step = NULL, start_problem_message = NULL,
                             started_at = CASE WHEN ? THEN NULL ELSE started_at END,
                             branch_locked = CASE WHEN ? THEN FALSE ELSE branch_locked END,
@@ -545,9 +546,9 @@ pub(crate) async fn record_drag_in(
     };
     sqlx::query(concat!(
         "UPDATE tickets SET stage_id = ?, state = ?, review_entry = NULL, interrupted_from = NULL,
-                            review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
-                            queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
-                            ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
+                            review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END, ",
+        set_queued!(),
+        ", ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
                             signal_text = NULL, signal_since = NULL, wakeup_at = NULL, auto_merge_stop = NULL,
                             updated_by = ?, updated_at = ?, ",
         set_state_since!(),
@@ -557,8 +558,7 @@ pub(crate) async fn record_drag_in(
     .bind(moved.status.as_str())
     .bind(into_human_check)
     .bind(now)
-    .bind(waits)
-    .bind(now)
+    .bind_queued(waits, now, WaitKind::after(ticket.status, Cause::Flow))
     .bind(waits)
     .bind(actor.to_string())
     .bind(now)

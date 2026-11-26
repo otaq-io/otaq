@@ -3,7 +3,7 @@
 
 use crate::common;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -11,9 +11,11 @@ use crate::common::{Fixture, me};
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Flags, Status, TicketKey};
+use otaq_core::board::wait::WaitKind;
+use otaq_core::domain::{Actor, Flags, Priority, Status, TicketKey};
 use otaq_core::scheduler::{
-    Busy, Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, running_count, slot_holders,
+    Busy, Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, plan_holding, running_count,
+    slot_holders,
 };
 use otaq_core::service::EventBus;
 
@@ -41,6 +43,7 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         status_since: None,
         queued_at: Some(queued_at),
         ready_since: None,
+        wait_kind: Default::default(),
         validation_round: 0,
         auto_merge_conflicts: 0,
         auto_merge_stop: None,
@@ -199,6 +202,258 @@ fn nothing_running_is_touched_by_a_limit() {
     // Far over the limit, and back-pressure reached: no change to any of them.
     let pass = plan(&tickets, &HashSet::new(), &on(1, 1, 9));
     assert!(pass.changes.is_empty() && pass.start.is_empty());
+}
+
+/// A queued ticket that came from one of your checks ([`WaitKind::AfterCheck`]).
+fn after_check(key: &str, queued_at: i64) -> Ticket {
+    Ticket {
+        wait_kind: WaitKind::AfterCheck,
+        ..t(key, Status::Queued, queued_at)
+    }
+}
+
+/// A pinned Urgent ticket waiting to begin.
+fn pinned_urgent(key: &str, queued_at: i64) -> Ticket {
+    let mut ticket = t(key, Status::Queued, queued_at);
+    ticket.priority = Priority::Urgent;
+    ticket.flags.pinned_at = Some(1);
+    ticket
+}
+
+/// Decision 120: after your check a ticket goes ahead of every ticket waiting to begin, a pinned Urgent one that
+/// waited longer too.
+#[test]
+fn after_your_check_a_ticket_goes_ahead_of_a_pinned_urgent_one_waiting_to_begin() {
+    let tickets = [
+        t("SHOP-1", Status::Working, 0),
+        pinned_urgent("SHOP-2", 1),
+        after_check("SHOP-3", 50),
+    ];
+    let pass = plan(&tickets, &HashSet::new(), &on(2, 3, 0));
+    let keys: Vec<String> = pass.start.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-3"]);
+    let waiting: Vec<(String, Status)> = pass
+        .changes
+        .iter()
+        .map(|c| (c.key.to_string(), c.to))
+        .collect();
+    assert_eq!(waiting, [("SHOP-2".into(), Status::WaitingForSlot)]);
+}
+
+/// Decision 120: it is still a start: with no free slot, or with back-pressure reached, it waits for a slot.
+#[test]
+fn after_your_check_a_ticket_still_waits_for_a_free_slot_and_for_back_pressure() {
+    let full = [t("SHOP-1", Status::Working, 0), after_check("SHOP-2", 5)];
+    let pass = plan(&full, &HashSet::new(), &on(1, 3, 0));
+    assert!(pass.start.is_empty());
+    assert_eq!(pass.changes.len(), 1);
+    assert_eq!(
+        (pass.changes[0].key.to_string(), pass.changes[0].to),
+        ("SHOP-2".into(), Status::WaitingForSlot)
+    );
+
+    let free = [after_check("SHOP-2", 5)];
+    let pass = plan(&free, &HashSet::new(), &on(5, 3, 3));
+    assert!(pass.start.is_empty(), "back-pressure reached");
+    assert_eq!(pass.changes[0].to, Status::WaitingForSlot);
+    assert_eq!(started(&free, &on(5, 3, 2)), ["SHOP-2"]);
+}
+
+/// Decision 120: among tickets from your checks the usual order holds: pinned → priority → ready the longest; the
+/// tickets waiting to begin follow, in their own usual order.
+#[test]
+fn tickets_after_your_check_keep_pin_then_priority_then_age_among_themselves() {
+    let mut urgent = after_check("SHOP-3", 40);
+    urgent.priority = Priority::Urgent;
+    let mut pinned = after_check("SHOP-4", 50);
+    pinned.flags.pinned_at = Some(1);
+    let tickets = [
+        after_check("SHOP-2", 10),
+        urgent,
+        pinned,
+        after_check("SHOP-5", 5),
+        pinned_urgent("SHOP-6", 0),
+        t("SHOP-7", Status::Queued, 0),
+    ];
+    assert_eq!(
+        started(&tickets, &Gate::default()),
+        ["SHOP-4", "SHOP-3", "SHOP-5", "SHOP-2", "SHOP-6", "SHOP-7"]
+    );
+}
+
+/// Decision 120: a Send back from Review while every slot is taken waits for a slot ("Waiting for a slot"), and is
+/// first in line, ahead of a pinned Urgent ticket that waited to begin before it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_back_from_review_while_full_waits_first_in_line() {
+    use otaq_core::service::testing::TestService;
+
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.board
+        .set_global_settings(&GlobalSettings {
+            agent_limits: AgentLimits {
+                enabled: true,
+                max_concurrency: 1,
+                back_pressure: 3,
+            },
+            ..GlobalSettings::default()
+        })
+        .await
+        .unwrap();
+    let busy = w.create("SHOP", "running").await; // SHOP-1
+    w.force_status(&busy, Status::Working).await;
+    let reviewed = w.create("SHOP", "Search results paging").await; // SHOP-2
+    w.start_worktree(&reviewed).await;
+    w.force_status(&reviewed, Status::WaitingForYou).await;
+    w.record_ended_agent(&reviewed, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+        .await;
+    for title in ["waits to begin", "pinned, urgent"] {
+        let t = w
+            .board
+            .create_ticket(
+                &NewTicketInput {
+                    project: "SHOP".into(),
+                    title: title.into(),
+                    priority: title.starts_with("pinned").then_some(Priority::Urgent),
+                    ..Default::default()
+                },
+                &me(),
+            )
+            .await
+            .unwrap();
+        if title.starts_with("pinned") {
+            w.board.pin(&t.key.to_string(), &me()).await.unwrap();
+        }
+        w.board
+            .move_ticket(&t.key.to_string(), DropTarget::ReadyForDev, false, &me())
+            .await
+            .unwrap();
+        w.scheduler.pass().await.unwrap();
+        assert_eq!(w.status(&t.key.to_string()).await, Status::WaitingForSlot);
+    } // SHOP-3, SHOP-4
+
+    w.review
+        .fail(
+            "SHOP-2",
+            "The pager skips page 2.",
+            Vec::new(),
+            false,
+            &me(),
+        )
+        .await
+        .unwrap();
+    w.scheduler.pass().await.unwrap();
+    assert_eq!(w.status("SHOP-2").await, Status::WaitingForSlot);
+    let sent_back = w.board.ticket("SHOP-2").await.unwrap();
+    assert_eq!(sent_back.wait_kind, WaitKind::AfterCheck);
+    for (key, place) in [
+        ("SHOP-2", Some(1)),
+        ("SHOP-4", Some(2)),
+        ("SHOP-3", Some(3)),
+    ] {
+        assert_eq!(
+            w.board.ticket(key).await.unwrap().flags.in_line,
+            place,
+            "{key}"
+        );
+    }
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    w.stop().await;
+}
+
+/// A ticket waiting between two Agent stages ([`WaitKind::Kept`]).
+fn kept(key: &str, status: Status, queued_at: i64) -> Ticket {
+    Ticket {
+        wait_kind: WaitKind::Kept,
+        ..t(key, status, queued_at)
+    }
+}
+
+/// Tuq decision 119: a kept ticket holds its slot while it waits, so with Max 1 it starts and an older ticket waiting
+/// to begin waits for a slot; it would have gone first by age alone.
+#[test]
+fn a_kept_ticket_holds_its_slot_and_starts_ahead_of_an_older_one() {
+    let tickets = [
+        t("SHOP-1", Status::WaitingForSlot, 0),
+        kept("SHOP-2", Status::Queued, 50),
+    ];
+    assert_eq!(running_count(&tickets, &HashSet::new()), 1);
+    let holders: Vec<String> = slot_holders(&tickets, &HashSet::new())
+        .map(|t| t.key.to_string())
+        .collect();
+    assert_eq!(holders, ["SHOP-2"]);
+    let pass = plan(&tickets, &HashSet::new(), &on(1, 3, 0));
+    let keys: Vec<String> = pass.start.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-2"]);
+    assert!(pass.changes.is_empty(), "SHOP-1 stays waiting for a slot");
+    // A kept ticket marked Waiting for a slot (before 119) holds and starts the same.
+    let tickets = [
+        t("SHOP-1", Status::Queued, 0),
+        kept("SHOP-2", Status::WaitingForSlot, 50),
+    ];
+    assert_eq!(started(&tickets, &on(1, 3, 0)), ["SHOP-2"]);
+    // A kept ticket's slot is the only one it takes: with Max 2 the older ticket starts beside it.
+    assert_eq!(started(&tickets, &on(2, 3, 0)), ["SHOP-2", "SHOP-1"]);
+}
+
+/// Tuq decision 119: a hand-over is not a start, so neither back-pressure nor a Max lowered below the count holds a
+/// kept ticket back; the tickets waiting to begin still wait.
+#[test]
+fn a_kept_ticket_starts_with_back_pressure_reached_or_max_lowered() {
+    let tickets = [
+        t("SHOP-1", Status::Working, 0),
+        t("SHOP-2", Status::Working, 0),
+        kept("SHOP-3", Status::Queued, 30),
+        t("SHOP-4", Status::Queued, 10),
+    ];
+    // Back-pressure reached (5 needs-you items, 3 allowed), with slots to spare.
+    let pass = plan(&tickets, &HashSet::new(), &on(5, 3, 5));
+    let keys: Vec<String> = pass.start.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-3"]);
+    let waiting: Vec<(String, Status)> = pass
+        .changes
+        .iter()
+        .map(|c| (c.key.to_string(), c.to))
+        .collect();
+    assert_eq!(waiting, [("SHOP-4".into(), Status::WaitingForSlot)]);
+    // Max lowered to 1 with 3 holding a slot: the count goes over Max by the kept ticket only.
+    assert_eq!(running_count(&tickets, &HashSet::new()), 3);
+    assert_eq!(started(&tickets, &on(1, 3, 0)), ["SHOP-3"]);
+}
+
+/// Architecture decision 3: a paused project's kept ticket doesn't start, yet keeps holding its slot, so another
+/// project's ticket waits for a slot.
+#[test]
+fn a_kept_ticket_in_a_paused_project_is_held_and_counted() {
+    let tickets = [
+        kept("SHOP-1", Status::Queued, 10),
+        t("BILL-1", Status::Queued, 0),
+    ];
+    let paused = HashSet::from(["SHOP".to_owned()]);
+    let pass = plan_holding(
+        &tickets,
+        &HashSet::new(),
+        &on(1, 3, 0),
+        &HashMap::new(),
+        &paused,
+    );
+    assert!(pass.start.is_empty());
+    let waiting: Vec<(String, Status)> = pass
+        .changes
+        .iter()
+        .map(|c| (c.key.to_string(), c.to))
+        .collect();
+    assert_eq!(waiting, [("BILL-1".into(), Status::WaitingForSlot)]);
+    // With a second slot, BILL-1 starts: SHOP-1 holds only its own.
+    let pass = plan_holding(
+        &tickets,
+        &HashSet::new(),
+        &on(2, 3, 0),
+        &HashMap::new(),
+        &paused,
+    );
+    let keys: Vec<String> = pass.start.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(keys, ["BILL-1"]);
 }
 
 #[test]
@@ -442,6 +697,64 @@ async fn the_status_names_every_slot_holder() {
     });
     let read: otaq_core::scheduler::SchedulerStatus = serde_json::from_value(old).unwrap();
     assert!(read.holders.is_empty());
+}
+
+/// Tuq decision 119: a ticket waiting between two Agent stages keeps its slot, and the status lists it as handing
+/// over to the stage it waits before; once its start runs it is starting, as any start.
+#[tokio::test]
+async fn a_kept_ticket_is_listed_as_handing_over_to_its_next_stage() {
+    let f = Fixture::shop().await;
+    let kept = queued(&f, "kept").await;
+    let kept_starting = queued(&f, "kept starting").await;
+    let _begin = queued(&f, "begin").await;
+    for t in [&kept, &kept_starting] {
+        sqlx::query("UPDATE tickets SET stage_id = ?, wait_kind = 'kept' WHERE id = ?")
+            .bind(otaq_core::flow::default::DEV)
+            .bind(&t.id)
+            .execute(f.board.store().pool())
+            .await
+            .unwrap();
+    }
+    limits(
+        &f,
+        AgentLimits {
+            enabled: true,
+            max_concurrency: 1,
+            back_pressure: 50,
+        },
+    )
+    .await;
+    let scheduler = Scheduler::new(
+        f.board.clone(),
+        Arc::new(Starting(HashSet::from([kept_starting.id.clone()]))),
+        EventBus::new(16),
+        Duration::from_secs(3600),
+    );
+    let status = scheduler.status().await.unwrap();
+    let holders: Vec<(String, Status, Option<Busy>, Option<String>)> = status
+        .holders
+        .iter()
+        .map(|h| (h.key.to_string(), h.status, h.busy, h.next_stage.clone()))
+        .collect();
+    assert_eq!(
+        holders,
+        [
+            (
+                "SHOP-1".to_owned(),
+                Status::Queued,
+                Some(Busy::HandingOver),
+                Some("Dev".to_owned())
+            ),
+            (
+                "SHOP-2".to_owned(),
+                Status::Queued,
+                Some(Busy::Starting),
+                None
+            ),
+        ],
+        "the ticket waiting to begin holds no slot"
+    );
+    assert_eq!(status.holding, 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]

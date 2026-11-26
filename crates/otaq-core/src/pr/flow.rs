@@ -640,6 +640,7 @@ impl Board {
             to,
             stage.as_deref(),
             resume_skill,
+            crate::board::wait::Cause::Flow,
             actor,
         )
         .await?;

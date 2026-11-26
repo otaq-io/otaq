@@ -683,8 +683,16 @@ impl Board {
         if let Some(hand_over) = hand_over {
             hand_over.post(&mut tx, &ticket.id, actor).await?;
         }
-        super::send_back::return_to_dev(&mut tx, ticket, to, stage.as_deref(), resume_skill, actor)
-            .await?;
+        super::send_back::return_to_dev(
+            &mut tx,
+            ticket,
+            to,
+            stage.as_deref(),
+            resume_skill,
+            super::wait::Cause::Flow,
+            actor,
+        )
+        .await?;
         record_event(
             &mut tx,
             &ticket.id,

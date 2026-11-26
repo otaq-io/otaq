@@ -928,6 +928,7 @@ async fn write_move(
                     tell: None,
                     // It never ran that stage (it skips it): a new conversation there (FLW-18's "run by you").
                     fresh: *fresh,
+                    cause: crate::board::wait::Cause::Flow,
                 },
                 *round,
                 actor,

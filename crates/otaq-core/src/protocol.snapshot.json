@@ -1067,6 +1067,7 @@
       "kind": "enum",
       "variants": {
         "delivering": {},
+        "handing_over": {},
         "starting": {}
       }
     },
@@ -9991,6 +9992,10 @@
           "ty": "TicketKey",
           "required": true
         },
+        "next_stage": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "status": {
           "ty": "Status",
           "required": true
@@ -10828,6 +10833,10 @@
         },
         "validation_round": {
           "ty": "u32"
+        },
+        "wait_kind": {
+          "ty": "WaitKind",
+          "omittable": true
         },
         "work": {
           "ty": "Option<Work>",
@@ -11966,6 +11975,14 @@
         },
         "whole_board": {}
       }
+    },
+    "WaitKind": {
+      "kind": "strings",
+      "values": [
+        "after_check",
+        "begin",
+        "kept"
+      ]
     },
     "WaitingChange": {
       "kind": "struct",
