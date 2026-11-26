@@ -3,6 +3,23 @@
 What changed for you in each release. The maintainer copies a version's section into its GitHub release notes
 before Publish (`scripts/README.md`, "Making a release").
 
+## 0.3.1
+
+- **With the agent limit on, a ticket keeps its slot between two agent stages.** A ticket that finished one agent
+  stage (Tech spec, Dev, or a check such as Validate sending it back) used to go to the back of the start queue, so an
+  older ticket waiting to begin took the slot it had just freed and the ticket sat mid-flow as "Waits for a free
+  agent". Now it goes straight on to its next agent stage, and neither "Max agents at once" nor "Hold new starts when
+  Needs you reaches" holds it back there: both hold back only starts. While it hands over, Running lists it as
+  "starting <stage>". A Validate fail whose Dev session is gone resumes Dev at once instead of waiting behind its own
+  slot.
+- **After your check, a ticket goes ahead of the queue.** Once you pass a ticket on from a review step, send it back
+  from Review, or answer an agent's ask with Send back, its next agent stage starts before every ticket waiting to
+  begin, pinned and higher-priority ones too. It is still a start: it waits for a free slot and for "Hold new starts".
+- **Settings → Limits says why you'd set each number.** "Run at most" is now **Max agents at once** ("Each agent
+  session uses memory on your computer…"), and "Don't start new tickets while Needs you has" is **Hold new starts
+  when Needs you reaches** ("So you don't come back to a crowd of agents waiting for you…"). Neither shows
+  "Suggested N" any more.
+
 ## 0.3.0
 
 - **Each stage says who does it; named agents are gone.** A stage an agent works or checks now has its own **Model**
